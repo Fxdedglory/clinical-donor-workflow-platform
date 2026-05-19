@@ -8,6 +8,7 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AIDecision,
     AuditLog,
     ChangeControl,
     DonorReview,
@@ -23,6 +24,7 @@ from app.models import (
     WorkflowTask,
     WorkflowTransitionRule,
 )
+from app.services.ai_governance import governance_analytics, governance_kpis
 from app.services.audit import log_audit, serialize_model
 from app.services.notifications import notify_role
 
@@ -335,6 +337,9 @@ def _workspace_kpis(db: Session, role: Role, user: User) -> dict[str, Any]:
             "Workflow Throughput": int(completed_today),
         }
 
+    if role.role_name == "Business Technology Analyst":
+        return governance_kpis(db)
+
     active_users = db.execute(select(func.count(User.user_id)).where(User.is_active.is_(True))).scalar() or 0
     role_count = db.execute(select(func.count(Role.role_id))).scalar() or 0
     workspace_configs = db.execute(select(func.count(RoleWorkspaceConfig.config_id))).scalar() or 0
@@ -417,6 +422,40 @@ def _widget_data(db: Session, role: Role, user: User) -> dict[str, Any]:
             "enterprise_sla": _vendor_rows(db, limit=60),
             "role_escalations": [row for row in task_rows if row["escalation_status"] == "Escalated"],
         }
+    if role.role_name == "Business Technology Analyst":
+        analytics = governance_analytics(db)
+        decisions = db.execute(
+            select(AIDecision).order_by(desc(AIDecision.created_at)).limit(120)
+        ).scalars().all()
+        analytics.update(
+            {
+                "ai_risk_dashboard": [
+                    {
+                        "decision_id": item.decision_id,
+                        "donor_id": item.donor_id,
+                        "risk_score": item.risk_score,
+                        "recommendation": item.recommendation,
+                        "workflow_stage": item.workflow_stage,
+                        "human_override": item.human_override,
+                        "final_decision": item.final_decision,
+                        "created_at": item.created_at,
+                    }
+                    for item in decisions
+                ],
+                "ai_audit_review": [
+                    {
+                        "decision_id": item.decision_id,
+                        "donor_id": item.donor_id,
+                        "triggered_rules": len(item.triggered_rules),
+                        "confidence_level": item.confidence_level,
+                        "human_override": item.human_override,
+                        "override_reason": item.override_reason,
+                    }
+                    for item in decisions
+                ],
+            }
+        )
+        return analytics
     return {
         "workspace_matrix": _workspace_matrix(db),
         "role_governance": _workspace_matrix(db),

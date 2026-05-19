@@ -2,6 +2,12 @@ from app.schemas.audit import AuditLogRead
 from app.schemas.change_control import ChangeControlCreate, ChangeControlRead, ChangeControlUpdate
 from app.schemas.donors import DonorDecision, DonorReviewCreate, DonorReviewRead, DonorReviewUpdate
 from app.schemas.enterprise import (
+    AIDecisionRead,
+    AIModelVersionRead,
+    AIOverrideEventRead,
+    AIRiskRuleCreate,
+    AIRiskRuleRead,
+    AIRiskRuleUpdate,
     EscalationEventRead,
     NotificationCreate,
     NotificationRead,
@@ -11,6 +17,7 @@ from app.schemas.enterprise import (
     RoleResponsibilityRead,
     RoleWorkspaceConfigRead,
     RoleWorkspaceConfigUpdate,
+    RuleSimulationRequest,
     TrainingAssignmentCreate,
     TrainingAssignmentRead,
     TrainingCompletionCreate,
@@ -20,6 +27,7 @@ from app.schemas.enterprise import (
     WorkflowTaskCreate,
     WorkflowTaskRead,
     WorkflowTaskUpdate,
+    WorkflowTimelineEventRead,
     WorkflowTransitionRead,
     WorkflowTransitionRequest,
     WorkspaceResponse,
@@ -34,6 +42,12 @@ from app.schemas.vendors import (
 
 __all__ = [
     "AuditLogRead",
+    "AIDecisionRead",
+    "AIModelVersionRead",
+    "AIOverrideEventRead",
+    "AIRiskRuleCreate",
+    "AIRiskRuleRead",
+    "AIRiskRuleUpdate",
     "ChangeControlCreate",
     "ChangeControlRead",
     "ChangeControlUpdate",
@@ -50,6 +64,7 @@ __all__ = [
     "RoleResponsibilityRead",
     "RoleWorkspaceConfigRead",
     "RoleWorkspaceConfigUpdate",
+    "RuleSimulationRequest",
     "RiskAnalysisRequest",
     "RiskAnalysisResponse",
     "TrainingAssignmentCreate",
@@ -67,6 +82,7 @@ __all__ = [
     "WorkflowTaskUpdate",
     "WorkflowTransitionRead",
     "WorkflowTransitionRequest",
+    "WorkflowTimelineEventRead",
     "WorkspaceResponse",
 ]
 

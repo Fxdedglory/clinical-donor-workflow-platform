@@ -54,6 +54,13 @@ def render() -> None:
             decision = st.selectbox("Decision", ["Approved", "Rejected", "Deferred", "Under Review"])
             reviewer_id = st.number_input("Reviewer user ID", min_value=1, value=donor.get("reviewer_id") or 1)
             rejection_reason = st.text_area("Decision rationale", value=donor.get("rejection_reason") or "")
+            ai_override = st.checkbox("Human override of AI recommendation")
+            ai_override_reason = st.text_area(
+                "Override reason",
+                value="Clinical reviewer documented context not represented in the AI rule evaluation."
+                if ai_override
+                else "",
+            )
             submitted = st.form_submit_button("Record Decision")
         if submitted:
             result = post_json(
@@ -62,6 +69,8 @@ def render() -> None:
                     "intake_status": decision,
                     "reviewer_id": int(reviewer_id),
                     "rejection_reason": rejection_reason or None,
+                    "ai_override": ai_override,
+                    "ai_override_reason": ai_override_reason or None,
                 },
             )
             if result:

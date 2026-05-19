@@ -1,5 +1,9 @@
 from app.models.entities import (
     SOP,
+    AIDecision,
+    AIModelVersion,
+    AIOverrideEvent,
+    AIRiskRule,
     AuditLog,
     ChangeControl,
     DonorReview,
@@ -20,10 +24,15 @@ from app.models.entities import (
     WorkflowAssignmentRule,
     WorkflowStateMachine,
     WorkflowTask,
+    WorkflowTimelineEvent,
     WorkflowTransitionRule,
 )
 
 __all__ = [
+    "AIDecision",
+    "AIModelVersion",
+    "AIOverrideEvent",
+    "AIRiskRule",
     "AuditLog",
     "ChangeControl",
     "DonorReview",
@@ -46,5 +55,6 @@ __all__ = [
     "WorkflowStateMachine",
     "WorkflowTask",
     "WorkflowTransitionRule",
+    "WorkflowTimelineEvent",
 ]
 

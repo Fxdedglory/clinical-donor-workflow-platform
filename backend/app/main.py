@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routes import (
     admin,
+    ai_governance,
     audit_logs,
     auth,
     change_control,
@@ -45,6 +46,7 @@ app.include_router(change_control.router)
 app.include_router(vendors.router)
 app.include_router(dashboard.router)
 app.include_router(auth.router)
+app.include_router(ai_governance.router)
 app.include_router(admin.router)
 app.include_router(workflow_tasks.router)
 app.include_router(notifications.router)

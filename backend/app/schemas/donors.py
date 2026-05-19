@@ -37,6 +37,8 @@ class DonorDecision(BaseModel):
     intake_status: str = Field(..., examples=["Approved", "Rejected", "Deferred"])
     reviewer_id: int | None = None
     rejection_reason: str | None = None
+    ai_override: bool = False
+    ai_override_reason: str | None = None
 
 
 class DonorReviewRead(DonorReviewBase):

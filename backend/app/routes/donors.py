@@ -7,8 +7,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import DonorReview, WorkflowTask
 from app.schemas import DonorDecision, DonorReviewCreate, DonorReviewRead, DonorReviewUpdate
+from app.services.ai_governance import (
+    governed_analysis,
+    record_ai_decision,
+    record_override_if_needed,
+)
 from app.services.audit import log_audit, serialize_model
-from app.services.risk_engine import analyze_donor_risk
 from app.services.workflows import create_task
 
 router = APIRouter(prefix="/api/donors", tags=["Donors"])
@@ -43,8 +47,9 @@ RISK_FIELDS = {
 }
 
 
-def apply_risk_analysis(donor: DonorReview) -> None:
-    analysis = analyze_donor_risk(
+def apply_risk_analysis(db: Session, donor: DonorReview) -> None:
+    analysis = governed_analysis(
+        db,
         donor_name=donor.donor_name,
         age=donor.age,
         blood_type=donor.blood_type,
@@ -88,9 +93,10 @@ def get_donor(review_id: int, db: Session = Depends(get_db)) -> DonorReview:
 @router.post("", response_model=DonorReviewRead, status_code=status.HTTP_201_CREATED)
 def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> DonorReview:
     donor = DonorReview(**payload.model_dump())
-    apply_risk_analysis(donor)
+    apply_risk_analysis(db, donor)
     db.add(donor)
     db.flush()
+    record_ai_decision(db, donor, workflow_stage="Draft Intake", reviewed_by=payload.reviewer_id)
     create_task(
         db,
         task_type="Intake Packet Validation",
@@ -133,7 +139,9 @@ def update_donor(
         setattr(donor, field, value)
 
     if RISK_FIELDS.intersection(updates):
-        apply_risk_analysis(donor)
+        apply_risk_analysis(db, donor)
+        db.flush()
+        record_ai_decision(db, donor, workflow_stage=donor.intake_status, reviewed_by=donor.reviewer_id)
 
     if updates.get("intake_status") in {"Approved", "Rejected", "Deferred"}:
         donor.reviewed_at = datetime.now(UTC)
@@ -166,6 +174,14 @@ def record_decision(
     donor.reviewer_id = payload.reviewer_id or donor.reviewer_id
     donor.rejection_reason = payload.rejection_reason
     donor.reviewed_at = datetime.now(UTC)
+    record_override_if_needed(
+        db,
+        donor,
+        final_decision=payload.intake_status,
+        reviewer_id=donor.reviewer_id,
+        override_reason=payload.ai_override_reason or payload.rejection_reason,
+        explicit_override=payload.ai_override,
+    )
     db.flush()
     tasks = db.execute(
         select(WorkflowTask).where(

@@ -246,3 +246,100 @@ class WorkspaceResponse(BaseModel):
     allowed_actions: list[WorkflowTransitionRead]
     queue: list[WorkflowTaskRead]
     notifications: list[NotificationRead]
+
+
+class AIRiskRuleCreate(BaseModel):
+    rule_name: str
+    risk_category: str
+    condition_type: str
+    condition_operator: str
+    condition_value: str
+    risk_score_delta: int
+    severity: str
+    auto_escalate: bool = False
+    is_active: bool = True
+
+
+class AIRiskRuleUpdate(BaseModel):
+    risk_category: str | None = None
+    condition_type: str | None = None
+    condition_operator: str | None = None
+    condition_value: str | None = None
+    risk_score_delta: int | None = None
+    severity: str | None = None
+    auto_escalate: bool | None = None
+    is_active: bool | None = None
+
+
+class AIRiskRuleRead(AIRiskRuleCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    rule_id: int
+    created_by: int | None
+    approved_by: int | None
+    created_at: datetime
+
+
+class AIModelVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    model_version_id: int
+    version_name: str
+    deployment_date: datetime
+    status: str
+    change_summary: str
+    created_by: int | None
+    approved_by: int | None
+
+
+class AIDecisionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    decision_id: int
+    donor_id: str
+    model_version_id: int | None
+    risk_score: int
+    recommendation: str
+    triggered_rules: list[dict]
+    workflow_stage: str
+    confidence_level: float
+    escalation_reasons: list[str]
+    workflow_impact: str
+    created_at: datetime
+    reviewed_by: int | None
+    human_override: bool
+    override_reason: str | None
+    final_decision: str | None
+
+
+class AIOverrideEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    override_id: int
+    decision_id: int
+    reviewer_id: int | None
+    override_reason: str
+    previous_decision: str
+    new_decision: str
+    timestamp: datetime
+
+
+class WorkflowTimelineEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    timeline_event_id: int
+    related_record_type: str
+    related_record_id: str
+    event_type: str
+    event_summary: str
+    event_detail: dict
+    created_by: int | None
+    created_at: datetime
+
+
+class RuleSimulationRequest(BaseModel):
+    condition_type: str = "age"
+    condition_operator: str = "gt"
+    condition_value: str = "70"
+    risk_score_delta: int = 20
+    sample_size: int = 120

@@ -11,6 +11,7 @@ frontend/app.py
 frontend/views/role_workspace.py
   Dynamic workspace renderer for role dashboards, queues, workbenches,
   donor intake form, workspace configuration, workflow configuration,
+  AI governance visualizations, rule configuration, AI audit review,
   system health, and integration management
 
 backend/app/routes/workspaces.py
@@ -24,13 +25,22 @@ backend/app/services/workspace_engine.py
   Runtime workspace payload generation, role-specific KPIs,
   widget data, queue scoping, and workflow transition execution
 
+backend/app/routes/ai_governance.py
+  Analyst-owned AI governance API for dashboards, governed rules,
+  AI decisions, override events, explainability traces, and simulations
+
+backend/app/services/ai_governance.py
+  Database-governed rule orchestration, decision recording, override
+  tracking, timeline events, workflow intelligence, and sandbox analysis
+
 backend/app/auth
   Password hashing, JWT creation/validation, current user lookup,
   permission dependencies
 
 backend/app/models
   SQLAlchemy operational tables for donors, QMS, vendors, users,
-  tasks, notifications, escalations, workspaces, and workflow rules
+  tasks, notifications, escalations, workspaces, workflow rules,
+  AI governance rules, AI decisions, overrides, and timeline events
 
 database/migrations
   Alembic-managed schemas, tables, indexes, and mart views
@@ -74,6 +84,23 @@ Donor Intake Coordinator
   -> writes audit event
 ```
 
+## AI Governance Flow
+
+```text
+Business Technology Analyst configures active AI risk rules
+  -> rules persist in operational.dim_ai_risk_rule
+  -> donor intake/review calls governed risk engine
+  -> fact_ai_decision stores score, recommendation, triggered rules,
+     confidence, escalation reasons, workflow stage, and model version
+  -> workflow timeline records AI score and escalation events
+  -> clinical reviewer may accept or override recommendation
+  -> fact_ai_override_event captures reviewer, reason, prior decision,
+     new decision, and timestamp
+  -> analyst workspace visualizes override trends, rule frequency,
+     risk heatmaps, SLA prediction accuracy, escalation roots,
+     and bottleneck flow patterns
+```
+
 ## Data Layers
 
 - `staging`: reserved for future raw imports
@@ -93,4 +120,8 @@ Donor Intake Coordinator
 - Responsibility center
 - System administrator governance workspace
 - Role-specific dashboards and workbenches
+- Business Technology Analyst AI governance workspace
+- Database-governed AI rule engine
+- AI explainability and human override tracking
+- Workflow intelligence analytics and rule simulation sandbox
 - Expanded audit trail

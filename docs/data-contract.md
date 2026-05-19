@@ -161,6 +161,62 @@ Notifications are rendered through the top-right workspace bell rather than a de
 
 `operational.workflow_assignment_rule` stores assignment routing metadata for workflow orchestration.
 
+## AI Governance
+
+`operational.dim_ai_risk_rule` stores governed risk-scoring rules:
+
+- rule name
+- risk category
+- condition type
+- condition operator
+- condition value
+- risk score delta
+- severity
+- auto-escalation flag
+- active flag
+- created / approved user references
+- creation timestamp
+
+`operational.dim_ai_model_version` stores governed engine lifecycle metadata:
+
+- version name
+- deployment date
+- status
+- change summary
+- created / approved user references
+
+`operational.fact_ai_decision` stores every AI-assisted recommendation:
+
+- donor id
+- model version
+- risk score
+- recommendation
+- triggered rules
+- workflow stage
+- confidence level
+- escalation reasons
+- workflow impact
+- review / override fields
+- creation timestamp
+
+`operational.fact_ai_override_event` stores human-in-the-loop governance events:
+
+- AI decision reference
+- reviewer
+- override reason
+- previous decision
+- new decision
+- timestamp
+
+`operational.fact_workflow_timeline_event` records AI and workflow trace events:
+
+- related record type / id
+- event type
+- summary
+- structured detail
+- actor
+- timestamp
+
 ## Escalation Event
 
 Escalations capture:

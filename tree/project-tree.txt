@@ -5,12 +5,14 @@ clinical-donor-workflow-platform/
 |   |   |-- core/
 |   |   |-- models/
 |   |   |-- routes/
+|   |   |   |-- ai_governance.py
 |   |   |   |-- workspaces.py
 |   |   |   |-- workflow_tasks.py
 |   |   |   |-- auth.py
 |   |   |   `-- ...
 |   |   |-- schemas/
 |   |   |-- services/
+|   |   |   |-- ai_governance.py
 |   |   |   |-- workspace_config.py
 |   |   |   |-- workspace_engine.py
 |   |   |   |-- workflows.py
@@ -28,14 +30,19 @@ clinical-donor-workflow-platform/
 |-- database/
 |   |-- ddl/
 |   |-- migrations/
-|   |   `-- versions/
+|   |   |-- versions/
+|   |   |   |-- 202605190004_ai_governance.py
+|   |   |   `-- ...
 |   `-- seeds/
 |-- docker/
 |-- docs/
 |   |-- architecture.md
 |   |-- data-contract.md
 |   |-- resume-positioning.md
-|   `-- screenshots/
+|   |-- screenshots/
+|   |   |-- workspace-ai-governance.png
+|   |   |-- workspace-ai-governance-mobile.png
+|   |   `-- ...
 |-- tree/
 |-- .env
 |-- .env.example

@@ -1,6 +1,6 @@
 import streamlit as st
 from components.api import post_json
-from components.ui import RISK_COLORS, page_header, status_chip
+from components.ui import RISK_COLORS, dataframe, page_header, status_chip
 
 
 def render() -> None:
@@ -46,4 +46,25 @@ def render() -> None:
             st.subheader("Flagged Conditions")
             for condition in result["flagged_conditions"]:
                 st.write(f"- {condition}")
+
+            st.subheader("Explainability Panel")
+            left, right = st.columns([1.1, 0.9])
+            with left:
+                dataframe(
+                    result.get("score_contributions", []),
+                    columns=["rule_name", "score_delta", "severity"],
+                    height=220,
+                )
+            with right:
+                st.metric("Confidence Level", result.get("confidence_level", 0))
+                historical = result.get("historical_comparison", {})
+                st.write(f"Similar decisions: **{historical.get('similar_decisions', 0)}**")
+                st.write(f"Override rate: **{historical.get('override_rate', '0%')}**")
+                st.write(f"Score percentile: **{historical.get('score_percentile', 'No baseline')}**")
+                st.write(result.get("workflow_impact", ""))
+            escalation_reasons = result.get("escalation_reasons", [])
+            if escalation_reasons:
+                st.write("Escalation reasons")
+                for reason in escalation_reasons:
+                    st.write(f"- {reason}")
 

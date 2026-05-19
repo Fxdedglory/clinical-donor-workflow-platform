@@ -112,6 +112,38 @@ ROLE_DEFINITIONS = {
         "workflows": ["Operational Oversight", "Queue Management", "Escalation Monitoring"],
         "kpis": ["Escalated tasks", "Queue aging", "Completion rate", "Workload distribution"],
     },
+    "Business Technology Analyst": {
+        "description": "Owns AI governance, workflow intelligence, explainability review, and operational optimization analytics.",
+        "permissions": [
+            "dashboard.view",
+            "ai_governance.review",
+            "risk_rules.manage",
+            "workflow.analytics",
+            "audit.review",
+            "notifications.read",
+        ],
+        "job_description": "Enterprise workflow intelligence owner for governed AI-assisted clinical operations.",
+        "responsibilities": [
+            "Monitor AI recommendation quality and override trends",
+            "Govern risk scoring rules and explainability review",
+            "Analyze workflow bottlenecks, SLA trends, and escalation patterns",
+            "Recommend operational optimization based on workflow intelligence",
+        ],
+        "workflows": [
+            "AI Governance",
+            "Explainability Review",
+            "Workflow Intelligence",
+            "Rule Simulation",
+            "Drift Monitoring",
+        ],
+        "kpis": [
+            "False positive rate",
+            "Human override frequency",
+            "Rule trigger frequency",
+            "Queue bottlenecks",
+            "SLA prediction accuracy",
+        ],
+    },
 }
 
 

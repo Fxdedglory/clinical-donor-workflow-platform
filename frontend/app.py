@@ -33,7 +33,7 @@ def render_login() -> None:
     with right:
         st.subheader("Department Workspaces")
         st.write("Default password: `ClinicalDemo!2026`")
-        st.write("Try `intake`, `clinical`, `qa`, `vendorops`, `opsmanager`, or `sysadmin`.")
+        st.write("Try `intake`, `clinical`, `qa`, `vendorops`, `opsmanager`, `analyst`, or `sysadmin`.")
         st.info("Each role now receives a different workspace, queue, navigation model, KPI set, and workflow action surface.")
 
 

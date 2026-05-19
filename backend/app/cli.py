@@ -9,6 +9,10 @@ from app.auth.security import get_password_hash
 from app.database import SessionLocal
 from app.models import (
     SOP,
+    AIDecision,
+    AIModelVersion,
+    AIOverrideEvent,
+    AIRiskRule,
     AuditLog,
     ChangeControl,
     DonorReview,
@@ -29,9 +33,15 @@ from app.models import (
     WorkflowAssignmentRule,
     WorkflowStateMachine,
     WorkflowTask,
+    WorkflowTimelineEvent,
     WorkflowTransitionRule,
 )
 from app.services.access_control import DEFAULT_PASSWORD, ROLE_DEFINITIONS
+from app.services.ai_governance import (
+    active_rules,
+    ensure_ai_decisions_for_existing_donors,
+    ensure_ai_governance_data,
+)
 from app.services.audit import log_audit, serialize_model
 from app.services.escalations import evaluate_overdue_tasks
 from app.services.notifications import create_notification
@@ -73,6 +83,7 @@ DEMO_USERS = [
     ("qa", "Morgan Shah", "morgan.shah@example.org", "Quality Assurance Specialist", "Quality Systems"),
     ("vendorops", "Riley Patel", "riley.patel@example.org", "Vendor Operations Analyst", "Healthcare Technology"),
     ("opsmanager", "Casey Morgan", "casey.morgan@example.org", "Operations Manager", "Enterprise Operations"),
+    ("analyst", "Taylor Brooks", "taylor.brooks@example.org", "Business Technology Analyst", "Workflow Intelligence"),
 ]
 
 
@@ -84,7 +95,7 @@ def _random_datetime(days_back: int = 30) -> datetime:
     )
 
 
-def _apply_analysis(donor: DonorReview) -> None:
+def _apply_analysis(db, donor: DonorReview) -> None:
     analysis = analyze_donor_risk(
         donor_name=donor.donor_name,
         age=donor.age,
@@ -93,6 +104,7 @@ def _apply_analysis(donor: DonorReview) -> None:
         travel_risk=donor.travel_risk,
         missing_required_fields=donor.missing_required_fields,
         clinical_notes=donor.clinical_notes,
+        rules=active_rules(db),
     )
     donor.risk_score = analysis.risk_score
     donor.risk_level = analysis.risk_level
@@ -190,7 +202,9 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
 def ensure_enterprise_data(db) -> None:
     roles = _ensure_roles(db)
     users_by_role = _ensure_users(db, roles)
+    ensure_ai_governance_data(db, users_by_role)
     ensure_workspace_definitions(db, roles)
+    ensure_ai_decisions_for_existing_donors(db)
 
     existing_task = db.execute(select(WorkflowTask.task_id).limit(1)).first()
     if not existing_task:
@@ -373,9 +387,13 @@ def ensure_enterprise_data(db) -> None:
                         )
                     )
 
-    existing_notifications = db.execute(select(Notification.notification_id).limit(1)).first()
-    if not existing_notifications:
-        for role_name, user in users_by_role.items():
+    for role_name, user in users_by_role.items():
+        notice_exists = db.execute(
+            select(Notification.notification_id)
+            .where(Notification.user_id == user.user_id, Notification.notification_type == "System")
+            .limit(1)
+        ).first()
+        if not notice_exists:
             create_notification(
                 db,
                 user_id=user.user_id,
@@ -385,6 +403,16 @@ def ensure_enterprise_data(db) -> None:
                 priority="Normal",
                 action_route="role_dashboard",
             )
+
+    existing_escalation_notice = db.execute(
+        select(Notification.notification_id)
+        .where(
+            Notification.user_id == users_by_role["Operations Manager"].user_id,
+            Notification.title == "Escalation review required",
+        )
+        .limit(1)
+    ).first()
+    if not existing_escalation_notice:
         create_notification(
             db,
             user_id=users_by_role["Operations Manager"].user_id,
@@ -412,6 +440,9 @@ def seed_database(records: int, force: bool = False) -> None:
         if force:
             for model in [
                 AuditLog,
+                WorkflowTimelineEvent,
+                AIOverrideEvent,
+                AIDecision,
                 TrainingCompletion,
                 SOPTrainingAssignment,
                 EscalationEvent,
@@ -426,6 +457,8 @@ def seed_database(records: int, force: bool = False) -> None:
                 VendorIncident,
                 ChangeControl,
                 DonorReview,
+                AIRiskRule,
+                AIModelVersion,
                 RiskCategory,
                 RoleResponsibility,
                 RolePermission,
@@ -439,6 +472,7 @@ def seed_database(records: int, force: bool = False) -> None:
 
         roles = _ensure_roles(db)
         users_by_role = _ensure_users(db, roles)
+        ensure_ai_governance_data(db, users_by_role)
         users = list(users_by_role.values())
 
         vendors = [
@@ -521,7 +555,7 @@ def seed_database(records: int, force: bool = False) -> None:
                 updated_at=reviewed_at or created_at,
                 reviewed_at=reviewed_at,
             )
-            _apply_analysis(donor)
+            _apply_analysis(db, donor)
             donors.append(donor)
         db.add_all(donors)
         db.flush()

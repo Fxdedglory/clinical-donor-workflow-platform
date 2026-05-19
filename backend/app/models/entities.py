@@ -251,6 +251,48 @@ class RiskCategory(Base):
     default_action: Mapped[str] = mapped_column(String(80), nullable=False)
 
 
+class AIRiskRule(Base):
+    __tablename__ = "dim_ai_risk_rule"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    rule_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_name: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
+    risk_category: Mapped[str] = mapped_column(String(60), nullable=False)
+    condition_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    condition_operator: Mapped[str] = mapped_column(String(40), nullable=False)
+    condition_value: Mapped[str] = mapped_column(String(240), nullable=False)
+    risk_score_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False)
+    auto_escalate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AIModelVersion(Base):
+    __tablename__ = "dim_ai_model_version"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    model_version_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    version_name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    deployment_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="Active")
+    change_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+
 class DonorReview(Base):
     __tablename__ = "fact_donor_review"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}
@@ -284,6 +326,70 @@ class DonorReview(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     reviewer: Mapped[User | None] = relationship(back_populates="donor_reviews")
+
+
+class AIDecision(Base):
+    __tablename__ = "fact_ai_decision"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    decision_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_id: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    model_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_ai_model_version.model_version_id"), nullable=True
+    )
+    risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(120), nullable=False)
+    triggered_rules: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    workflow_stage: Mapped[str] = mapped_column(String(100), nullable=False)
+    confidence_level: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    escalation_reasons: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    workflow_impact: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    reviewed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    human_override: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_decision: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+
+class AIOverrideEvent(Base):
+    __tablename__ = "fact_ai_override_event"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    override_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    decision_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_ai_decision.decision_id"), nullable=False
+    )
+    reviewer_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    override_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    previous_decision: Mapped[str] = mapped_column(String(120), nullable=False)
+    new_decision: Mapped[str] = mapped_column(String(80), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
+class WorkflowTimelineEvent(Base):
+    __tablename__ = "fact_workflow_timeline_event"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    timeline_event_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    related_record_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    related_record_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_summary: Mapped[str] = mapped_column(String(240), nullable=False)
+    event_detail: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
 
 
 class AuditLog(Base):

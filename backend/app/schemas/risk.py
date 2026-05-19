@@ -17,4 +17,10 @@ class RiskAnalysisResponse(BaseModel):
     recommended_action: str
     flagged_conditions: list[str]
     review_priority: str
+    triggered_rules: list[dict] = Field(default_factory=list)
+    score_contributions: list[dict] = Field(default_factory=list)
+    escalation_reasons: list[str] = Field(default_factory=list)
+    workflow_impact: str = ""
+    confidence_level: float = 0.0
+    historical_comparison: dict = Field(default_factory=dict)
 
