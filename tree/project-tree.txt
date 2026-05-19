@@ -1,29 +1,35 @@
 clinical-donor-workflow-platform/
-├── backend/
-│   └── app/
-│       ├── core/
-│       ├── models/
-│       ├── routes/
-│       ├── schemas/
-│       ├── services/
-│       ├── cli.py
-│       └── main.py
-├── frontend/
-│   ├── components/
-│   ├── pages/
-│   ├── views/
-│   └── app.py
-├── database/
-│   ├── ddl/
-│   ├── migrations/
-│   └── seeds/
-├── docker/
-├── docs/
-├── tree/
-├── .env
-├── .env.example
-├── alembic.ini
-├── docker-compose.yml
-├── pyproject.toml
-├── README.md
-└── requirements.txt
+|-- backend/
+|   |-- app/
+|   |   |-- auth/
+|   |   |-- core/
+|   |   |-- models/
+|   |   |-- routes/
+|   |   |-- schemas/
+|   |   |-- services/
+|   |   |-- cli.py
+|   |   `-- main.py
+|-- frontend/
+|   |-- components/
+|   |-- pages/
+|   |-- views/
+|   `-- app.py
+|-- database/
+|   |-- ddl/
+|   |-- migrations/
+|   `-- seeds/
+|-- docker/
+|-- docs/
+|   |-- architecture.md
+|   |-- data-contract.md
+|   |-- resume-positioning.md
+|   `-- screenshots/
+|-- tree/
+|-- .env
+|-- .env.example
+|-- alembic.ini
+|-- docker-compose.yml
+|-- pyproject.toml
+|-- README.md
+|-- requirements.txt
+`-- uv.lock

@@ -24,14 +24,20 @@ def log_audit(
     record_id: str,
     old_value: dict | None,
     new_value: dict | None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    ip_address: str | None = None,
 ) -> AuditLog:
     entry = AuditLog(
         user_id=user_id,
         action_type=action_type,
         table_name=table_name,
         record_id=record_id,
+        entity_type=entity_type or table_name,
+        entity_id=entity_id or record_id,
         old_value=old_value,
         new_value=new_value,
+        ip_address=ip_address,
     )
     db.add(entry)
     return entry

@@ -74,6 +74,33 @@ def apply_theme() -> None:
             color: #aec3cc;
         }
 
+        .sidebar-notice {
+            background: rgba(255,255,255,0.10);
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin: 12px 0 16px;
+            color: #f8fbfc;
+        }
+
+        .sidebar-notice div {
+            color: #c7dbe2;
+            font-size: 0.82rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .sidebar-notice strong {
+            color: #ffffff;
+            display: block;
+            font-size: 1.45rem;
+            line-height: 1.2;
+        }
+
+        section[data-testid="stSidebar"] div.stButton button p,
+        section[data-testid="stSidebar"] div.stButton button span {
+            color: #0b2738 !important;
+        }
+
         section[data-testid="stSidebar"] hr {
             border-color: rgba(255,255,255,0.16);
         }

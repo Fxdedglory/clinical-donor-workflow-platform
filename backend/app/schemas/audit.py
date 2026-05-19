@@ -12,7 +12,10 @@ class AuditLogRead(BaseModel):
     action_type: str
     table_name: str
     record_id: str
+    entity_type: str | None = None
+    entity_id: str | None = None
     old_value: dict[str, Any] | None
     new_value: dict[str, Any] | None
+    ip_address: str | None = None
     timestamp: datetime
 

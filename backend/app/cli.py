@@ -5,18 +5,30 @@ from datetime import UTC, datetime, timedelta
 from faker import Faker
 from sqlalchemy import delete, select
 
+from app.auth.security import get_password_hash
 from app.database import SessionLocal
 from app.models import (
     SOP,
     AuditLog,
     ChangeControl,
     DonorReview,
+    EscalationEvent,
+    Notification,
     RiskCategory,
+    Role,
+    RolePermission,
+    RoleResponsibility,
+    SOPTrainingAssignment,
+    TrainingCompletion,
     User,
     Vendor,
     VendorIncident,
+    WorkflowTask,
 )
+from app.services.access_control import DEFAULT_PASSWORD, ROLE_DEFINITIONS
 from app.services.audit import log_audit, serialize_model
+from app.services.escalations import evaluate_overdue_tasks
+from app.services.notifications import create_notification
 from app.services.risk_engine import analyze_donor_risk
 
 fake = Faker()
@@ -47,6 +59,15 @@ VENDOR_SYSTEMS = [
     ("Cobalt Archive", "Clinical Attachment Repository", "Tier 3", 98.5),
 ]
 
+DEMO_USERS = [
+    ("sysadmin", "Alex Rivera", "alex.rivera@example.org", "System Administrator", "Healthcare Technology"),
+    ("intake", "Avery Chen", "avery.chen@example.org", "Donor Intake Coordinator", "Donor Services"),
+    ("clinical", "Jordan Lee", "jordan.lee@example.org", "Clinical Reviewer", "Clinical Operations"),
+    ("qa", "Morgan Shah", "morgan.shah@example.org", "Quality Assurance Specialist", "Quality Systems"),
+    ("vendorops", "Riley Patel", "riley.patel@example.org", "Vendor Operations Analyst", "Healthcare Technology"),
+    ("opsmanager", "Casey Morgan", "casey.morgan@example.org", "Operations Manager", "Enterprise Operations"),
+]
+
 
 def _random_datetime(days_back: int = 30) -> datetime:
     return datetime.now(UTC) - timedelta(
@@ -73,57 +94,265 @@ def _apply_analysis(donor: DonorReview) -> None:
     donor.review_priority = analysis.review_priority
 
 
+def _ensure_roles(db) -> dict[str, Role]:
+    roles: dict[str, Role] = {}
+    for role_name, definition in ROLE_DEFINITIONS.items():
+        role = db.execute(select(Role).where(Role.role_name == role_name)).scalar_one_or_none()
+        if not role:
+            role = Role(role_name=role_name, description=definition["description"])
+            db.add(role)
+            db.flush()
+        else:
+            role.description = definition["description"]
+        roles[role_name] = role
+
+        existing_permissions = {
+            row[0]
+            for row in db.execute(
+                select(RolePermission.permission_name).where(RolePermission.role_id == role.role_id)
+            ).all()
+        }
+        for permission in definition["permissions"]:
+            if permission not in existing_permissions:
+                db.add(RolePermission(role_id=role.role_id, permission_name=permission))
+
+        responsibility = db.execute(
+            select(RoleResponsibility).where(RoleResponsibility.role_id == role.role_id)
+        ).scalar_one_or_none()
+        payload = {
+            "job_description": definition["job_description"],
+            "responsibilities": definition["responsibilities"],
+            "assigned_workflows": definition["workflows"],
+            "operational_kpis": definition["kpis"],
+        }
+        if responsibility:
+            for field, value in payload.items():
+                setattr(responsibility, field, value)
+        else:
+            db.add(RoleResponsibility(role_id=role.role_id, **payload))
+    db.flush()
+    return roles
+
+
+def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
+    password_hash = get_password_hash(DEFAULT_PASSWORD)
+    users_by_role: dict[str, User] = {}
+    for username, full_name, email, role_name, department in DEMO_USERS:
+        role = roles[role_name]
+        user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+        if not user:
+            user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        if not user:
+            user = User(
+                username=username,
+                full_name=full_name,
+                email=email,
+                hashed_password=password_hash,
+                role_id=role.role_id,
+                role=role.role_name,
+                department=department,
+                is_active=True,
+            )
+            db.add(user)
+        else:
+            user.username = username
+            user.full_name = full_name
+            user.email = email
+            user.hashed_password = user.hashed_password or password_hash
+            user.role_id = role.role_id
+            user.role = role.role_name
+            user.department = department
+            user.is_active = True
+        users_by_role[role_name] = user
+    db.flush()
+
+    fallback_roles = list(roles.values())
+    for index, user in enumerate(db.execute(select(User)).scalars().all()):
+        if not user.username:
+            user.username = f"user{user.user_id}"
+        if not user.hashed_password:
+            user.hashed_password = password_hash
+        if not user.role_id:
+            role = fallback_roles[index % len(fallback_roles)]
+            user.role_id = role.role_id
+            user.role = role.role_name
+    db.flush()
+    return users_by_role
+
+
+def ensure_enterprise_data(db) -> None:
+    roles = _ensure_roles(db)
+    users_by_role = _ensure_users(db, roles)
+
+    existing_task = db.execute(select(WorkflowTask.task_id).limit(1)).first()
+    if not existing_task:
+        clinical_user = users_by_role["Clinical Reviewer"]
+        vendor_user = users_by_role["Vendor Operations Analyst"]
+        qa_user = users_by_role["Quality Assurance Specialist"]
+        intake_user = users_by_role["Donor Intake Coordinator"]
+
+        active_donors = db.execute(
+            select(DonorReview)
+            .where(DonorReview.intake_status.in_(["Pending", "Under Review", "Deferred"]))
+            .order_by(DonorReview.risk_score.desc(), DonorReview.created_at)
+            .limit(160)
+        ).scalars().all()
+        for donor in active_donors:
+            due_hours = 12 if donor.risk_level in {"Critical", "High"} else 36
+            db.add(
+                WorkflowTask(
+                    task_type="Donor Review Task",
+                    title=f"Review donor eligibility for {donor.donor_id}",
+                    description=donor.recommended_action,
+                    assigned_to_user_id=clinical_user.user_id if donor.risk_score >= 50 else intake_user.user_id,
+                    assigned_role_id=roles["Clinical Reviewer"].role_id,
+                    priority=donor.review_priority,
+                    status=random.choice(["Assigned", "In Progress", "Pending", "Blocked"]),
+                    due_date=donor.created_at + timedelta(hours=due_hours),
+                    related_record_id=str(donor.review_id),
+                    related_record_type="DonorReview",
+                )
+            )
+
+        breached_incidents = db.execute(
+            select(VendorIncident)
+            .where(VendorIncident.sla_breached.is_(True))
+            .order_by(VendorIncident.opened_at.desc())
+            .limit(45)
+        ).scalars().all()
+        for incident in breached_incidents:
+            db.add(
+                WorkflowTask(
+                    task_type="SLA Investigation Task",
+                    title=f"Investigate SLA breach {incident.ticket_number}",
+                    description=incident.impact_summary,
+                    assigned_to_user_id=vendor_user.user_id,
+                    assigned_role_id=roles["Vendor Operations Analyst"].role_id,
+                    priority="Critical" if incident.severity == "Critical" else "High",
+                    status=random.choice(["Assigned", "In Progress", "Escalated"]),
+                    due_date=incident.opened_at + timedelta(hours=24),
+                    related_record_id=str(incident.incident_id),
+                    related_record_type="VendorIncident",
+                )
+            )
+
+        open_changes = db.execute(
+            select(ChangeControl)
+            .where(ChangeControl.approval_status.in_(["Draft", "Investigation", "Pending Approval"]))
+            .limit(25)
+        ).scalars().all()
+        for change in open_changes:
+            db.add(
+                WorkflowTask(
+                    task_type="SOP Deviation Investigation",
+                    title=f"QMS investigation for {change.request_id}",
+                    description=change.reason,
+                    assigned_to_user_id=qa_user.user_id,
+                    assigned_role_id=roles["Quality Assurance Specialist"].role_id,
+                    priority=change.risk_level,
+                    status=random.choice(["Assigned", "In Progress", "Blocked"]),
+                    due_date=change.created_at + timedelta(days=14),
+                    related_record_id=str(change.change_id),
+                    related_record_type="ChangeControl",
+                )
+            )
+        db.flush()
+
+    existing_training = db.execute(select(SOPTrainingAssignment.assignment_id).limit(1)).first()
+    if not existing_training:
+        sops = db.execute(select(SOP).limit(4)).scalars().all()
+        training_roles = [
+            "Clinical Reviewer",
+            "Donor Intake Coordinator",
+            "Quality Assurance Specialist",
+        ]
+        for sop in sops:
+            for role_name in training_roles:
+                assigned_date = _random_datetime(45)
+                status_choice = random.choice(["Assigned", "In Progress", "Completed", "Overdue"])
+                due_date = assigned_date + timedelta(days=random.choice([14, 21, 30]))
+                if status_choice == "Overdue":
+                    due_date = datetime.now(UTC) - timedelta(days=random.randint(1, 18))
+                assignment = SOPTrainingAssignment(
+                    sop_id=sop.sop_id,
+                    assigned_role_id=roles[role_name].role_id,
+                    assigned_date=assigned_date,
+                    due_date=due_date,
+                    acknowledgment_status=status_choice,
+                )
+                db.add(assignment)
+                db.flush()
+                if status_choice == "Completed":
+                    user = users_by_role[role_name]
+                    db.add(
+                        TrainingCompletion(
+                            assignment_id=assignment.assignment_id,
+                            completed_by_user_id=user.user_id,
+                            completion_date=assigned_date + timedelta(days=random.randint(1, 10)),
+                            acknowledgment_status="Acknowledged",
+                            attestation_text="I acknowledge the SOP revision and workflow responsibilities.",
+                        )
+                    )
+
+    existing_notifications = db.execute(select(Notification.notification_id).limit(1)).first()
+    if not existing_notifications:
+        for role_name, user in users_by_role.items():
+            create_notification(
+                db,
+                user_id=user.user_id,
+                title=f"{role_name} workspace ready",
+                message="Enterprise workflow tasks and regulated operations dashboards are available for review.",
+                notification_type="System",
+                priority="Normal",
+            )
+        create_notification(
+            db,
+            user_id=users_by_role["Operations Manager"].user_id,
+            title="Escalation review required",
+            message="Overdue donor review and vendor SLA tasks require operations manager review.",
+            notification_type="Escalation",
+            priority="Critical",
+        )
+
+    evaluate_overdue_tasks(db)
+    db.commit()
+
+
 def seed_database(records: int, force: bool = False) -> None:
     records = max(500, min(records, 5000))
     db = SessionLocal()
     try:
         existing = db.execute(select(DonorReview.review_id).limit(1)).first()
         if existing and not force:
-            print("Seed skipped: donor data already exists. Use --force to reseed.")
+            ensure_enterprise_data(db)
+            print("Seed skipped donor reload: enterprise demo data verified.")
             return
 
         if force:
             for model in [
                 AuditLog,
+                TrainingCompletion,
+                SOPTrainingAssignment,
+                EscalationEvent,
+                Notification,
+                WorkflowTask,
                 VendorIncident,
                 ChangeControl,
                 DonorReview,
                 RiskCategory,
+                RoleResponsibility,
+                RolePermission,
                 SOP,
                 Vendor,
                 User,
+                Role,
             ]:
                 db.execute(delete(model))
             db.commit()
 
-        users = [
-            User(
-                full_name="Avery Chen",
-                email="avery.chen@example.org",
-                role="Clinical Reviewer",
-                department="Clinical Operations",
-            ),
-            User(
-                full_name="Morgan Shah",
-                email="morgan.shah@example.org",
-                role="Quality Manager",
-                department="Quality Systems",
-            ),
-            User(
-                full_name="Jordan Lee",
-                email="jordan.lee@example.org",
-                role="Medical Director",
-                department="Clinical Governance",
-            ),
-            User(
-                full_name="Riley Patel",
-                email="riley.patel@example.org",
-                role="Business Systems Analyst",
-                department="Healthcare Technology",
-            ),
-        ]
-        db.add_all(users)
-        db.flush()
+        roles = _ensure_roles(db)
+        users_by_role = _ensure_users(db, roles)
+        users = list(users_by_role.values())
 
         vendors = [
             Vendor(
@@ -305,8 +534,10 @@ def seed_database(records: int, force: bool = False) -> None:
             )
         db.add_all(incidents)
 
-        db.commit()
+        db.flush()
+        ensure_enterprise_data(db)
         print(f"Seed complete: {records} donors, {len(changes)} change requests, {len(incidents)} vendor incidents.")
+        print(f"Demo login: sysadmin / {DEFAULT_PASSWORD}")
     finally:
         db.close()
 

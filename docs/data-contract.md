@@ -32,11 +32,90 @@ Each audit record captures:
 
 - user
 - action type
-- affected table
-- record identifier
+- affected table / entity type
+- record identifier / entity id
 - old value
 - new value
+- IP address when available
 - timestamp
+
+## Authentication and RBAC
+
+Users are stored in `operational.dim_user` with:
+
+- username
+- email
+- hashed password
+- role reference
+- active flag
+- last login
+
+Roles are stored in `operational.dim_role`. Permissions are mapped through
+`operational.bridge_role_permission`.
+
+## Workflow Task
+
+Every major operational activity can create a task:
+
+- task type
+- assigned user
+- assigned role
+- priority
+- status
+- due date
+- related record type
+- related record id
+- escalation level
+
+Task statuses:
+
+- Pending
+- Assigned
+- In Progress
+- Blocked
+- Escalated
+- Completed
+- Rejected
+
+## Notification
+
+In-app notifications capture:
+
+- user
+- title
+- message
+- type
+- priority
+- read/unread state
+- creation timestamp
+
+## Escalation Event
+
+Escalations capture:
+
+- related task
+- escalation type
+- trigger reason
+- created timestamp
+- resolved timestamp
+- status
+
+## SOP Training
+
+Training assignments capture:
+
+- SOP
+- assigned user or role
+- assigned date
+- due date
+- acknowledgement status
+
+Training completions capture:
+
+- assignment
+- completed by user
+- completion date
+- attestation text
 
 ## Change Control
 

@@ -1,14 +1,15 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import DonorReview
+from app.models import DonorReview, WorkflowTask
 from app.schemas import DonorDecision, DonorReviewCreate, DonorReviewRead, DonorReviewUpdate
 from app.services.audit import log_audit, serialize_model
 from app.services.risk_engine import analyze_donor_risk
+from app.services.workflows import create_task
 
 router = APIRouter(prefix="/api/donors", tags=["Donors"])
 
@@ -90,6 +91,18 @@ def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> D
     apply_risk_analysis(donor)
     db.add(donor)
     db.flush()
+    create_task(
+        db,
+        task_type="Donor Review Task",
+        title=f"Review donor eligibility for {donor.donor_id}",
+        description=donor.recommended_action,
+        related_record_id=str(donor.review_id),
+        related_record_type="DonorReview",
+        assigned_role_name="Clinical Reviewer",
+        assigned_to_user_id=payload.reviewer_id,
+        priority=donor.review_priority,
+        due_date=datetime.now(UTC) + timedelta(hours=24 if donor.risk_score >= 50 else 48),
+    )
     log_audit(
         db,
         user_id=payload.reviewer_id,
@@ -152,6 +165,16 @@ def record_decision(
     donor.rejection_reason = payload.rejection_reason
     donor.reviewed_at = datetime.now(UTC)
     db.flush()
+    tasks = db.execute(
+        select(WorkflowTask).where(
+            WorkflowTask.related_record_type == "DonorReview",
+            WorkflowTask.related_record_id == str(donor.review_id),
+            WorkflowTask.status != "Completed",
+        )
+    ).scalars().all()
+    for task in tasks:
+        task.status = "Completed"
+        task.completed_at = donor.reviewed_at
 
     log_audit(
         db,

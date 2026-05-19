@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import ChangeControl
 from app.schemas import ChangeControlCreate, ChangeControlRead, ChangeControlUpdate
 from app.services.audit import log_audit, serialize_model
+from app.services.workflows import create_task
 
 router = APIRouter(prefix="/api/change-control", tags=["QMS Change Control"])
 
@@ -45,6 +46,17 @@ def create_change_request(
     request = ChangeControl(**payload.model_dump())
     db.add(request)
     db.flush()
+    create_task(
+        db,
+        task_type="SOP Deviation Investigation",
+        title=f"QMS review for {request.request_id}",
+        description=request.reason,
+        related_record_id=str(request.change_id),
+        related_record_type="ChangeControl",
+        assigned_role_name="Quality Assurance Specialist",
+        priority=request.risk_level,
+        due_date=request.implementation_due_date,
+    )
     log_audit(
         db,
         user_id=request.requested_by_id,

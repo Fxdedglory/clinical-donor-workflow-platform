@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models import Vendor, VendorIncident
 from app.schemas import VendorIncidentCreate, VendorIncidentRead, VendorIncidentUpdate, VendorRead
 from app.services.audit import log_audit, serialize_model
+from app.services.workflows import create_task
 
 router = APIRouter(prefix="/api/vendors", tags=["Vendor SLA"])
 
@@ -50,6 +51,18 @@ def create_vendor_incident(
     incident = VendorIncident(**payload.model_dump())
     db.add(incident)
     db.flush()
+    if incident.sla_breached:
+        create_task(
+            db,
+            task_type="SLA Investigation Task",
+            title=f"Investigate SLA breach {incident.ticket_number}",
+            description=incident.impact_summary,
+            related_record_id=str(incident.incident_id),
+            related_record_type="VendorIncident",
+            assigned_role_name="Vendor Operations Analyst",
+            priority="Critical" if incident.severity == "Critical" else "High",
+            due_date=incident.opened_at,
+        )
     log_audit(
         db,
         user_id=None,

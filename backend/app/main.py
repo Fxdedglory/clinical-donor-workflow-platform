@@ -3,13 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.routes import (
+    admin,
     audit_logs,
+    auth,
     change_control,
     dashboard,
     donors,
+    enterprise_dashboard,
+    escalations,
+    notifications,
     reviews,
     risk_analysis,
+    training,
     vendors,
+    workflow_tasks,
 )
 
 app = FastAPI(
@@ -36,6 +43,13 @@ app.include_router(audit_logs.router)
 app.include_router(change_control.router)
 app.include_router(vendors.router)
 app.include_router(dashboard.router)
+app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(workflow_tasks.router)
+app.include_router(notifications.router)
+app.include_router(escalations.router)
+app.include_router(training.router)
+app.include_router(enterprise_dashboard.router)
 
 
 @app.get("/health", tags=["System"])
