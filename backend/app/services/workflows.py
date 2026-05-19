@@ -24,6 +24,8 @@ def create_task(
     description: str = "",
     priority: str = "Routine",
     status: str = "Assigned",
+    workflow_state: str = "Assigned",
+    queue_name: str = "General Work Queue",
     due_date: datetime | None = None,
 ) -> WorkflowTask:
     assigned_role_id = get_role_id(db, assigned_role_name) if assigned_role_name else None
@@ -35,6 +37,8 @@ def create_task(
         assigned_role_id=assigned_role_id,
         priority=priority,
         status=status,
+        workflow_state=workflow_state,
+        queue_name=queue_name,
         due_date=due_date,
         related_record_id=related_record_id,
         related_record_type=related_record_type,
@@ -48,6 +52,9 @@ def create_task(
             message=title,
             notification_type="Task Assignment",
             priority=priority,
+            related_record_type=related_record_type,
+            related_record_id=related_record_id,
+            action_route="role_tasks",
         )
     return task
 
@@ -55,4 +62,3 @@ def create_task(
 def complete_task(task: WorkflowTask) -> None:
     task.status = "Completed"
     task.completed_at = datetime.now(UTC)
-

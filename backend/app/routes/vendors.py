@@ -61,6 +61,8 @@ def create_vendor_incident(
             related_record_type="VendorIncident",
             assigned_role_name="Vendor Operations Analyst",
             priority="Critical" if incident.severity == "Critical" else "High",
+            workflow_state="Vendor SLA Investigation",
+            queue_name="Vendor Operations Workbench",
             due_date=incident.opened_at,
         )
     log_audit(

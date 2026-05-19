@@ -24,7 +24,7 @@ def list_roles(
 
 @router.get("/role-responsibilities", response_model=list[RoleResponsibilityRead])
 def role_responsibilities(
-    _: User = Depends(require_permission("dashboard.view")),
+    _: User = Depends(require_permission("system.admin")),
     db: Session = Depends(get_db),
 ) -> list[RoleResponsibilityRead]:
     rows = db.execute(
@@ -125,4 +125,3 @@ def update_user(
     db.commit()
     db.refresh(user)
     return user
-

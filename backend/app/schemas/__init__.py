@@ -5,8 +5,12 @@ from app.schemas.enterprise import (
     EscalationEventRead,
     NotificationCreate,
     NotificationRead,
+    RoleDashboardWidgetRead,
+    RoleNavigationConfigRead,
     RoleRead,
     RoleResponsibilityRead,
+    RoleWorkspaceConfigRead,
+    RoleWorkspaceConfigUpdate,
     TrainingAssignmentCreate,
     TrainingAssignmentRead,
     TrainingCompletionCreate,
@@ -16,6 +20,9 @@ from app.schemas.enterprise import (
     WorkflowTaskCreate,
     WorkflowTaskRead,
     WorkflowTaskUpdate,
+    WorkflowTransitionRead,
+    WorkflowTransitionRequest,
+    WorkspaceResponse,
 )
 from app.schemas.risk import RiskAnalysisRequest, RiskAnalysisResponse
 from app.schemas.vendors import (
@@ -37,8 +44,12 @@ __all__ = [
     "EscalationEventRead",
     "NotificationCreate",
     "NotificationRead",
+    "RoleDashboardWidgetRead",
+    "RoleNavigationConfigRead",
     "RoleRead",
     "RoleResponsibilityRead",
+    "RoleWorkspaceConfigRead",
+    "RoleWorkspaceConfigUpdate",
     "RiskAnalysisRequest",
     "RiskAnalysisResponse",
     "TrainingAssignmentCreate",
@@ -54,5 +65,8 @@ __all__ = [
     "WorkflowTaskCreate",
     "WorkflowTaskRead",
     "WorkflowTaskUpdate",
+    "WorkflowTransitionRead",
+    "WorkflowTransitionRequest",
+    "WorkspaceResponse",
 ]
 

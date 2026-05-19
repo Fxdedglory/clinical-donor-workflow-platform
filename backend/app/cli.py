@@ -16,20 +16,27 @@ from app.models import (
     Notification,
     RiskCategory,
     Role,
+    RoleDashboardWidget,
+    RoleNavigationConfig,
     RolePermission,
     RoleResponsibility,
+    RoleWorkspaceConfig,
     SOPTrainingAssignment,
     TrainingCompletion,
     User,
     Vendor,
     VendorIncident,
+    WorkflowAssignmentRule,
+    WorkflowStateMachine,
     WorkflowTask,
+    WorkflowTransitionRule,
 )
 from app.services.access_control import DEFAULT_PASSWORD, ROLE_DEFINITIONS
 from app.services.audit import log_audit, serialize_model
 from app.services.escalations import evaluate_overdue_tasks
 from app.services.notifications import create_notification
 from app.services.risk_engine import analyze_donor_risk
+from app.services.workspace_config import ensure_workspace_definitions
 
 fake = Faker()
 
@@ -183,6 +190,7 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
 def ensure_enterprise_data(db) -> None:
     roles = _ensure_roles(db)
     users_by_role = _ensure_users(db, roles)
+    ensure_workspace_definitions(db, roles)
 
     existing_task = db.execute(select(WorkflowTask.task_id).limit(1)).first()
     if not existing_task:
@@ -208,6 +216,8 @@ def ensure_enterprise_data(db) -> None:
                     assigned_role_id=roles["Clinical Reviewer"].role_id,
                     priority=donor.review_priority,
                     status=random.choice(["Assigned", "In Progress", "Pending", "Blocked"]),
+                    workflow_state="Pending Clinical Review",
+                    queue_name="Clinical Review Workbench",
                     due_date=donor.created_at + timedelta(hours=due_hours),
                     related_record_id=str(donor.review_id),
                     related_record_type="DonorReview",
@@ -230,6 +240,8 @@ def ensure_enterprise_data(db) -> None:
                     assigned_role_id=roles["Vendor Operations Analyst"].role_id,
                     priority="Critical" if incident.severity == "Critical" else "High",
                     status=random.choice(["Assigned", "In Progress", "Escalated"]),
+                    workflow_state="Vendor SLA Investigation",
+                    queue_name="Vendor Operations Workbench",
                     due_date=incident.opened_at + timedelta(hours=24),
                     related_record_id=str(incident.incident_id),
                     related_record_type="VendorIncident",
@@ -251,9 +263,76 @@ def ensure_enterprise_data(db) -> None:
                     assigned_role_id=roles["Quality Assurance Specialist"].role_id,
                     priority=change.risk_level,
                     status=random.choice(["Assigned", "In Progress", "Blocked"]),
+                    workflow_state="CAPA Investigation",
+                    queue_name="QA Investigation Workbench",
                     due_date=change.created_at + timedelta(days=14),
                     related_record_id=str(change.change_id),
                     related_record_type="ChangeControl",
+                )
+            )
+        db.flush()
+
+    intake_task_exists = db.execute(
+        select(WorkflowTask.task_id)
+        .where(WorkflowTask.assigned_role_id == roles["Donor Intake Coordinator"].role_id)
+        .limit(1)
+    ).first()
+    if not intake_task_exists:
+        intake_user = users_by_role["Donor Intake Coordinator"]
+        intake_donors = db.execute(
+            select(DonorReview)
+            .where(DonorReview.intake_status.in_(["Pending", "Deferred"]))
+            .order_by(DonorReview.created_at.desc())
+            .limit(65)
+        ).scalars().all()
+        for donor in intake_donors:
+            db.add(
+                WorkflowTask(
+                    task_type="Intake Packet Validation",
+                    title=f"Validate donor intake packet for {donor.donor_id}",
+                    description="Resolve required fields, documentation, and readiness before clinical routing.",
+                    assigned_to_user_id=intake_user.user_id,
+                    assigned_role_id=roles["Donor Intake Coordinator"].role_id,
+                    priority="High" if donor.missing_required_fields or donor.risk_score >= 50 else "Standard",
+                    status=random.choice(["Assigned", "In Progress", "Blocked"]),
+                    workflow_state="Pending Intake Review",
+                    queue_name="My Intake Workbench",
+                    due_date=donor.created_at + timedelta(hours=18),
+                    related_record_id=str(donor.review_id),
+                    related_record_type="DonorReview",
+                )
+            )
+        db.flush()
+
+    manager_task_exists = db.execute(
+        select(WorkflowTask.task_id)
+        .where(WorkflowTask.assigned_role_id == roles["Operations Manager"].role_id)
+        .limit(1)
+    ).first()
+    if not manager_task_exists:
+        manager_user = users_by_role["Operations Manager"]
+        escalated_source_tasks = db.execute(
+            select(WorkflowTask)
+            .where(WorkflowTask.status.in_(["Escalated", "Blocked"]))
+            .order_by(WorkflowTask.due_date)
+            .limit(18)
+        ).scalars().all()
+        for task in escalated_source_tasks:
+            db.add(
+                WorkflowTask(
+                    task_type="Operational Escalation Review",
+                    title=f"Resolve bottleneck for {task.title}",
+                    description="Manager review of cross-functional queue pressure, priority, or reassignment need.",
+                    assigned_to_user_id=manager_user.user_id,
+                    assigned_role_id=roles["Operations Manager"].role_id,
+                    priority="Critical",
+                    status="Escalated",
+                    workflow_state="Clinical Escalation",
+                    queue_name="Enterprise Queue Management",
+                    due_date=datetime.now(UTC) + timedelta(hours=8),
+                    related_record_id=str(task.task_id),
+                    related_record_type="WorkflowTask",
+                    escalation_level=max(task.escalation_level, 1),
                 )
             )
         db.flush()
@@ -304,6 +383,7 @@ def ensure_enterprise_data(db) -> None:
                 message="Enterprise workflow tasks and regulated operations dashboards are available for review.",
                 notification_type="System",
                 priority="Normal",
+                action_route="role_dashboard",
             )
         create_notification(
             db,
@@ -312,6 +392,7 @@ def ensure_enterprise_data(db) -> None:
             message="Overdue donor review and vendor SLA tasks require operations manager review.",
             notification_type="Escalation",
             priority="Critical",
+            action_route="role_escalations",
         )
 
     evaluate_overdue_tasks(db)
@@ -336,6 +417,12 @@ def seed_database(records: int, force: bool = False) -> None:
                 EscalationEvent,
                 Notification,
                 WorkflowTask,
+                WorkflowAssignmentRule,
+                WorkflowTransitionRule,
+                WorkflowStateMachine,
+                RoleDashboardWidget,
+                RoleNavigationConfig,
+                RoleWorkspaceConfig,
                 VendorIncident,
                 ChangeControl,
                 DonorReview,

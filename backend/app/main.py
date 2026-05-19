@@ -17,6 +17,7 @@ from app.routes import (
     training,
     vendors,
     workflow_tasks,
+    workspaces,
 )
 
 app = FastAPI(
@@ -50,6 +51,7 @@ app.include_router(notifications.router)
 app.include_router(escalations.router)
 app.include_router(training.router)
 app.include_router(enterprise_dashboard.router)
+app.include_router(workspaces.router)
 
 
 @app.get("/health", tags=["System"])

@@ -5,18 +5,30 @@ clinical-donor-workflow-platform/
 |   |   |-- core/
 |   |   |-- models/
 |   |   |-- routes/
+|   |   |   |-- workspaces.py
+|   |   |   |-- workflow_tasks.py
+|   |   |   |-- auth.py
+|   |   |   `-- ...
 |   |   |-- schemas/
 |   |   |-- services/
+|   |   |   |-- workspace_config.py
+|   |   |   |-- workspace_engine.py
+|   |   |   |-- workflows.py
+|   |   |   `-- ...
 |   |   |-- cli.py
 |   |   `-- main.py
 |-- frontend/
 |   |-- components/
 |   |-- pages/
 |   |-- views/
+|   |   |-- role_workspace.py
+|   |   |-- admin_portal.py
+|   |   `-- ...
 |   `-- app.py
 |-- database/
 |   |-- ddl/
 |   |-- migrations/
+|   |   `-- versions/
 |   `-- seeds/
 |-- docker/
 |-- docs/

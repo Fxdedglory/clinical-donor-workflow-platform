@@ -96,6 +96,27 @@ def apply_theme() -> None:
             line-height: 1.2;
         }
 
+        .workspace-card {
+            background: rgba(255,255,255,0.10);
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin: 12px 0 16px;
+        }
+
+        .workspace-card div {
+            color: #c7dbe2;
+            font-size: 0.78rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .workspace-card strong {
+            color: #ffffff;
+            display: block;
+            font-size: 0.95rem;
+            line-height: 1.35;
+        }
+
         section[data-testid="stSidebar"] div.stButton button p,
         section[data-testid="stSidebar"] div.stButton button span {
             color: #0b2738 !important;

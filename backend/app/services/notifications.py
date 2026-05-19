@@ -12,6 +12,9 @@ def create_notification(
     message: str,
     notification_type: str,
     priority: str = "Normal",
+    related_record_type: str | None = None,
+    related_record_id: str | None = None,
+    action_route: str | None = None,
 ) -> Notification:
     notification = Notification(
         user_id=user_id,
@@ -19,6 +22,9 @@ def create_notification(
         message=message,
         notification_type=notification_type,
         priority=priority,
+        related_record_type=related_record_type,
+        related_record_id=related_record_id,
+        action_route=action_route,
     )
     db.add(notification)
     return notification
@@ -32,6 +38,9 @@ def notify_role(
     message: str,
     notification_type: str,
     priority: str = "Normal",
+    related_record_type: str | None = None,
+    related_record_id: str | None = None,
+    action_route: str | None = None,
 ) -> list[Notification]:
     role = db.execute(select(Role).where(Role.role_name == role_name)).scalar_one_or_none()
     if not role:
@@ -47,7 +56,9 @@ def notify_role(
             message=message,
             notification_type=notification_type,
             priority=priority,
+            related_record_type=related_record_type,
+            related_record_id=related_record_id,
+            action_route=action_route,
         )
         for user in users
     ]
-

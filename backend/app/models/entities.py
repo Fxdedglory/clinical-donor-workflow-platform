@@ -57,6 +57,15 @@ class Role(Base):
     responsibilities: Mapped[list["RoleResponsibility"]] = relationship(
         back_populates="role", cascade="all, delete-orphan"
     )
+    workspace_config: Mapped["RoleWorkspaceConfig | None"] = relationship(
+        back_populates="role", cascade="all, delete-orphan"
+    )
+    navigation_items: Mapped[list["RoleNavigationConfig"]] = relationship(
+        back_populates="role", cascade="all, delete-orphan"
+    )
+    dashboard_widgets: Mapped[list["RoleDashboardWidget"]] = relationship(
+        back_populates="role", cascade="all, delete-orphan"
+    )
 
 
 class RolePermission(Base):
@@ -85,6 +94,119 @@ class RoleResponsibility(Base):
     operational_kpis: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
     role: Mapped[Role] = relationship(back_populates="responsibilities")
+
+
+class RoleWorkspaceConfig(Base):
+    __tablename__ = "role_workspace_config"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    config_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=False, unique=True
+    )
+    workspace_name: Mapped[str] = mapped_column(String(140), nullable=False)
+    workspace_purpose: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    dashboard_layout: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    visible_tabs: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    enabled_widgets: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    workbench_columns: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    default_queue: Mapped[str] = mapped_column(String(120), nullable=False)
+    notification_types: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    theme_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    role: Mapped[Role] = relationship(back_populates="workspace_config")
+
+
+class RoleNavigationConfig(Base):
+    __tablename__ = "role_navigation_config"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    nav_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=False
+    )
+    tab_label: Mapped[str] = mapped_column(String(100), nullable=False)
+    page_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    required_permission: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    role: Mapped[Role] = relationship(back_populates="navigation_items")
+
+
+class RoleDashboardWidget(Base):
+    __tablename__ = "role_dashboard_widget"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    widget_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=False
+    )
+    widget_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    widget_title: Mapped[str] = mapped_column(String(140), nullable=False)
+    widget_type: Mapped[str] = mapped_column(String(60), nullable=False, default="metric")
+    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    role: Mapped[Role] = relationship(back_populates="dashboard_widgets")
+
+
+class WorkflowStateMachine(Base):
+    __tablename__ = "workflow_state_machine"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    state_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    state_name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    state_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    owning_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class WorkflowTransitionRule(Base):
+    __tablename__ = "workflow_transition_rule"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    transition_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    action_name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    action_label: Mapped[str] = mapped_column(String(140), nullable=False)
+    from_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    to_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    target_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    task_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    audit_action: Mapped[str] = mapped_column(String(100), nullable=False)
+    sla_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class WorkflowAssignmentRule(Base):
+    __tablename__ = "workflow_assignment_rule"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    assignment_rule_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trigger_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    from_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    to_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    task_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    priority_rule: Mapped[str] = mapped_column(String(100), nullable=False, default="inherit")
+    sla_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class Vendor(Base):
@@ -250,6 +372,8 @@ class WorkflowTask(Base):
     )
     priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Routine")
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="Pending")
+    workflow_state: Mapped[str] = mapped_column(String(100), nullable=False, default="Assigned")
+    queue_name: Mapped[str] = mapped_column(String(120), nullable=False, default="General Work Queue")
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -272,6 +396,9 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
     priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Normal")
+    related_record_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    related_record_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    action_route: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

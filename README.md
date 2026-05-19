@@ -1,16 +1,19 @@
 # Clinical Donor Screening & Quality Workflow Platform
 
-Enterprise-style healthcare operations platform for donor intake, AI-assisted donor screening, RBAC-secured workflow orchestration, audit trails, QMS/change control, SOP training, vendor SLA monitoring, notifications, escalations, and operational dashboards.
+Enterprise-style healthcare operations platform for donor intake, AI-assisted donor screening, role-centered operational workspaces, RBAC-secured workflow orchestration, audit trails, QMS/change control, SOP training, vendor SLA monitoring, notification routing, escalations, and operational dashboards.
 
 Repository: `github.com/Fxdedglory/clinical-donor-workflow-platform`
 
 ## Project Overview
 
-This project simulates internal enterprise healthcare software rather than a portfolio CRUD app. Donor records enter operational queues, rule-based decision support flags clinical risk, workflow tasks are assigned to role owners, escalations are created for overdue work, notifications alert users, and regulated activities are traceable through audit logs.
+This project simulates internal enterprise healthcare software rather than a portfolio CRUD app. Donor records enter role-owned operational queues, rule-based decision support flags clinical risk, workflow tasks are routed through a state machine, escalations are created for overdue work, notifications link users back to assigned work, and regulated activities are traceable through audit logs.
+
+The latest upgrade moves the UI from permission-filtered pages to dynamic role-centered workspaces. Each role receives its own navigation, KPI set, widgets, workbench columns, task actions, notifications, and workflow ownership model.
 
 Resume themes demonstrated:
 
 - Enterprise healthcare workflow systems analysis
+- Role-centered operational workspace architecture
 - Regulated operational workflow design
 - RBAC security architecture with JWT authentication
 - AI-assisted clinical decision support concepts
@@ -21,16 +24,18 @@ Resume themes demonstrated:
 ## Architecture
 
 ```text
-Streamlit enterprise console
+Streamlit role-centered operations console
         |
         v
 FastAPI REST API -- JWT/RBAC dependencies
         |
         +-- Auth, users, roles, permissions
+        +-- Role workspace engine and workspace configuration
         +-- Donor intake and clinical review workflow
         +-- Rule-based AI screening engine
         +-- Workflow task engine
-        +-- Notification center
+        +-- Notification bell and workflow alert routing
+        +-- Workflow state machine and transition rules
         +-- Escalation engine
         +-- QMS/change control and SOP training
         +-- Vendor SLA operations
@@ -50,6 +55,12 @@ Core enterprise tables:
 - `operational.dim_role`
 - `operational.bridge_role_permission`
 - `operational.dim_role_responsibility`
+- `operational.role_workspace_config`
+- `operational.role_navigation_config`
+- `operational.role_dashboard_widget`
+- `operational.workflow_state_machine`
+- `operational.workflow_transition_rule`
+- `operational.workflow_assignment_rule`
 - `operational.fact_workflow_task`
 - `operational.fact_notification`
 - `operational.fact_escalation_event`
@@ -71,9 +82,13 @@ Clinical, QMS, and vendor tables:
 - JWT login, logout, token refresh, session expiration, password hashing, and protected routes
 - Six enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager
 - Role-permission bridge for route-level authorization
-- User management portal for create, disable, password reset, and role assignment workflows
-- Workflow task engine with owner, role, priority, status, due date, related record, and escalation level
-- In-app notification center with unread counts, priority indicators, and mark-as-read workflow
+- Dynamic workspace engine that generates navigation, widgets, KPIs, queues, workbench columns, and task actions from role metadata
+- System Administrator governance workspace with admin-only role, workspace, workflow, audit, system health, and integration surfaces
+- Admin workspace preview mode for inspecting operational role workspaces without making admin a queue participant
+- User administration surface for create, disable, password reset, and role assignment workflows
+- Workflow task engine with owner, role, priority, status, workflow state, queue name, due date, related record, and escalation level
+- Workflow transition engine for intake-to-clinical, clinical-to-QA, QA approval/rejection, vendor escalation, and operations-manager routing
+- Top-right notification bell with unread counts, priority indicators, target record metadata, and mark-as-read workflow
 - Escalation engine for overdue donor review, SLA, and QMS tasks
 - SOP training assignment and acknowledgement tracking
 - Role responsibility center with job descriptions, assigned workflows, and operational KPIs
@@ -104,9 +119,13 @@ Design concept used for the original dashboard direction:
 
 ![Dashboard concept](docs/screenshots/concept-dashboard.png)
 
-Rendered enterprise dashboard:
+Rendered role-centered workspaces:
 
-![Rendered dashboard](docs/screenshots/rendered-dashboard.png)
+![Admin governance workspace](docs/screenshots/workspace-admin-governance.png)
+
+![Clinical workspace preview](docs/screenshots/workspace-clinical.png)
+
+![Mobile intake workspace](docs/screenshots/workspace-intake-mobile.png)
 
 ## Setup Instructions
 
@@ -148,21 +167,23 @@ uv run streamlit run frontend/app.py
 
 ## Demo Workflow
 
-1. Sign in as `sysadmin` and review Enterprise Ops KPIs, escalated tasks, unread notifications, QMS workload, and vendor incidents.
-2. Open Admin Portal to review users, roles, and workflow configuration assumptions.
-3. Open Responsibility Center to inspect role job descriptions, assigned workflows, and KPIs.
-4. Open Task Workbench and update a donor review, SLA investigation, or SOP deviation task.
-5. Open Notifications and mark an assignment or escalation notice as read.
-6. Sign in as `clinical` and confirm the user can access donor/task work but receives `403` for admin-only routes.
-7. Open Donor Review, record a donor decision, then confirm Audit Logs and Task Workbench reflect the workflow event.
-8. Open Compliance to review SOP training, QMS change control, CAPA flags, and audit activity.
-9. Open Vendor SLA to review incidents, uptime, breach counts, and resolution metrics.
+1. Sign in as `sysadmin` and confirm the default workspace is Platform Governance, not an operational donor or vendor queue.
+2. Use Workspace Mode to preview Clinical Reviewer, Donor Intake Coordinator, QA, Vendor Ops, or Operations Manager workspaces.
+3. Open Workspace Configuration to review role navigation, widget assignment, notification types, and workbench columns.
+4. Sign in as `intake`, create a draft donor intake, and route a task with `submit_to_clinical_review`.
+5. Sign in as `clinical` and confirm the new clinical task appears in the Clinical Review Workbench.
+6. Use a clinical action such as Request QA Review, Escalate Case, Approve Donor, or Reject Donor.
+7. Sign in as `qa` to review investigations, CAPA queue, deviations, and SOP compliance.
+8. Sign in as `vendorops` to review SLA monitor, incident queue, and vendor escalations.
+9. Sign in as `opsmanager` to review enterprise backlog, workforce load, escalation center, and queue management.
 
 ## Healthcare/QMS Concepts
 
 - **Clinical screening:** Donor review combines structured intake data, clinical notes, risk flags, risk score, reviewer decision, and exception escalation.
 - **Decision support:** The risk engine is transparent and auditable; it recommends actions without replacing clinical judgment.
-- **Workflow ownership:** Major operational events create tasks with owners, due dates, priority, and escalation paths.
+- **Role immersion:** Each role loads a department-specific workspace with its own navigation, KPIs, widgets, queue columns, workflow actions, and notifications.
+- **Workflow ownership:** Major operational events create tasks with owners, due dates, priority, workflow state, queue name, and escalation paths.
+- **Workflow routing:** State-machine transitions route work from Intake to Clinical Review to QA and Operations Management while creating tasks, notifications, and audit events.
 - **Audit trail:** Login, logout, donor decisions, workflow changes, user changes, training completion, and escalations are logged with before/after values.
 - **QMS workflow:** Change requests include SOP linkage, risk level, approval status, CAPA requirement, due dates, and investigation notes.
 - **SOP training:** SOP revisions can be assigned to roles or users and tracked through acknowledgement status and overdue training.
@@ -172,6 +193,7 @@ uv run streamlit run frontend/app.py
 
 - `/api/auth`
 - `/api/admin`
+- `/api/workspaces`
 - `/api/donors`
 - `/api/reviews`
 - `/api/risk-analysis`

@@ -19,6 +19,8 @@ TASK_FIELDS = [
     "assigned_role_id",
     "priority",
     "status",
+    "workflow_state",
+    "queue_name",
     "due_date",
     "related_record_id",
     "related_record_type",
@@ -94,4 +96,3 @@ def update_task(
     db.commit()
     db.refresh(task)
     return task
-

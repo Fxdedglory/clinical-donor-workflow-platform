@@ -93,14 +93,16 @@ def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> D
     db.flush()
     create_task(
         db,
-        task_type="Donor Review Task",
-        title=f"Review donor eligibility for {donor.donor_id}",
-        description=donor.recommended_action,
+        task_type="Intake Packet Validation",
+        title=f"Validate donor intake packet for {donor.donor_id}",
+        description="Complete intake readiness review before clinical routing.",
         related_record_id=str(donor.review_id),
         related_record_type="DonorReview",
-        assigned_role_name="Clinical Reviewer",
+        assigned_role_name="Donor Intake Coordinator",
         assigned_to_user_id=payload.reviewer_id,
         priority=donor.review_priority,
+        workflow_state="Draft Intake",
+        queue_name="My Intake Workbench",
         due_date=datetime.now(UTC) + timedelta(hours=24 if donor.risk_score >= 50 else 48),
     )
     log_audit(

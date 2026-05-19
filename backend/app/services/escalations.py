@@ -44,7 +44,9 @@ def evaluate_overdue_tasks(db: Session) -> list[EscalationEvent]:
             message=f"{task.title} is overdue and has been escalated.",
             notification_type="Escalation",
             priority="Critical",
+            related_record_type=task.related_record_type,
+            related_record_id=task.related_record_id,
+            action_route="role_escalations",
         )
         created.append(event)
     return created
-

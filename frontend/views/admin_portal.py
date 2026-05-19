@@ -5,8 +5,8 @@ from components.ui import dataframe, page_header
 
 def render() -> None:
     page_header(
-        "System Administrator Portal",
-        "User lifecycle, role assignment, workflow configuration surface, and audit-oriented controls.",
+        "User Administration",
+        "User lifecycle, account status, password reset support, and role assignment governance.",
     )
     roles = get_json("/api/admin/roles") or []
     users = get_json("/api/admin/users") or []
@@ -70,12 +70,3 @@ def render() -> None:
                 if result:
                     st.success("User updated.")
                     st.rerun()
-
-    st.subheader("Workflow Configuration")
-    st.info(
-        "Demo controls: escalation threshold = 24 hours for donor reviews; SLA breach tasks route to Vendor Operations; SOP deviation tasks route to QA."
-    )
-
-    st.subheader("Role Permissions")
-    dataframe(roles, columns=["role_id", "role_name", "description"], height=260)
-

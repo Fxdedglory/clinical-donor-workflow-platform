@@ -62,6 +62,8 @@ Every major operational activity can create a task:
 - assigned role
 - priority
 - status
+- workflow state
+- queue name
 - due date
 - related record type
 - related record id
@@ -86,8 +88,78 @@ In-app notifications capture:
 - message
 - type
 - priority
+- related record type
+- related record id
+- action route
 - read/unread state
 - creation timestamp
+
+Notifications are rendered through the top-right workspace bell rather than a dedicated navigation page. The `action_route` maps the alert back to a role workspace tab.
+
+## Role Workspace Configuration
+
+`operational.role_workspace_config` defines the role-native workspace:
+
+- role
+- workspace name
+- workspace purpose
+- dashboard layout
+- visible tabs
+- enabled widgets
+- workbench columns
+- default queue
+- notification types
+- theme configuration
+
+`operational.role_navigation_config` defines rendered tabs:
+
+- role
+- tab label
+- page key
+- sort order
+- visibility flag
+- required permission
+
+`operational.role_dashboard_widget` defines widget ownership:
+
+- role
+- widget key
+- widget title
+- widget type
+- widget configuration
+- sort order
+- enabled flag
+
+## Workflow State Machine
+
+`operational.workflow_state_machine` defines regulated workflow states:
+
+- Draft Intake
+- Pending Intake Review
+- Pending Clinical Review
+- Clinical Escalation
+- Pending QA Review
+- CAPA Investigation
+- Vendor SLA Investigation
+- Approved
+- Rejected
+- Closed
+
+`operational.workflow_transition_rule` defines role-aware actions:
+
+- action name
+- action label
+- from state
+- to state
+- source role
+- target role
+- task type
+- notification type
+- audit action
+- SLA hours
+- active flag
+
+`operational.workflow_assignment_rule` stores assignment routing metadata for workflow orchestration.
 
 ## Escalation Event
 

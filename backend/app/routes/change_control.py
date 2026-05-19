@@ -55,6 +55,8 @@ def create_change_request(
         related_record_type="ChangeControl",
         assigned_role_name="Quality Assurance Specialist",
         priority=request.risk_level,
+        workflow_state="CAPA Investigation" if request.capa_required else "Pending QA Review",
+        queue_name="QA Investigation Workbench",
         due_date=request.implementation_due_date,
     )
     log_audit(
