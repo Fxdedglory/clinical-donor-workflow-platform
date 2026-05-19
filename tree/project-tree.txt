@@ -1,0 +1,29 @@
+clinical-donor-workflow-platform/
+├── backend/
+│   └── app/
+│       ├── core/
+│       ├── models/
+│       ├── routes/
+│       ├── schemas/
+│       ├── services/
+│       ├── cli.py
+│       └── main.py
+├── frontend/
+│   ├── components/
+│   ├── pages/
+│   ├── views/
+│   └── app.py
+├── database/
+│   ├── ddl/
+│   ├── migrations/
+│   └── seeds/
+├── docker/
+├── docs/
+├── tree/
+├── .env
+├── .env.example
+├── alembic.ini
+├── docker-compose.yml
+├── pyproject.toml
+├── README.md
+└── requirements.txt
