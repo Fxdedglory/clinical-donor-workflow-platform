@@ -6,6 +6,7 @@ clinical-donor-workflow-platform/
 |   |   |-- models/
 |   |   |-- routes/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- eligibility.py
 |   |   |   |-- functional_routes.py
 |   |   |   |-- workspaces.py
 |   |   |   |-- workflow_tasks.py
@@ -14,6 +15,7 @@ clinical-donor-workflow-platform/
 |   |   |-- schemas/
 |   |   |-- services/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- eligibility_engine.py
 |   |   |   |-- functional_routes.py
 |   |   |   |-- workflow_orchestration.py
 |   |   |   |-- workspace_config.py
@@ -35,6 +37,7 @@ clinical-donor-workflow-platform/
 |   |-- ddl/
 |   |-- migrations/
 |   |   |-- versions/
+|   |   |   |-- 202605200002_donor_eligibility_qms.py
 |   |   |   |-- 202605200001_workflow_orchestration.py
 |   |   |   |-- 202605190004_ai_governance.py
 |   |   |   `-- ...

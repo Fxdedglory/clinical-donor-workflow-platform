@@ -26,6 +26,137 @@ Workflow fields:
 - `reviewed_at`
 - `rejection_reason`
 
+## Donor Eligibility Master Data
+
+`operational.dim_donor` stores the persistent donor master record:
+
+- donor identifier
+- linked legacy review id
+- donor demographics
+- referral source
+- time of death
+- source organization
+- donor history flags
+- current workflow state
+- eligibility status
+- final disposition
+
+`operational.dim_referral_source` stores referral source organizations.
+
+`operational.dim_tissue_type` stores tissue-specific suitability parameters:
+
+- tissue type
+- age range
+- ischemic time limit
+- preservation window
+- SOP reference
+
+`operational.dim_disposition` stores final disposition options:
+
+- Clinical Transplant
+- Tissue Processing
+- Research Use
+- Quarantine
+- Destruction
+- Rejected / Deferred
+
+## Donor Eligibility Workflow Facts
+
+`operational.fact_donor_screening` captures the staged screening outcomes:
+
+- administrative outcome
+- medical/social outcome
+- infectious disease outcome
+- tissue suitability outcome
+- recovery suitability outcome
+- QA outcome
+- automated rule outcome
+- current decision
+
+`operational.fact_medical_social_history` tracks donor history risk flags:
+
+- cancer history
+- neurological disease
+- autoimmune disease
+- transmissible disease history
+- IV drug use
+- incarceration history
+- travel exposure
+- high-risk behavior
+- unknown history
+
+`operational.fact_infectious_disease_result` links donor records to `dim_infectious_disease_test` and tracks result value, specimen window validity, reviewer, and review status.
+
+`operational.fact_recovery_suitability` tracks recovery readiness:
+
+- refrigeration timing
+- body cooling status
+- trauma contamination
+- blood draw timing
+- hospital release status
+- recovery environment
+- recovery window
+- outcome
+
+`operational.fact_processing_release` tracks release readiness:
+
+- sterility testing
+- bioburden status
+- environmental monitoring
+- packaging QC
+- labeling verification
+- traceability verification
+- chain of custody
+- deviation/CAPA linkage
+- release status
+- final disposition
+
+`operational.fact_deviation` and `operational.fact_capa` track QMS non-conformance and corrective action records.
+
+## Eligibility Rule Engine
+
+`operational.dim_eligibility_rule` stores configurable donor eligibility rules:
+
+- rule name
+- rule category
+- condition field
+- condition operator
+- condition value
+- outcome
+- severity
+- review requirement
+- required role
+- SOP reference
+- active flag
+- version
+- created / approved metadata
+
+Rule categories:
+
+- Administrative
+- Medical Social History
+- Infectious Disease
+- Tissue Specific
+- Recovery Suitability
+- Processing Release
+- QMS Compliance
+- Customer Restriction
+- Country / Export Restriction
+
+`operational.fact_eligibility_decision` records rule execution:
+
+- donor
+- rule
+- decision stage
+- outcome
+- severity
+- reason
+- review requirement
+- required role
+- triggered rules
+- final disposition
+- creator and timestamp
+
 ## Audit Log
 
 Each audit record captures:
@@ -94,7 +225,7 @@ In-app notifications capture:
 - read/unread state
 - creation timestamp
 
-Notifications are rendered through the top-right bell rather than a separate inbox page. The `action_route` stores an exact function route such as `/review/{id}`, `/task/{id}`, `/capa/{id}`, or `/workflow-intelligence`, so clicking an alert reloads the record with workflow state, authorized actions, timeline, and related records intact.
+Notifications are rendered through the top-right bell rather than a separate inbox page. The `action_route` stores an exact function route such as `/donor/{id}`, `/processing-release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/task/{id}`, or `/workflow-intelligence`, so clicking an alert reloads the record with workflow state, authorized actions, timeline, and related records intact.
 
 ## Functional Route Context
 
@@ -117,8 +248,8 @@ The route engine resolves each URL into a route context:
 
 Route groups:
 
-- Master Data: `/donor`, `/capa`, `/investigation`, `/vendor`, `/sop`, `/user`, `/ai-rule`
-- Workflow Operations: `/workflow`, `/review`, `/escalation`, `/incident`, `/task`, `/notification`
+- Master Data: `/donor`, `/eligibility-rule`, `/infectious-disease-test`, `/tissue-type`, `/release`, `/deviation`, `/capa`, `/investigation`, `/vendor`, `/sop`, `/user`, `/ai-rule`
+- Workflow Operations: `/referral`, `/screening`, `/medical-review`, `/qa-review`, `/recovery`, `/processing-release`, `/workflow`, `/escalation`, `/incident`, `/task`, `/notification`
 - Analytics & Intelligence: `/dashboard`, `/operations`, `/workload`, `/sla`, `/drift-analysis`, `/workflow-intelligence`
 - Administration: `/admin/users`, `/admin/workspaces`, `/admin/workflow-engine`, `/admin/permissions`, `/admin/responsibility-center`
 
@@ -162,19 +293,23 @@ The route structure is shared across roles. Role, permission, and workflow state
 
 `operational.workflow_state_machine` defines regulated workflow states:
 
-- Draft Intake
-- Pending Intake Validation
-- Pending Clinical Review
-- Clinical Review In Progress
-- Pending Additional Information
-- High Risk Escalation
-- QA Investigation
-- CAPA Investigation
-- Clinical Re-Review
-- Operations Escalation
-- Vendor SLA Investigation
-- Approved
+- Referral Received
+- Intake In Progress
+- Pending Administrative Screen
+- Pending Medical Social History Review
+- Pending Infectious Disease Review
+- Pending Tissue Suitability Review
+- Pending Recovery Suitability Review
+- Pending Medical Director Review
+- Pending QA Review
+- Recovery Authorized
+- Processing Hold
+- Pending Processing Release
+- Released for Clinical Use
+- Released for Research Use
+- Quarantine
 - Rejected
+- Destroyed
 - Closed
 
 Each state also stores:

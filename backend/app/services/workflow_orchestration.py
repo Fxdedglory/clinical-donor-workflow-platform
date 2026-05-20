@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     AIDecision,
+    Donor,
     DonorReview,
     Notification,
     Role,
@@ -31,7 +32,15 @@ from app.services.functional_routes import route_path_for_record
 from app.services.notifications import notify_role
 from app.services.risk_engine import RiskAnalysis
 
-TERMINAL_STATES = {"Approved", "Rejected", "Closed"}
+TERMINAL_STATES = {
+    "Approved",
+    "Rejected",
+    "Closed",
+    "Released for Clinical Use",
+    "Released for Research Use",
+    "Quarantine",
+    "Destroyed",
+}
 STATE_ALIASES = {
     "Pending": "Pending Intake Validation",
     "Under Review": "Pending Clinical Review",
@@ -72,6 +81,29 @@ def _canonical_state(state: str | None) -> str:
     return STATE_ALIASES.get(state or "", state or "Draft Intake")
 
 
+def _eligibility_status_for_state(state: str) -> str:
+    if state in {"Rejected", "Destroyed"}:
+        return "Rejected"
+    if state in {"Processing Hold", "Quarantine", "Pending QA Review"}:
+        return "Hold"
+    if state in {"Pending Medical Director Review"}:
+        return "Medical Director Review"
+    if state in {"Released for Clinical Use", "Released for Research Use", "Recovery Authorized"}:
+        return "Eligible"
+    return "Pending"
+
+
+def _disposition_for_state(state: str) -> str | None:
+    mapping = {
+        "Released for Clinical Use": "Clinical Transplant",
+        "Released for Research Use": "Research Use",
+        "Quarantine": "Quarantine",
+        "Destroyed": "Destruction",
+        "Rejected": "Rejected / Deferred",
+    }
+    return mapping.get(state)
+
+
 def _role_for_user(db: Session, user: User) -> Role:
     role = db.get(Role, user.role_id) if user.role_id else None
     if not role:
@@ -92,6 +124,10 @@ def _record_state(db: Session, record_type: str, record_id: str, task: WorkflowT
         donor = db.get(DonorReview, int(record_id))
         if donor:
             return _canonical_state(donor.intake_status)
+    if record_type == "Donor":
+        donor = db.get(Donor, int(record_id))
+        if donor:
+            return _canonical_state(donor.current_workflow_state)
     return "Assigned"
 
 
@@ -360,6 +396,7 @@ def execute_workflow_transition(
     }
 
     donor = db.get(DonorReview, int(related_record_id)) if related_record_type == "DonorReview" else None
+    donor_master = db.get(Donor, int(related_record_id)) if related_record_type == "Donor" else None
     if donor:
         intake_matrix = _donor_decision_matrix(donor, action_name=action_name, rule=rule)
         target_state = intake_matrix["to_state"]
@@ -403,6 +440,12 @@ def execute_workflow_transition(
             donor.reviewer_id = current_user.user_id
         if target_state == "Rejected" and note:
             donor.rejection_reason = note
+
+    if donor_master:
+        donor_master.current_workflow_state = target_state
+        donor_master.updated_at = datetime.now(UTC)
+        donor_master.eligibility_status = _eligibility_status_for_state(target_state)
+        donor_master.final_disposition = _disposition_for_state(target_state) or donor_master.final_disposition
 
     new_task = None
     if target_role and target_state not in TERMINAL_STATES:

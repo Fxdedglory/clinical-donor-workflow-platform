@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from app.auth.security import get_password_hash
 from app.database import SessionLocal
 from app.models import (
+    CAPA,
     SOP,
     AIDecision,
     AIModelVersion,
@@ -15,9 +16,21 @@ from app.models import (
     AIRiskRule,
     AuditLog,
     ChangeControl,
+    Deviation,
+    Disposition,
+    Donor,
     DonorReview,
+    DonorScreening,
+    EligibilityDecision,
+    EligibilityRule,
     EscalationEvent,
+    InfectiousDiseaseResult,
+    InfectiousDiseaseTest,
+    MedicalSocialHistory,
     Notification,
+    ProcessingRelease,
+    RecoverySuitability,
+    ReferralSource,
     RiskCategory,
     Role,
     RoleDashboardWidget,
@@ -26,6 +39,7 @@ from app.models import (
     RoleResponsibility,
     RoleWorkspaceConfig,
     SOPTrainingAssignment,
+    TissueType,
     TrainingCompletion,
     User,
     Vendor,
@@ -47,6 +61,7 @@ from app.services.ai_governance import (
     ensure_ai_governance_data,
 )
 from app.services.audit import log_audit, serialize_model
+from app.services.eligibility_engine import evaluate_donor_eligibility
 from app.services.escalations import evaluate_overdue_tasks
 from app.services.functional_routes import route_path_for_record
 from app.services.notifications import create_notification
@@ -57,13 +72,23 @@ fake = Faker()
 
 BLOOD_TYPES = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "Unknown"]
 STATUSES = [
-    "Pending Intake Validation",
-    "Pending Clinical Review",
-    "Clinical Review In Progress",
-    "Pending Additional Information",
-    "QA Investigation",
-    "Approved",
+    "Referral Received",
+    "Intake In Progress",
+    "Pending Administrative Screen",
+    "Pending Medical Social History Review",
+    "Pending Infectious Disease Review",
+    "Pending Tissue Suitability Review",
+    "Pending Recovery Suitability Review",
+    "Pending Medical Director Review",
+    "Pending QA Review",
+    "Recovery Authorized",
+    "Processing Hold",
+    "Pending Processing Release",
+    "Released for Clinical Use",
+    "Released for Research Use",
+    "Quarantine",
     "Rejected",
+    "Destroyed",
 ]
 NOTES = [
     "Routine intake packet reviewed. No abnormal disclosures.",
@@ -90,6 +115,63 @@ VENDOR_SYSTEMS = [
     ("Crescent QMS", "Document Control System", "Tier 2", 99.5),
     ("Helio Tickets", "Vendor Support Portal", "Tier 2", 99.0),
     ("Cobalt Archive", "Clinical Attachment Repository", "Tier 3", 98.5),
+]
+
+REFERRAL_SOURCES = [
+    ("Memorial Donor Network", "OPO", "Great Lakes"),
+    ("Aster Regional Hospital", "Hospital", "Northeast"),
+    ("North Valley Recovery Partner", "Recovery Partner", "West"),
+    ("Crescent Academic Medical Center", "Hospital", "South"),
+    ("Helio Tissue Referral Line", "Referral Center", "Midwest"),
+]
+
+TISSUE_TYPES = [
+    ("Cornea", "Ocular", 2, 75, 18, 168, "SOP-TS-101"),
+    ("Skin", "Dermal", 15, 80, 24, 120, "SOP-TS-110"),
+    ("Bone", "Musculoskeletal", 12, 70, 24, 120, "SOP-TS-120"),
+    ("Tendon", "Musculoskeletal", 12, 65, 24, 120, "SOP-TS-121"),
+    ("Heart Valve", "Cardiovascular", 0, 55, 24, 72, "SOP-TS-130"),
+    ("Organ", "Organ", 0, 70, 12, 24, "SOP-TS-140"),
+    ("Dermal Matrix", "Regenerative Medicine Material", 18, 75, 24, 168, "SOP-TS-150"),
+]
+
+INFECTIOUS_TESTS = [
+    ("HIV NAT", "HIV", "NAT", 168, True, False),
+    ("HIV Serology", "HIV", "Serology", 168, False, True),
+    ("HBV NAT", "HBV", "NAT", 168, True, False),
+    ("HCV NAT", "HCV", "NAT", 168, True, False),
+    ("HTLV Serology", "HTLV", "Serology", 168, False, True),
+    ("Syphilis Serology", "Syphilis", "Serology", 168, False, True),
+    ("CMV Serology", "CMV", "Serology", 168, False, True),
+    ("West Nile NAT", "West Nile", "NAT", 168, True, False),
+]
+
+DISPOSITIONS = [
+    ("Clinical Transplant", "Released for transplantable clinical use."),
+    ("Tissue Processing", "Accepted for downstream tissue processing."),
+    ("Research Use", "Restricted to approved research use."),
+    ("Quarantine", "Placed on quality hold pending additional review."),
+    ("Destruction", "Rejected material requiring controlled destruction."),
+    ("Rejected / Deferred", "Donor or material deferred from eligible recovery."),
+]
+
+ELIGIBILITY_RULES = [
+    ("Identity Not Verified", "Administrative", "identity_verified", "is_false", "true", "Hold", "High", True, "Donor Intake Coordinator", "SOP-DS-001"),
+    ("Legal Authorization Missing", "Administrative", "authorization_verified", "is_false", "true", "Reject", "Critical", True, "Donor Intake Coordinator", "SOP-DS-001"),
+    ("Time Of Death Missing", "Administrative", "time_of_death_captured", "is_false", "true", "Hold", "High", True, "Donor Intake Coordinator", "SOP-DS-002"),
+    ("Chain Of Custody Not Initiated", "Administrative", "chain_of_custody_initiated", "is_false", "true", "Hold", "High", True, "Quality Assurance Specialist", "SOP-QMS-012"),
+    ("Recovery Window Invalid", "Administrative", "recovery_window_valid", "is_false", "true", "Reject", "Critical", True, "Operations Manager", "SOP-REC-005"),
+    ("Cancer History", "Medical Social History", "cancer_history", "is_true", "true", "Medical Director Review", "High", True, "Clinical Reviewer", "SOP-CLN-210"),
+    ("IV Drug Use", "Medical Social History", "iv_drug_use", "is_true", "true", "Medical Director Review", "High", True, "Clinical Reviewer", "SOP-CLN-211"),
+    ("Unknown Donor History", "Medical Social History", "unknown_history", "is_true", "true", "Research Only", "Medium", True, "Clinical Reviewer", "SOP-CLN-212"),
+    ("HIV NAT Positive", "Infectious Disease", "hiv_nat", "equals", "Positive", "Reject", "Critical", True, "Clinical Reviewer", "SOP-ID-300"),
+    ("HIV Serology Positive", "Infectious Disease", "hiv_serology", "equals", "Positive", "Medical Director Review", "Critical", True, "Clinical Reviewer", "SOP-ID-301"),
+    ("Specimen Window Invalid", "Infectious Disease", "specimen_window_invalid", "is_true", "true", "Hold", "High", True, "Quality Assurance Specialist", "SOP-ID-302"),
+    ("Trauma Contamination", "Recovery Suitability", "trauma_contamination", "is_true", "true", "Recovery Rejected", "Critical", True, "Operations Manager", "SOP-REC-020"),
+    ("Hospital Release Pending", "Recovery Suitability", "hospital_release_status", "not_equals", "Released", "Recovery Hold", "High", True, "Operations Manager", "SOP-REC-021"),
+    ("Sterility Failure", "Processing Release", "sterility_testing", "equals", "Failed", "Reject / Destroy", "Critical", True, "Quality Assurance Specialist", "SOP-REL-400"),
+    ("Traceability Not Verified", "Processing Release", "traceability_verification", "not_equals", "Verified", "QA Review Required", "High", True, "Quality Assurance Specialist", "SOP-REL-401"),
+    ("Open CAPA Linked", "QMS Compliance", "open_capa_count", ">", "0", "CAPA Required", "High", True, "Quality Assurance Specialist", "SOP-QMS-022"),
 ]
 
 DEMO_USERS = [
@@ -282,11 +364,512 @@ def _ensure_notification_density(db, roles: dict[str, Role], users_by_role: dict
             )
 
 
+def _ensure_eligibility_reference_data(db, users_by_role: dict[str, User]) -> dict[str, list]:
+    analyst = users_by_role.get("Business Technology Analyst")
+    sources = []
+    for name, source_type, region in REFERRAL_SOURCES:
+        source = db.execute(select(ReferralSource).where(ReferralSource.source_name == name)).scalar_one_or_none()
+        if not source:
+            source = ReferralSource(
+                source_name=name,
+                source_type=source_type,
+                contact_name=fake.name(),
+                region=region,
+            )
+            db.add(source)
+        sources.append(source)
+
+    tissues = []
+    for name, category, min_age, max_age, ischemic, preservation, sop in TISSUE_TYPES:
+        tissue = db.execute(select(TissueType).where(TissueType.tissue_name == name)).scalar_one_or_none()
+        if not tissue:
+            tissue = TissueType(
+                tissue_name=name,
+                tissue_category=category,
+                min_age=min_age,
+                max_age=max_age,
+                max_ischemic_hours=ischemic,
+                preservation_window_hours=preservation,
+                sop_reference=sop,
+            )
+            db.add(tissue)
+        tissues.append(tissue)
+
+    tests = []
+    for name, pathogen, method, valid_window, reject, review in INFECTIOUS_TESTS:
+        test = db.execute(select(InfectiousDiseaseTest).where(InfectiousDiseaseTest.test_name == name)).scalar_one_or_none()
+        if not test:
+            test = InfectiousDiseaseTest(
+                test_name=name,
+                pathogen=pathogen,
+                test_method=method,
+                valid_window_hours=valid_window,
+                rejection_if_positive=reject,
+                review_if_positive=review,
+            )
+            db.add(test)
+        tests.append(test)
+
+    dispositions = []
+    for name, description in DISPOSITIONS:
+        disposition = db.execute(select(Disposition).where(Disposition.disposition_name == name)).scalar_one_or_none()
+        if not disposition:
+            disposition = Disposition(disposition_name=name, description=description)
+            db.add(disposition)
+        dispositions.append(disposition)
+
+    for payload in ELIGIBILITY_RULES:
+        (
+            rule_name,
+            rule_category,
+            condition_field,
+            condition_operator,
+            condition_value,
+            outcome,
+            severity,
+            requires_review,
+            required_role,
+            sop_reference,
+        ) = payload
+        rule = db.execute(select(EligibilityRule).where(EligibilityRule.rule_name == rule_name)).scalar_one_or_none()
+        if not rule:
+            db.add(
+                EligibilityRule(
+                    rule_name=rule_name,
+                    rule_category=rule_category,
+                    condition_field=condition_field,
+                    condition_operator=condition_operator,
+                    condition_value=condition_value,
+                    outcome=outcome,
+                    severity=severity,
+                    requires_review=requires_review,
+                    required_role=required_role,
+                    sop_reference=sop_reference,
+                    created_by=analyst.user_id if analyst else None,
+                    approved_by=analyst.user_id if analyst else None,
+                )
+            )
+    db.flush()
+    return {"sources": sources, "tissues": tissues, "tests": tests, "dispositions": dispositions}
+
+
+def _ensure_eligibility_workflow_config(db, roles: dict[str, Role]) -> None:
+    state_rows = [
+        ("Referral Received", "Referral Intake", "Donor Intake Coordinator", ["Create Referral", "Validate Intake"], ["Intake In Progress"], 8, False),
+        ("Intake In Progress", "Referral Intake", "Donor Intake Coordinator", ["Validate Intake", "Request Missing Info", "Cancel Referral"], ["Pending Administrative Screen", "Rejected"], 12, False),
+        ("Pending Administrative Screen", "Administrative Screening", "Donor Intake Coordinator", ["Submit to Admin Screen", "Place Hold", "Reject Donor"], ["Pending Medical Social History Review", "Processing Hold", "Rejected"], 12, False),
+        ("Pending Medical Social History Review", "Clinical Eligibility", "Clinical Reviewer", ["Continue Review", "Request Medical Director Review", "Reject Donor"], ["Pending Infectious Disease Review", "Pending Medical Director Review", "Rejected"], 24, False),
+        ("Pending Infectious Disease Review", "Clinical Eligibility", "Clinical Reviewer", ["Continue Review", "Request Medical Director Review", "Reject Donor"], ["Pending Tissue Suitability Review", "Pending Medical Director Review", "Rejected"], 24, False),
+        ("Pending Tissue Suitability Review", "Clinical Eligibility", "Clinical Reviewer", ["Approve for Recovery Review", "Request Medical Director Review", "Reject Donor"], ["Pending Recovery Suitability Review", "Pending Medical Director Review", "Rejected"], 24, False),
+        ("Pending Recovery Suitability Review", "Recovery Suitability", "Clinical Reviewer", ["Authorize Recovery", "Recovery Hold", "Reject Donor"], ["Recovery Authorized", "Processing Hold", "Rejected"], 18, False),
+        ("Pending Medical Director Review", "Medical Director Escalation", "Clinical Reviewer", ["Approve for Recovery Review", "Reject Donor"], ["Pending Recovery Suitability Review", "Rejected"], 12, False),
+        ("Recovery Authorized", "Recovery Authorization", "Clinical Reviewer", ["Submit to QA Review"], ["Pending QA Review"], 12, False),
+        ("Pending QA Review", "QMS Review", "Quality Assurance Specialist", ["Approve QA Release", "Place Hold", "Open Deviation", "Open CAPA", "Reject Release"], ["Pending Processing Release", "Processing Hold", "Rejected", "Destroyed"], 24, False),
+        ("Processing Hold", "QMS Review", "Quality Assurance Specialist", ["Open CAPA", "Request Rework", "Reject Release"], ["Pending QA Review", "Destroyed"], 72, False),
+        ("Pending Processing Release", "Processing Release", "Quality Assurance Specialist", ["Approve Release", "Place Processing Hold", "Reject Release"], ["Released for Clinical Use", "Released for Research Use", "Processing Hold", "Destroyed"], 24, False),
+        ("Released for Clinical Use", "Final Disposition", "Quality Assurance Specialist", [], ["Closed"], 0, True),
+        ("Released for Research Use", "Final Disposition", "Quality Assurance Specialist", [], ["Closed"], 0, True),
+        ("Quarantine", "Final Disposition", "Quality Assurance Specialist", [], ["Closed"], 0, True),
+        ("Rejected", "Final Disposition", "Clinical Reviewer", [], ["Closed"], 0, True),
+        ("Destroyed", "Final Disposition", "Quality Assurance Specialist", [], ["Closed"], 0, True),
+        ("Closed", "Final Disposition", "Operations Manager", [], [], 0, True),
+    ]
+    for index, (state, category, role_name, actions, next_states, sla, terminal) in enumerate(state_rows, start=1):
+        row = db.execute(select(WorkflowStateMachine).where(WorkflowStateMachine.state_name == state)).scalar_one_or_none()
+        payload = {
+            "state_category": category,
+            "owning_role_id": roles[role_name].role_id if role_name in roles else None,
+            "allowed_roles": [role_name],
+            "allowed_actions": actions,
+            "next_possible_states": next_states,
+            "sla_hours": sla,
+            "is_terminal": terminal,
+            "is_terminal_state": terminal,
+            "sort_order": index,
+        }
+        if row:
+            for field, value in payload.items():
+                setattr(row, field, value)
+        else:
+            db.add(WorkflowStateMachine(state_name=state, **payload))
+
+    transition_rows = [
+        ("validate_intake", "Validate Intake", "Intake In Progress", "Pending Administrative Screen", "Donor Intake Coordinator", "Donor Intake Coordinator", "Administrative Exclusion Screen", "Intake Validated", 12),
+        ("submit_admin_screen", "Submit to Admin Screen", "Pending Administrative Screen", "Pending Medical Social History Review", "Donor Intake Coordinator", "Clinical Reviewer", "Medical Social History Review", "Referral Routed", 24),
+        ("continue_infectious_review", "Continue Infectious Disease Review", "Pending Medical Social History Review", "Pending Infectious Disease Review", "Clinical Reviewer", "Clinical Reviewer", "Infectious Disease Eligibility Review", "Medical Review Complete", 24),
+        ("continue_tissue_review", "Continue Tissue Suitability Review", "Pending Infectious Disease Review", "Pending Tissue Suitability Review", "Clinical Reviewer", "Clinical Reviewer", "Tissue-Specific Eligibility Review", "Infectious Review Complete", 24),
+        ("approve_for_recovery_review", "Approve for Recovery Review", "Pending Tissue Suitability Review", "Pending Recovery Suitability Review", "Clinical Reviewer", "Clinical Reviewer", "Recovery Suitability Review", "Tissue Suitability Complete", 18),
+        ("request_medical_director_review", "Request Medical Director Review", "Pending Infectious Disease Review", "Pending Medical Director Review", "Clinical Reviewer", "Clinical Reviewer", "Medical Director Review", "Medical Director Review", 12),
+        ("authorize_recovery", "Authorize Recovery", "Pending Recovery Suitability Review", "Recovery Authorized", "Clinical Reviewer", "Quality Assurance Specialist", "QA Recovery Authorization Review", "Recovery Authorized", 12),
+        ("submit_to_qa_release", "Submit to QA Review", "Recovery Authorized", "Pending QA Review", "Clinical Reviewer", "Quality Assurance Specialist", "QA Release Review", "QA Review Requested", 24),
+        ("approve_qa_release", "Approve QA Release", "Pending QA Review", "Pending Processing Release", "Quality Assurance Specialist", "Quality Assurance Specialist", "Processing Release Review", "QA Release Approved", 24),
+        ("place_processing_hold", "Place Processing Hold", "Pending QA Review", "Processing Hold", "Quality Assurance Specialist", "Quality Assurance Specialist", "Processing Hold Review", "Processing Hold", 72),
+        ("open_deviation", "Open Deviation", "Pending QA Review", "Pending QA Review", "Quality Assurance Specialist", "Quality Assurance Specialist", "Deviation Investigation", "Deviation Opened", 72),
+        ("open_capa", "Open CAPA", "Processing Hold", "Pending QA Review", "Quality Assurance Specialist", "Quality Assurance Specialist", "CAPA Review", "CAPA Opened", 168),
+        ("approve_release", "Approve Release", "Pending Processing Release", "Released for Clinical Use", "Quality Assurance Specialist", "Operations Manager", "Final Disposition Review", "Released", 0),
+        ("reject_release", "Reject Release", "Pending Processing Release", "Destroyed", "Quality Assurance Specialist", "Operations Manager", "Final Disposition Review", "Destroyed", 0),
+        ("reject_donor_eligibility", "Reject Donor", "Pending Medical Social History Review", "Rejected", "Clinical Reviewer", "Operations Manager", "Final Disposition Review", "Rejected", 0),
+    ]
+    for action_name, label, from_state, to_state, source_role, target_role, task_type, notification_type, sla in transition_rows:
+        rule = db.execute(
+            select(WorkflowTransitionRule).where(WorkflowTransitionRule.action_name == action_name)
+        ).scalar_one_or_none()
+        payload = {
+            "action_label": label,
+            "from_state": from_state,
+            "to_state": to_state,
+            "source_role_id": roles[source_role].role_id,
+            "target_role_id": roles[target_role].role_id,
+            "task_type": task_type,
+            "notification_type": notification_type,
+            "audit_action": action_name.upper(),
+            "sla_hours": sla,
+            "is_active": True,
+        }
+        if rule:
+            for field, value in payload.items():
+                setattr(rule, field, value)
+        else:
+            db.add(WorkflowTransitionRule(action_name=action_name, **payload))
+    db.flush()
+
+
+def _random_donor_history(status: str) -> dict:
+    return {
+        "identity_verified": random.random() > 0.06,
+        "authorization_verified": random.random() > 0.05,
+        "chain_of_custody_initiated": random.random() > 0.08,
+        "specimen_available": random.random() > 0.07,
+        "recovery_window_valid": status not in {"Rejected", "Destroyed"} and random.random() > 0.08,
+        "jurisdiction_cleared": random.random() > 0.04,
+        "documentation_complete": random.random() > 0.18,
+        "source_validated": random.random() > 0.03,
+    }
+
+
+def _ensure_donor_eligibility_data(db, roles: dict[str, Role], users_by_role: dict[str, User]) -> None:
+    reference = _ensure_eligibility_reference_data(db, users_by_role)
+    _ensure_eligibility_workflow_config(db, roles)
+    sources = reference["sources"]
+    tissues = reference["tissues"]
+    tests = reference["tests"]
+
+    existing_donors = db.execute(select(Donor.donor_pk).limit(1)).first()
+    if not existing_donors:
+        review_rows = db.execute(select(DonorReview).order_by(DonorReview.review_id).limit(1200)).scalars().all()
+        for index, review in enumerate(review_rows, start=1):
+            status = random.choices(
+                STATUSES,
+                weights=[8, 12, 15, 14, 12, 10, 7, 5, 6, 4, 4, 5, 3, 2, 2, 1, 1],
+                k=1,
+            )[0]
+            created_at = review.created_at or _random_datetime(90)
+            donor = Donor(
+                donor_identifier=f"D-{index:04d}",
+                donor_review_id=review.review_id,
+                donor_name=review.donor_name,
+                age=review.age,
+                blood_type=review.blood_type,
+                sex=random.choice(["Female", "Male", "Unknown"]),
+                referral_source_id=random.choice(sources).source_id,
+                time_of_death=created_at - timedelta(hours=random.randint(4, 48)),
+                source_organization=random.choice(sources).source_name,
+                donor_history=_random_donor_history(status),
+                current_workflow_state=status,
+                eligibility_status=random.choice(["Pending", "Eligible", "Conditional", "Hold", "Medical Director Review", "Rejected"]),
+                final_disposition=random.choice(["Clinical Transplant", "Tissue Processing", "Research Use", "Quarantine", None])
+                if status in {"Released for Clinical Use", "Released for Research Use", "Quarantine", "Rejected", "Destroyed"}
+                else None,
+                created_at=created_at,
+                updated_at=review.updated_at or created_at,
+            )
+            db.add(donor)
+        db.flush()
+
+    donors = db.execute(select(Donor).order_by(Donor.donor_pk)).scalars().all()
+    existing_screening = db.execute(select(DonorScreening.screening_id).limit(1)).first()
+    if not existing_screening:
+        for donor in donors:
+            db.add(
+                DonorScreening(
+                    donor_pk=donor.donor_pk,
+                    referral_id=f"REF-2026-{donor.donor_pk:05d}",
+                    administrative_outcome=random.choice(["Continue", "Continue", "Hold", "Escalate", "Reject"]),
+                    medical_social_outcome=random.choice(["Eligible", "Conditional", "Medical Director Review", "Research Only", "Reject"]),
+                    infectious_disease_outcome=random.choice(["Continue", "Continue", "Hold", "Medical Director Review", "Reject"]),
+                    tissue_suitability_outcome=random.choice(["Eligible", "Conditional", "Research Only", "Reject"]),
+                    recovery_suitability_outcome=random.choice(["Recovery Approved", "Recovery Hold", "Recovery Escalation", "Recovery Rejected"]),
+                    qa_outcome=random.choice(["Pending", "QA Review Required", "Release Approved", "Release Hold", "CAPA Required"]),
+                    automated_rule_outcome=random.choice(["Continue", "Conditional", "Hold", "Medical Director Review"]),
+                    current_decision=donor.eligibility_status,
+                    created_at=donor.created_at,
+                    updated_at=donor.updated_at,
+                )
+            )
+        db.flush()
+
+    if not db.execute(select(MedicalSocialHistory.history_id).limit(1)).first():
+        for donor in random.sample(donors, k=min(180, len(donors))):
+            history = MedicalSocialHistory(
+                donor_pk=donor.donor_pk,
+                cancer_history=random.random() < 0.08,
+                neurological_disease=random.random() < 0.04,
+                autoimmune_disease=random.random() < 0.06,
+                transmissible_disease_history=random.random() < 0.05,
+                iv_drug_use=random.random() < 0.07,
+                incarceration_history=random.random() < 0.04,
+                travel_exposure=random.random() < 0.12,
+                high_risk_behavior=random.random() < 0.05,
+                unknown_history=random.random() < 0.08,
+                outcome=random.choice(["Eligible", "Conditional", "Medical Director Review", "Research Only", "Reject"]),
+                review_notes=random.choice(NOTES),
+            )
+            db.add(history)
+        db.flush()
+
+    if not db.execute(select(InfectiousDiseaseResult.result_id).limit(1)).first():
+        for donor in random.sample(donors, k=min(220, len(donors))):
+            for test in tests:
+                positive_rate = 0.015 if test.rejection_if_positive else 0.04
+                result = random.choices(["Negative", "Positive", "Indeterminate"], weights=[1 - positive_rate - 0.02, positive_rate, 0.02], k=1)[0]
+                db.add(
+                    InfectiousDiseaseResult(
+                        donor_pk=donor.donor_pk,
+                        test_id=test.test_id,
+                        result_value=result,
+                        specimen_collected_at=donor.time_of_death + timedelta(hours=random.randint(1, 24)) if donor.time_of_death else _random_datetime(30),
+                        specimen_window_valid=random.random() > 0.06,
+                        reviewed_by=users_by_role["Clinical Reviewer"].user_id,
+                        review_status="Review Required" if result != "Negative" else "Reviewed",
+                    )
+                )
+        db.flush()
+
+    if not db.execute(select(RecoverySuitability.recovery_id).limit(1)).first():
+        for donor in random.sample(donors, k=min(110, len(donors))):
+            tissue = random.choice(tissues)
+            db.add(
+                RecoverySuitability(
+                    donor_pk=donor.donor_pk,
+                    tissue_type_id=tissue.tissue_type_id,
+                    refrigeration_timing_hours=round(random.uniform(1, 18), 1),
+                    body_cooling_status=random.choice(["Cooling Complete", "Cooling Delayed", "Unknown"]),
+                    trauma_contamination=random.random() < 0.08,
+                    blood_draw_timing_hours=round(random.uniform(1, 36), 1),
+                    hospital_release_status=random.choice(["Released", "Pending", "Delayed"]),
+                    recovery_environment=random.choice(["Hospital OR", "Recovery Suite", "Morgue", "Transport"]),
+                    recovery_window_hours=round(random.uniform(6, 48), 1),
+                    outcome=random.choice(["Recovery Approved", "Recovery Hold", "Recovery Escalation", "Recovery Rejected"]),
+                    reviewed_at=_random_datetime(20),
+                )
+            )
+        db.flush()
+
+    releases: list[ProcessingRelease] = []
+    if not db.execute(select(ProcessingRelease.release_id).limit(1)).first():
+        for index, donor in enumerate(random.sample(donors, k=min(60, len(donors))), start=1):
+            status = random.choice(["Pending QA Review", "Release Approved", "Release Hold", "QA Review Required", "CAPA Required", "Reject / Destroy"])
+            release = ProcessingRelease(
+                release_identifier=f"REL-2026-{index:04d}",
+                donor_pk=donor.donor_pk,
+                tissue_type_id=random.choice(tissues).tissue_type_id,
+                sterility_testing=random.choice(["Passed", "Passed", "Pending", "Failed"]),
+                bioburden_status=random.choice(["Acceptable", "Acceptable", "Pending", "Failed"]),
+                environmental_monitoring=random.choice(["Acceptable", "Pending", "Exception"]),
+                packaging_qc=random.choice(["Verified", "Pending", "Exception"]),
+                labeling_verification=random.choice(["Verified", "Pending", "Exception"]),
+                traceability_verification=random.choice(["Verified", "Pending", "Exception"]),
+                chain_of_custody_verified=random.random() > 0.08,
+                release_status=status,
+                final_disposition=random.choice(["Clinical Transplant", "Tissue Processing", "Research Use", "Quarantine", "Destruction"]),
+                created_at=_random_datetime(45),
+                released_at=_random_datetime(10) if status == "Release Approved" else None,
+            )
+            db.add(release)
+            releases.append(release)
+        db.flush()
+    else:
+        releases = list(db.execute(select(ProcessingRelease).limit(100)).scalars().all())
+
+    deviations: list[Deviation] = []
+    if not db.execute(select(Deviation.deviation_id).limit(1)).first():
+        for index, donor in enumerate(random.sample(donors, k=min(45, len(donors))), start=1):
+            release = random.choice(releases) if releases else None
+            deviation = Deviation(
+                deviation_code=f"DEV-2026-{index:04d}",
+                donor_pk=donor.donor_pk,
+                release_id=release.release_id if release else None,
+                deviation_category=random.choice(["Documentation", "Chain of Custody", "Environmental Monitoring", "Labeling", "Processing Hold"]),
+                severity=random.choice(["Low", "Medium", "High", "Critical"]),
+                description=fake.paragraph(nb_sentences=2),
+                status=random.choice(["Open", "Investigation", "Pending QA Review", "Closed"]),
+                opened_at=_random_datetime(60),
+                closed_at=_random_datetime(20) if random.random() < 0.25 else None,
+            )
+            db.add(deviation)
+            deviations.append(deviation)
+        db.flush()
+    else:
+        deviations = list(db.execute(select(Deviation).limit(100)).scalars().all())
+
+    if not db.execute(select(CAPA.capa_id).limit(1)).first():
+        for index, deviation in enumerate(random.sample(deviations, k=min(30, len(deviations))), start=1):
+            capa = CAPA(
+                capa_code=f"CAPA-2026-{index:04d}",
+                donor_pk=deviation.donor_pk,
+                deviation_id=deviation.deviation_id,
+                release_id=deviation.release_id,
+                root_cause=random.choice(["Procedure gap", "Training gap", "System interface delay", "Documentation mismatch"]),
+                corrective_action_owner=random.choice([users_by_role["Quality Assurance Specialist"].full_name, users_by_role["Operations Manager"].full_name]),
+                status=random.choice(["Open", "Investigation", "Effectiveness Check", "Closed"]),
+                due_date=datetime.now(UTC) + timedelta(days=random.randint(7, 45)),
+                closed_at=_random_datetime(15) if random.random() < 0.2 else None,
+            )
+            db.add(capa)
+        db.flush()
+
+    decision_count = len(db.execute(select(EligibilityDecision.decision_id).limit(1)).all())
+    if decision_count == 0:
+        clinical_user = users_by_role["Clinical Reviewer"]
+        categories = ["Administrative", "Medical Social History", "Infectious Disease", "Recovery Suitability", "Processing Release", "QMS Compliance"]
+        for donor in random.sample(donors, k=min(650, len(donors))):
+            evaluate_donor_eligibility(db, donor, category=random.choice(categories), user_id=clinical_user.user_id)
+        db.flush()
+
+    _ensure_eligibility_tasks_notifications_audits(db, donors, roles, users_by_role)
+
+
+def _ensure_eligibility_tasks_notifications_audits(db, donors: list[Donor], roles: dict[str, Role], users_by_role: dict[str, User]) -> None:
+    existing_tasks = len(db.execute(select(WorkflowTask.task_id)).all())
+    task_targets = [
+        ("Referral Intake", "Donor Intake Coordinator", "Referral Intake Workbench", "Intake In Progress"),
+        ("Administrative Exclusion Screen", "Donor Intake Coordinator", "Administrative Screening Queue", "Pending Administrative Screen"),
+        ("Medical Social History Review", "Clinical Reviewer", "Medical Review Queue", "Pending Medical Social History Review"),
+        ("Infectious Disease Eligibility Review", "Clinical Reviewer", "Infectious Disease Review Queue", "Pending Infectious Disease Review"),
+        ("Tissue-Specific Eligibility Review", "Clinical Reviewer", "Tissue Suitability Queue", "Pending Tissue Suitability Review"),
+        ("Recovery Suitability Review", "Clinical Reviewer", "Recovery Suitability Queue", "Pending Recovery Suitability Review"),
+        ("Medical Director Escalation", "Clinical Reviewer", "Medical Director Review Queue", "Pending Medical Director Review"),
+        ("QA Processing Release Review", "Quality Assurance Specialist", "QA Release Queue", "Pending QA Review"),
+        ("Processing Hold Review", "Quality Assurance Specialist", "Processing Hold Queue", "Processing Hold"),
+    ]
+    if existing_tasks < 500:
+        needed = 500 - existing_tasks
+        for donor in random.sample(donors, k=min(needed, len(donors))):
+            task_type, role_name, queue_name, workflow_state = random.choice(task_targets)
+            role = roles[role_name]
+            user = users_by_role[role_name]
+            priority = random.choice(["Routine", "Standard", "High", "Critical"])
+            db.add(
+                WorkflowTask(
+                    task_type=task_type,
+                    title=f"{task_type} for {donor.donor_identifier}",
+                    description=f"Donor eligibility workflow is in {workflow_state}.",
+                    assigned_to_user_id=user.user_id,
+                    assigned_role_id=role.role_id,
+                    priority=priority,
+                    status=random.choice(["Assigned", "In Progress", "Pending", "Blocked", "Escalated"]),
+                    workflow_state=workflow_state,
+                    queue_name=queue_name,
+                    due_date=datetime.now(UTC) + timedelta(hours=random.randint(4, 72)),
+                    related_record_id=str(donor.donor_pk),
+                    related_record_type="Donor",
+                    escalation_level=1 if priority == "Critical" else 0,
+                )
+            )
+        db.flush()
+
+    existing_notifications = len(db.execute(select(Notification.notification_id)).all())
+    if existing_notifications < 500:
+        tasks = db.execute(
+            select(WorkflowTask)
+            .where(WorkflowTask.status.in_(["Assigned", "In Progress", "Pending", "Blocked", "Escalated"]))
+            .order_by(WorkflowTask.due_date)
+            .limit(500 - existing_notifications)
+        ).scalars().all()
+        for task in tasks:
+            role = db.get(Role, task.assigned_role_id) if task.assigned_role_id else None
+            if not role:
+                continue
+            user = users_by_role.get(role.role_name)
+            if not user:
+                continue
+            create_notification(
+                db,
+                user_id=user.user_id,
+                title=f"[{task.priority}] {task.title}",
+                message=f"{task.workflow_state} requires action in {task.queue_name}.",
+                notification_type=random.choice(["Eligibility", "SLA", "QMS", "Recovery", "Release"]),
+                priority=task.priority,
+                workflow_task_id=task.task_id,
+                related_record_type=task.related_record_type,
+                related_record_id=task.related_record_id,
+                action_route=route_path_for_record(task.related_record_type, task.related_record_id),
+                workflow_context={
+                    "task_id": task.task_id,
+                    "workflow_state": task.workflow_state,
+                    "queue_name": task.queue_name,
+                    "route_path": route_path_for_record(task.related_record_type, task.related_record_id),
+                },
+            )
+
+    audit_count = len(db.execute(select(AuditLog.audit_id)).all())
+    if audit_count < 2000:
+        needed = 2000 - audit_count
+        users = list(users_by_role.values())
+        for donor in random.choices(donors, k=min(needed, 2000)):
+            log_audit(
+                db,
+                user_id=random.choice(users).user_id,
+                action_type=random.choice(["ELIGIBILITY_RULE_EVALUATED", "DONOR_STATE_UPDATED", "QMS_RELEASE_CHECK", "SCREENING_MATRIX_REVIEWED"]),
+                table_name="dim_donor",
+                record_id=str(donor.donor_pk),
+                entity_type="Donor",
+                entity_id=str(donor.donor_pk),
+                old_value=None,
+                new_value={
+                    "donor_identifier": donor.donor_identifier,
+                    "workflow_state": donor.current_workflow_state,
+                    "eligibility_status": donor.eligibility_status,
+                    "final_disposition": donor.final_disposition,
+                },
+            )
+
+    existing_timeline = db.execute(
+        select(WorkflowTimelineEvent.timeline_event_id)
+        .where(WorkflowTimelineEvent.related_record_type == "Donor")
+        .limit(1)
+    ).first()
+    if not existing_timeline:
+        for donor in random.sample(donors, k=min(350, len(donors))):
+            events = [
+                ("Referral Received", "Referral intake created"),
+                ("Eligibility Matrix", f"Automated rule outcome: {donor.eligibility_status}"),
+                ("Workflow State", f"Current state: {donor.current_workflow_state}"),
+            ]
+            for event_type, summary in events:
+                db.add(
+                    WorkflowTimelineEvent(
+                        related_record_type="Donor",
+                        related_record_id=str(donor.donor_pk),
+                        event_type=event_type,
+                        event_summary=summary,
+                        event_detail={
+                            "donor_identifier": donor.donor_identifier,
+                            "final_disposition": donor.final_disposition,
+                        },
+                        created_by=random.choice(list(users_by_role.values())).user_id,
+                        created_at=donor.created_at + timedelta(hours=random.randint(1, 48)),
+                    )
+                )
+    db.flush()
+
+
 def ensure_enterprise_data(db) -> None:
     roles = _ensure_roles(db)
     users_by_role = _ensure_users(db, roles)
     ensure_ai_governance_data(db, users_by_role)
     ensure_workspace_definitions(db, roles)
+    _ensure_donor_eligibility_data(db, roles, users_by_role)
     ensure_ai_decisions_for_existing_donors(db)
 
     existing_task = db.execute(select(WorkflowTask.task_id).limit(1)).first()
@@ -552,6 +1135,20 @@ def seed_database(records: int, force: bool = False) -> None:
                 RoleDashboardWidget,
                 RoleNavigationConfig,
                 RoleWorkspaceConfig,
+                EligibilityDecision,
+                CAPA,
+                Deviation,
+                ProcessingRelease,
+                RecoverySuitability,
+                MedicalSocialHistory,
+                InfectiousDiseaseResult,
+                DonorScreening,
+                Donor,
+                EligibilityRule,
+                InfectiousDiseaseTest,
+                TissueType,
+                Disposition,
+                ReferralSource,
                 VendorIncident,
                 ChangeControl,
                 DonorReview,

@@ -68,6 +68,11 @@ database/migrations
 ```text
 Master data routes
   /donor/{id}
+  /eligibility-rule/{id}
+  /infectious-disease-test/{id}
+  /tissue-type/{id}
+  /release/{id}
+  /deviation/{id}
   /capa/{id}
   /investigation/{id}
   /vendor/{id}
@@ -76,8 +81,12 @@ Master data routes
   /ai-rule/{id}
 
 Workflow operation routes
-  /workflow/{id}
-  /review/{id}
+  /referral/{id}
+  /screening/{id}
+  /medical-review/{id}
+  /qa-review/{id}
+  /recovery/{id}
+  /processing-release/{id}
   /escalation/{id}
   /incident/{id}
   /task/{id}
@@ -99,7 +108,52 @@ Administration routes
   /admin/responsibility-center
 ```
 
-The same route can render different views by role. For example, `/capa/84` gives QA users investigation and compliance actions, operations managers escalation and staffing context, and Business Technology Analysts workflow-intelligence context.
+The same route can render different views by role. For example, `/capa/84` gives QA users corrective action and compliance context, operations managers escalation and staffing context, and Business Technology Analysts workflow-intelligence context.
+
+## Donor Eligibility Workflow
+
+```text
+Referral Received
+  -> Referral Intake
+  -> Administrative Exclusion Screen
+  -> Medical / Social History Review
+  -> Infectious Disease Eligibility Review
+  -> Tissue-Specific Eligibility Review
+  -> Operational Recovery Suitability Review
+  -> Quality & Compliance Review
+  -> Automated Rule Resolution
+  -> Medical Director Review if needed
+  -> Recovery Authorization
+  -> Processing Release
+  -> Final Disposition
+```
+
+Final disposition values:
+
+- Clinical Transplant
+- Tissue Processing
+- Research Use
+- Quarantine
+- Destruction
+- Rejected / Deferred
+
+The donor master record persists beyond workflow execution. Workflow tasks, eligibility decisions, infectious disease results, medical/social history reviews, recovery suitability checks, processing release records, deviations, CAPAs, notifications, and audit events link back to `operational.dim_donor`.
+
+## Decision Engine
+
+`backend/app/services/eligibility_engine.py` evaluates database-governed `operational.dim_eligibility_rule` rows. Each rule has a category, condition field/operator/value, outcome, severity, review requirement, required role, SOP reference, active flag, and version. The engine builds a donor context from master data and facts, evaluates matching rules, records `fact_eligibility_decision`, updates donor eligibility status/final disposition, and feeds route analytics.
+
+Decision matrix categories:
+
+- Administrative
+- Medical Social History
+- Infectious Disease
+- Tissue Specific
+- Recovery Suitability
+- Processing Release
+- QMS Compliance
+- Customer Restriction
+- Country / Export Restriction
 
 ## Route Resolution Flow
 
@@ -111,7 +165,7 @@ Streamlit login form
   -> route query param determines requested function route
   -> GET /api/routes/navigation
   -> FastAPI resolves actual or admin-preview role visibility
-  -> GET /api/routes/resolve?route=/review/{id}
+  -> GET /api/routes/resolve?route=/donor/{id}
   -> functional route engine parses route, loads entity/workflow context,
      validates role permissions, builds breadcrumbs, loads timeline,
      loads related records, and returns authorized action ribbon metadata
@@ -166,10 +220,10 @@ Example:
 
 ```text
 Donor Intake Coordinator
-  submit_to_clinical_review
-  -> Pending Clinical Review
-  -> creates Clinical Review Workbench task
-  -> notifies Clinical Reviewer at /review/{id}
+  submit_admin_screen
+  -> Pending Medical Social History Review
+  -> creates Medical Social History Review task
+  -> notifies Clinical Reviewer at /donor/{id}
   -> writes audit event
 ```
 
@@ -178,7 +232,7 @@ Donor Intake Coordinator
 ```text
 Business Technology Analyst configures active AI risk rules
   -> rules persist in operational.dim_ai_risk_rule
-  -> donor intake/review calls governed risk engine
+  -> donor eligibility routes call governed rule engines
   -> fact_ai_decision stores score, recommendation, triggered rules,
      confidence, escalation reasons, workflow stage, and model version
   -> workflow timeline records AI score and escalation events
@@ -196,7 +250,7 @@ Business Technology Analyst configures active AI risk rules
 User opens notification bell
   -> POST /api/notifications/{id}/open
   -> notification is marked read
-  -> backend returns the notification action_route, for example /review/{id}
+  -> backend returns the notification action_route, for example /donor/{id}
   -> Streamlit updates st.query_params["route"]
   -> route engine reloads the exact record, workflow state,
      role-authorized actions, timeline, and related records
@@ -213,6 +267,11 @@ User opens notification bell
 - Authentication and RBAC
 - Functional route engine
 - Master data registry
+- Donor eligibility decision engine
+- Infectious disease review matrix
+- Tissue and recovery suitability matrix
+- Processing release matrix
+- Deviation and CAPA QMS records
 - Route-aware layout renderer
 - Contextual action ribbon
 - Workflow-aware action modals

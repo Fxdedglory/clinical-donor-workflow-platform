@@ -148,6 +148,10 @@ def _related_records(context: dict[str, Any]) -> None:
             if not rows:
                 st.caption("None")
                 continue
+            if isinstance(rows, dict):
+                rows = [rows]
+            elif not isinstance(rows, list):
+                rows = [{"value": rows}]
             _safe_dataframe(rows, height=220)
             route_rows = [row for row in rows if row.get("route_path")]
             if route_rows:
@@ -179,6 +183,50 @@ def _collection_visuals(context: dict[str, Any]) -> None:
         )
 
 
+def _eligibility_visuals(analytics: dict[str, Any]) -> None:
+    outcomes = analytics.get("eligibility_outcomes", [])
+    dispositions = analytics.get("final_dispositions", [])
+    rule_outcomes = analytics.get("rule_outcomes", [])
+    release_status = analytics.get("release_status", [])
+    deviation_matrix = analytics.get("deviation_matrix", [])
+    if not any([outcomes, dispositions, rule_outcomes, release_status, deviation_matrix]):
+        return
+
+    st.markdown("<div class='section-title'>Donor Eligibility Decision Intelligence</div>", unsafe_allow_html=True)
+    top_left, top_right = st.columns(2)
+    with top_left:
+        if outcomes:
+            fig = px.bar(pd.DataFrame(outcomes), x="outcome", y="count", title="Eligibility Outcome Distribution")
+            fig.update_layout(height=340, margin=dict(l=20, r=20, t=50, b=20))
+            st.plotly_chart(fig, width="stretch")
+        else:
+            st.plotly_chart(empty_figure("Eligibility Outcome Distribution"), width="stretch")
+    with top_right:
+        if release_status:
+            fig = px.funnel(pd.DataFrame(release_status), x="count", y="release_status", title="Processing Release Funnel")
+            fig.update_layout(height=340, margin=dict(l=20, r=20, t=50, b=20))
+            st.plotly_chart(fig, width="stretch")
+        else:
+            st.plotly_chart(empty_figure("Processing Release Funnel"), width="stretch")
+
+    bottom_left, bottom_right = st.columns(2)
+    with bottom_left:
+        if deviation_matrix:
+            st.plotly_chart(
+                _plot_heatmap(deviation_matrix, x="category", y="severity", z="count", title="Deviation / CAPA Risk Matrix"),
+                width="stretch",
+            )
+        else:
+            st.plotly_chart(empty_figure("Deviation / CAPA Risk Matrix"), width="stretch")
+    with bottom_right:
+        if rule_outcomes:
+            fig = px.pie(pd.DataFrame(rule_outcomes), names="outcome", values="count", title="Decision Matrix Outcome Mix")
+            fig.update_layout(height=360, margin=dict(l=20, r=20, t=50, b=20))
+            st.plotly_chart(fig, width="stretch")
+        else:
+            st.plotly_chart(empty_figure("Decision Matrix Outcome Mix"), width="stretch")
+
+
 def render_collection(context: dict[str, Any]) -> None:
     _breadcrumb(context)
     page_header(context["label"], f"{context['route_group']} function route: {context['route_path']}")
@@ -190,7 +238,10 @@ def render_collection(context: dict[str, Any]) -> None:
         if selectable:
             selected = st.selectbox(
                 "Open record",
-                [f"{row['route_path']} | {row.get('donor_id') or row.get('request_id') or row.get('ticket_number') or row.get('title') or row.get('vendor_name') or row.get('rule_name') or row.get('task_id')}" for row in selectable],
+                [
+                    f"{row['route_path']} | {row.get('donor_identifier') or row.get('donor_id') or row.get('referral_id') or row.get('release_identifier') or row.get('deviation_code') or row.get('capa_code') or row.get('request_id') or row.get('ticket_number') or row.get('title') or row.get('vendor_name') or row.get('rule_name') or row.get('test_name') or row.get('tissue_name') or row.get('task_id')}"
+                    for row in selectable
+                ],
             )
             _route_open_button(selected.split(" | ")[0], key=f"open_{context['route_key']}")
     else:
@@ -202,8 +253,18 @@ def render_detail(context: dict[str, Any]) -> None:
     entity = context.get("entity") or {}
     _breadcrumb(context)
     title = context["label"]
-    if entity.get("donor_id"):
+    if entity.get("donor_identifier"):
+        title = f"Donor {entity['donor_identifier']}"
+    elif entity.get("donor_id"):
         title = f"Donor {entity['donor_id']}"
+    elif entity.get("referral_id"):
+        title = entity["referral_id"]
+    elif entity.get("release_identifier"):
+        title = entity["release_identifier"]
+    elif entity.get("deviation_code"):
+        title = entity["deviation_code"]
+    elif entity.get("capa_code"):
+        title = entity["capa_code"]
     elif entity.get("request_id"):
         title = entity["request_id"]
     elif entity.get("ticket_number"):
@@ -262,6 +323,7 @@ def render_analytics_context(context: dict[str, Any]) -> None:
             st.plotly_chart(fig, width="stretch")
         else:
             st.plotly_chart(empty_figure("SLA Severity Treemap"), width="stretch")
+    _eligibility_visuals(analytics)
 
 
 def render(context: dict[str, Any]) -> None:

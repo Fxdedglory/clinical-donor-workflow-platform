@@ -40,7 +40,7 @@ def render_login() -> None:
     left, right = st.columns([0.75, 1.25])
     with left:
         st.title("Clinical Donor Workflow")
-        st.caption("Function-first enterprise operations login")
+        st.caption("Donor eligibility and QMS workflow operations login")
         with st.form("login_form"):
             username = st.text_input("Username", value="sysadmin")
             password = st.text_input("Password", value="ClinicalDemo!2026", type="password")
@@ -52,7 +52,7 @@ def render_login() -> None:
         st.subheader("Enterprise Functional Routes")
         st.write("Default password: `ClinicalDemo!2026`")
         st.write("Try `intake`, `clinical`, `qa`, `vendorops`, `opsmanager`, `analyst`, or `sysadmin`.")
-        st.info("Routes now model enterprise functions and master data. Role determines visibility, actions, widgets, and operational context.")
+        st.info("Routes model donor eligibility, recovery suitability, processing release, QMS, and master data functions. Role determines visibility, actions, widgets, and operational context.")
 
 
 def workspace_request_path(preview_role_id: int | None) -> str:
@@ -120,7 +120,7 @@ def render_functional_navigation(navigation: dict) -> None:
 
 def render_enterprise_search(preview_role_id: int | None) -> None:
     with st.form("enterprise_search_form"):
-        query = st.text_input("Enterprise Search", placeholder="Donor, CAPA, incident, AI rule, workflow...")
+        query = st.text_input("Enterprise Search", placeholder="Donor, referral, release, deviation, CAPA, rule...")
         submitted = st.form_submit_button("Search")
     if submitted and query:
         st.query_params["search"] = query

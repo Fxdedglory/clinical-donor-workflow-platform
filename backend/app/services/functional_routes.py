@@ -8,16 +8,26 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    CAPA,
     SOP,
     AIDecision,
     AIRiskRule,
     ChangeControl,
+    Deviation,
+    Donor,
     DonorReview,
+    DonorScreening,
+    EligibilityRule,
     EscalationEvent,
+    InfectiousDiseaseTest,
+    MedicalSocialHistory,
     Notification,
+    ProcessingRelease,
+    RecoverySuitability,
     Role,
     RolePermission,
     RoleWorkspaceConfig,
+    TissueType,
     User,
     Vendor,
     VendorIncident,
@@ -26,19 +36,25 @@ from app.models import (
     WorkflowTransitionEvent,
     WorkflowTransitionRule,
 )
+from app.services.eligibility_engine import eligibility_analytics, eligibility_record_bundle
 
 ACTIVE_TASK_STATUSES = ["Pending", "Assigned", "In Progress", "Blocked", "Escalated"]
 ACTIVE_DONOR_STATES = [
+    "Referral Received",
+    "Intake In Progress",
+    "Pending Administrative Screen",
+    "Pending Medical Social History Review",
+    "Pending Infectious Disease Review",
+    "Pending Tissue Suitability Review",
+    "Pending Recovery Suitability Review",
+    "Pending Medical Director Review",
+    "Pending QA Review",
+    "Recovery Authorized",
+    "Processing Hold",
+    "Pending Processing Release",
     "Draft Intake",
     "Pending Intake Validation",
     "Pending Clinical Review",
-    "Clinical Review In Progress",
-    "Pending Additional Information",
-    "High Risk Escalation",
-    "QA Investigation",
-    "CAPA Investigation",
-    "Clinical Re-Review",
-    "Operations Escalation",
 ]
 
 ROUTE_DEFINITIONS = [
@@ -46,8 +62,13 @@ ROUTE_DEFINITIONS = [
         "group": "Master Data",
         "items": [
             {"route_path": "/donor", "label": "Donor Master", "permissions": ["donors.read", "donors.create", "donors.review"]},
-            {"route_path": "/capa", "label": "CAPA", "permissions": ["change_control.manage", "audit.review"]},
-            {"route_path": "/investigation", "label": "Investigation", "permissions": ["change_control.manage", "audit.review"]},
+            {"route_path": "/eligibility-rule", "label": "Eligibility Rules", "permissions": ["eligibility.manage", "risk_rules.manage", "ai_governance.review"]},
+            {"route_path": "/infectious-disease-test", "label": "Infectious Disease Tests", "permissions": ["eligibility.read", "donors.review"]},
+            {"route_path": "/tissue-type", "label": "Tissue Types", "permissions": ["eligibility.read", "donors.review", "release.manage"]},
+            {"route_path": "/capa", "label": "CAPA", "permissions": ["qms.manage", "change_control.manage", "audit.review"]},
+            {"route_path": "/deviation", "label": "Deviation", "permissions": ["qms.manage", "change_control.manage", "audit.review"]},
+            {"route_path": "/release", "label": "Processing Release", "permissions": ["release.manage", "qms.manage", "audit.review"]},
+            {"route_path": "/investigation", "label": "Investigation", "permissions": ["qms.manage", "change_control.manage", "audit.review"]},
             {"route_path": "/vendor", "label": "Vendor", "permissions": ["vendors.read", "vendors.manage"]},
             {"route_path": "/sop", "label": "SOP", "permissions": ["sop.manage", "training.manage", "audit.review"]},
             {"route_path": "/user", "label": "User", "permissions": ["users.manage"]},
@@ -58,7 +79,12 @@ ROUTE_DEFINITIONS = [
         "group": "Workflow Operations",
         "items": [
             {"route_path": "/workflow", "label": "Workflow", "permissions": ["tasks.read", "tasks.manage", "workflow.analytics"]},
-            {"route_path": "/review", "label": "Review", "permissions": ["donors.review", "donors.read"]},
+            {"route_path": "/referral", "label": "Referral", "permissions": ["donors.create", "donors.read"]},
+            {"route_path": "/screening", "label": "Screening", "permissions": ["eligibility.read", "donors.review", "donors.read"]},
+            {"route_path": "/medical-review", "label": "Medical Review", "permissions": ["donors.review", "eligibility.review"]},
+            {"route_path": "/qa-review", "label": "QA Review", "permissions": ["qms.manage", "release.manage", "audit.review"]},
+            {"route_path": "/recovery", "label": "Recovery Suitability", "permissions": ["eligibility.review", "donors.review", "release.manage"]},
+            {"route_path": "/processing-release", "label": "Processing Release", "permissions": ["release.manage", "qms.manage"]},
             {"route_path": "/escalation", "label": "Escalation", "permissions": ["escalations.manage", "tasks.manage"]},
             {"route_path": "/incident", "label": "Incident", "permissions": ["vendors.read", "vendors.manage"]},
             {"route_path": "/task", "label": "Task", "permissions": ["tasks.read", "tasks.manage"]},
@@ -155,9 +181,9 @@ def functional_navigation(db: Session, current_user: User, preview_role_id: int 
 def default_route_for_role(role_name: str, groups: list[dict[str, Any]] | None = None) -> str:
     defaults = {
         "System Administrator": "/admin/workflow-engine",
-        "Donor Intake Coordinator": "/donor",
-        "Clinical Reviewer": "/review",
-        "Quality Assurance Specialist": "/investigation",
+        "Donor Intake Coordinator": "/referral",
+        "Clinical Reviewer": "/medical-review",
+        "Quality Assurance Specialist": "/qa-review",
         "Vendor Operations Analyst": "/sla",
         "Operations Manager": "/operations",
         "Business Technology Analyst": "/workflow-intelligence",
@@ -194,6 +220,26 @@ def route_path_for_record(
         return "/dashboard"
     if record_type == "WorkflowTask":
         return f"/task/{record_id}"
+    if record_type == "Donor":
+        return f"/donor/{record_id}"
+    if record_type == "DonorScreening":
+        return f"/screening/{record_id}"
+    if record_type == "MedicalSocialHistory":
+        return f"/medical-review/{record_id}"
+    if record_type == "RecoverySuitability":
+        return f"/recovery/{record_id}"
+    if record_type == "ProcessingRelease":
+        return f"/processing-release/{record_id}"
+    if record_type == "Deviation":
+        return f"/deviation/{record_id}"
+    if record_type == "CAPA":
+        return f"/capa/{record_id}"
+    if record_type == "EligibilityRule":
+        return f"/eligibility-rule/{record_id}"
+    if record_type == "InfectiousDiseaseTest":
+        return f"/infectious-disease-test/{record_id}"
+    if record_type == "TissueType":
+        return f"/tissue-type/{record_id}"
     if record_type == "DonorReview":
         if role_name == "Donor Intake Coordinator" and workflow_state in {
             "Draft Intake",
@@ -203,8 +249,7 @@ def route_path_for_record(
             return f"/donor/{record_id}"
         return f"/review/{record_id}"
     if record_type == "ChangeControl":
-        prefix = "capa" if capa_required else "investigation"
-        return f"/{prefix}/{record_id}"
+        return f"/investigation/{record_id}"
     if record_type == "VendorIncident":
         return f"/incident/{record_id}"
     if record_type == "Vendor":
@@ -252,9 +297,35 @@ def _route_parts(route_path: str) -> tuple[str, str | None]:
 def _route_group(route_key: str) -> str:
     if route_key.startswith("admin/"):
         return "Administration"
-    if route_key in {"donor", "capa", "investigation", "vendor", "sop", "user", "ai-rule"}:
+    if route_key in {
+        "donor",
+        "eligibility-rule",
+        "infectious-disease-test",
+        "tissue-type",
+        "capa",
+        "deviation",
+        "release",
+        "investigation",
+        "vendor",
+        "sop",
+        "user",
+        "ai-rule",
+    }:
         return "Master Data"
-    if route_key in {"workflow", "review", "escalation", "incident", "task", "notification"}:
+    if route_key in {
+        "workflow",
+        "review",
+        "referral",
+        "screening",
+        "medical-review",
+        "qa-review",
+        "recovery",
+        "processing-release",
+        "escalation",
+        "incident",
+        "task",
+        "notification",
+    }:
         return "Workflow Operations"
     return "Analytics & Intelligence"
 
@@ -262,14 +333,25 @@ def _route_group(route_key: str) -> str:
 def _route_label(route_key: str) -> str:
     labels = {
         "donor": "Donor Master",
+        "eligibility-rule": "Eligibility Rule",
+        "infectious-disease-test": "Infectious Disease Test",
+        "tissue-type": "Tissue Type",
         "capa": "CAPA",
+        "deviation": "Deviation",
+        "release": "Processing Release",
         "investigation": "Investigation",
         "vendor": "Vendor",
         "sop": "SOP",
         "user": "User",
         "ai-rule": "AI Rule",
         "workflow": "Workflow",
-        "review": "Review",
+        "review": "Clinical Review",
+        "referral": "Referral",
+        "screening": "Screening",
+        "medical-review": "Medical Review",
+        "qa-review": "QA Review",
+        "recovery": "Recovery Suitability",
+        "processing-release": "Processing Release",
         "escalation": "Escalation",
         "incident": "Incident",
         "task": "Task",
@@ -300,11 +382,86 @@ def _task_query_for_role(db: Session, role: Role) -> list[WorkflowTask]:
 
 def _collection_rows(db: Session, route_key: str, role: Role, current_user: User) -> list[dict[str, Any]]:
     if route_key == "donor":
-        donors = db.execute(select(DonorReview).order_by(desc(DonorReview.created_at)).limit(150)).scalars().all()
+        donors = db.execute(select(Donor).order_by(desc(Donor.created_at)).limit(200)).scalars().all()
         return [
-            _model_dict(donor, ["review_id", "donor_id", "donor_name", "age", "blood_type", "risk_score", "risk_level", "intake_status", "created_at"])
-            | {"route_path": f"/donor/{donor.review_id}"}
+            _model_dict(donor, ["donor_pk", "donor_identifier", "donor_name", "age", "blood_type", "current_workflow_state", "eligibility_status", "final_disposition", "created_at"])
+            | {"route_path": f"/donor/{donor.donor_pk}"}
             for donor in donors
+        ]
+    if route_key in {"referral", "screening"}:
+        screenings = db.execute(select(DonorScreening).order_by(desc(DonorScreening.created_at)).limit(200)).scalars().all()
+        return [
+            _model_dict(screening, ["screening_id", "donor_pk", "referral_id", "administrative_outcome", "medical_social_outcome", "infectious_disease_outcome", "current_decision", "created_at"])
+            | {"route_path": f"/{route_key}/{screening.screening_id}"}
+            for screening in screenings
+        ]
+    if route_key == "medical-review":
+        histories = db.execute(select(MedicalSocialHistory).order_by(desc(MedicalSocialHistory.created_at)).limit(200)).scalars().all()
+        return [
+            _model_dict(history, ["history_id", "donor_pk", "cancer_history", "transmissible_disease_history", "iv_drug_use", "travel_exposure", "high_risk_behavior", "unknown_history", "outcome", "created_at"])
+            | {"route_path": f"/medical-review/{history.history_id}"}
+            for history in histories
+        ]
+    if route_key == "recovery":
+        recoveries = db.execute(select(RecoverySuitability).order_by(desc(RecoverySuitability.reviewed_at)).limit(200)).scalars().all()
+        return [
+            _model_dict(recovery, ["recovery_id", "donor_pk", "tissue_type_id", "body_cooling_status", "trauma_contamination", "hospital_release_status", "recovery_window_hours", "outcome", "reviewed_at"])
+            | {"route_path": f"/recovery/{recovery.recovery_id}"}
+            for recovery in recoveries
+        ]
+    if route_key in {"processing-release", "release"}:
+        releases = db.execute(select(ProcessingRelease).order_by(desc(ProcessingRelease.created_at)).limit(200)).scalars().all()
+        return [
+            _model_dict(release, ["release_id", "release_identifier", "donor_pk", "tissue_type_id", "release_status", "final_disposition", "chain_of_custody_verified", "created_at", "released_at"])
+            | {"route_path": f"/{route_key}/{release.release_id}"}
+            for release in releases
+        ]
+    if route_key == "qa-review":
+        releases = db.execute(
+            select(ProcessingRelease)
+            .where(ProcessingRelease.release_status.in_(["Pending QA Review", "QA Review Required", "Release Hold", "CAPA Required"]))
+            .order_by(desc(ProcessingRelease.created_at))
+            .limit(200)
+        ).scalars().all()
+        return [
+            _model_dict(release, ["release_id", "release_identifier", "donor_pk", "release_status", "final_disposition", "deviation_id", "capa_id", "created_at"])
+            | {"route_path": f"/processing-release/{release.release_id}"}
+            for release in releases
+        ]
+    if route_key in {"deviation", "investigation"}:
+        deviations = db.execute(select(Deviation).order_by(desc(Deviation.opened_at)).limit(200)).scalars().all()
+        return [
+            _model_dict(deviation, ["deviation_id", "deviation_code", "donor_pk", "release_id", "deviation_category", "severity", "status", "opened_at", "closed_at"])
+            | {"route_path": f"/deviation/{deviation.deviation_id}"}
+            for deviation in deviations
+        ]
+    if route_key == "capa":
+        capas = db.execute(select(CAPA).order_by(desc(CAPA.created_at)).limit(200)).scalars().all()
+        return [
+            _model_dict(capa, ["capa_id", "capa_code", "donor_pk", "deviation_id", "release_id", "corrective_action_owner", "status", "due_date", "created_at"])
+            | {"route_path": f"/capa/{capa.capa_id}"}
+            for capa in capas
+        ]
+    if route_key == "eligibility-rule":
+        rules = db.execute(select(EligibilityRule).order_by(EligibilityRule.rule_category, EligibilityRule.rule_name).limit(200)).scalars().all()
+        return [
+            _model_dict(rule, ["rule_id", "rule_name", "rule_category", "condition_field", "condition_operator", "condition_value", "outcome", "severity", "requires_review", "required_role", "sop_reference", "is_active", "version"])
+            | {"route_path": f"/eligibility-rule/{rule.rule_id}"}
+            for rule in rules
+        ]
+    if route_key == "infectious-disease-test":
+        tests = db.execute(select(InfectiousDiseaseTest).order_by(InfectiousDiseaseTest.pathogen, InfectiousDiseaseTest.test_method).limit(200)).scalars().all()
+        return [
+            _model_dict(test, ["test_id", "test_name", "pathogen", "test_method", "valid_window_hours", "rejection_if_positive", "review_if_positive", "is_active"])
+            | {"route_path": f"/infectious-disease-test/{test.test_id}"}
+            for test in tests
+        ]
+    if route_key == "tissue-type":
+        tissue_types = db.execute(select(TissueType).order_by(TissueType.tissue_name).limit(200)).scalars().all()
+        return [
+            _model_dict(tissue, ["tissue_type_id", "tissue_name", "tissue_category", "min_age", "max_age", "max_ischemic_hours", "preservation_window_hours", "sop_reference", "is_active"])
+            | {"route_path": f"/tissue-type/{tissue.tissue_type_id}"}
+            for tissue in tissue_types
         ]
     if route_key == "review":
         donors = db.execute(
@@ -323,16 +480,6 @@ def _collection_rows(db: Session, route_key: str, role: Role, current_user: User
             _model_dict(task, ["task_id", "task_type", "title", "priority", "status", "workflow_state", "queue_name", "due_date", "related_record_type", "related_record_id"])
             | {"route_path": f"/task/{task.task_id}"}
             for task in _task_query_for_role(db, role)
-        ]
-    if route_key in {"capa", "investigation"}:
-        query = select(ChangeControl)
-        if route_key == "capa":
-            query = query.where(ChangeControl.capa_required.is_(True))
-        changes = db.execute(query.order_by(desc(ChangeControl.created_at)).limit(150)).scalars().all()
-        return [
-            _model_dict(change, ["change_id", "request_id", "risk_level", "approval_status", "capa_required", "implementation_due_date", "created_at"])
-            | {"route_path": route_path_for_record("ChangeControl", str(change.change_id), capa_required=change.capa_required)}
-            for change in changes
         ]
     if route_key in {"vendor", "sla"}:
         vendors = db.execute(select(Vendor).order_by(Vendor.vendor_name).limit(150)).scalars().all()
@@ -387,7 +534,15 @@ def _collection_rows(db: Session, route_key: str, role: Role, current_user: User
     return []
 
 
-def _get_donor(db: Session, record_id: str) -> DonorReview | None:
+def _get_donor(db: Session, record_id: str) -> Donor | None:
+    if record_id.isdigit():
+        donor = db.get(Donor, int(record_id))
+        if donor:
+            return donor
+    return db.execute(select(Donor).where(Donor.donor_identifier == record_id)).scalar_one_or_none()
+
+
+def _get_donor_review(db: Session, record_id: str) -> DonorReview | None:
     if record_id.isdigit():
         donor = db.get(DonorReview, int(record_id))
         if donor:
@@ -396,12 +551,35 @@ def _get_donor(db: Session, record_id: str) -> DonorReview | None:
 
 
 def _load_entity(db: Session, route_key: str, record_id: str) -> tuple[Any | None, str | None, str | None]:
-    if route_key in {"donor", "review"}:
-        return _get_donor(db, record_id), "DonorReview", record_id
+    if route_key == "donor":
+        return _get_donor(db, record_id), "Donor", record_id
+    if route_key == "review":
+        return _get_donor_review(db, record_id), "DonorReview", record_id
+    if route_key in {"referral", "screening"} and record_id.isdigit():
+        return db.get(DonorScreening, int(record_id)), "DonorScreening", record_id
+    if route_key == "medical-review" and record_id.isdigit():
+        return db.get(MedicalSocialHistory, int(record_id)), "MedicalSocialHistory", record_id
+    if route_key == "recovery" and record_id.isdigit():
+        return db.get(RecoverySuitability, int(record_id)), "RecoverySuitability", record_id
+    if route_key in {"processing-release", "release"} and record_id.isdigit():
+        return db.get(ProcessingRelease, int(record_id)), "ProcessingRelease", record_id
+    if route_key == "deviation" and record_id.isdigit():
+        return db.get(Deviation, int(record_id)), "Deviation", record_id
+    if route_key == "investigation" and record_id.isdigit():
+        deviation = db.get(Deviation, int(record_id))
+        if deviation:
+            return deviation, "Deviation", record_id
+        return db.get(ChangeControl, int(record_id)), "ChangeControl", record_id
+    if route_key == "capa" and record_id.isdigit():
+        return db.get(CAPA, int(record_id)), "CAPA", record_id
+    if route_key == "eligibility-rule" and record_id.isdigit():
+        return db.get(EligibilityRule, int(record_id)), "EligibilityRule", record_id
+    if route_key == "infectious-disease-test" and record_id.isdigit():
+        return db.get(InfectiousDiseaseTest, int(record_id)), "InfectiousDiseaseTest", record_id
+    if route_key == "tissue-type" and record_id.isdigit():
+        return db.get(TissueType, int(record_id)), "TissueType", record_id
     if route_key in {"workflow", "task"} and record_id.isdigit():
         return db.get(WorkflowTask, int(record_id)), "WorkflowTask", record_id
-    if route_key in {"capa", "investigation"} and record_id.isdigit():
-        return db.get(ChangeControl, int(record_id)), "ChangeControl", record_id
     if route_key == "vendor" and record_id.isdigit():
         return db.get(Vendor, int(record_id)), "Vendor", record_id
     if route_key == "incident" and record_id.isdigit():
@@ -421,6 +599,16 @@ def _load_entity(db: Session, route_key: str, record_id: str) -> tuple[Any | Non
 
 def _entity_payload(entity: Any, entity_type: str) -> dict[str, Any]:
     field_map = {
+        "Donor": ["donor_pk", "donor_identifier", "donor_review_id", "donor_name", "age", "blood_type", "sex", "referral_source_id", "time_of_death", "source_organization", "donor_history", "current_workflow_state", "eligibility_status", "final_disposition", "created_at", "updated_at"],
+        "DonorScreening": ["screening_id", "donor_pk", "referral_id", "administrative_outcome", "medical_social_outcome", "infectious_disease_outcome", "tissue_suitability_outcome", "recovery_suitability_outcome", "qa_outcome", "automated_rule_outcome", "current_decision", "created_at", "updated_at"],
+        "EligibilityRule": ["rule_id", "rule_name", "rule_category", "condition_field", "condition_operator", "condition_value", "outcome", "severity", "requires_review", "required_role", "sop_reference", "is_active", "version", "created_by", "approved_by", "created_at"],
+        "InfectiousDiseaseTest": ["test_id", "test_name", "pathogen", "test_method", "valid_window_hours", "rejection_if_positive", "review_if_positive", "is_active"],
+        "TissueType": ["tissue_type_id", "tissue_name", "tissue_category", "min_age", "max_age", "max_ischemic_hours", "preservation_window_hours", "sop_reference", "is_active"],
+        "MedicalSocialHistory": ["history_id", "donor_pk", "cancer_history", "neurological_disease", "autoimmune_disease", "transmissible_disease_history", "iv_drug_use", "incarceration_history", "travel_exposure", "high_risk_behavior", "unknown_history", "outcome", "review_notes", "created_at"],
+        "RecoverySuitability": ["recovery_id", "donor_pk", "tissue_type_id", "refrigeration_timing_hours", "body_cooling_status", "trauma_contamination", "blood_draw_timing_hours", "hospital_release_status", "recovery_environment", "recovery_window_hours", "outcome", "reviewed_at"],
+        "ProcessingRelease": ["release_id", "release_identifier", "donor_pk", "tissue_type_id", "sterility_testing", "bioburden_status", "environmental_monitoring", "packaging_qc", "labeling_verification", "traceability_verification", "chain_of_custody_verified", "deviation_id", "capa_id", "release_status", "final_disposition", "created_at", "released_at"],
+        "Deviation": ["deviation_id", "deviation_code", "donor_pk", "release_id", "deviation_category", "severity", "description", "status", "opened_at", "closed_at"],
+        "CAPA": ["capa_id", "capa_code", "donor_pk", "deviation_id", "release_id", "root_cause", "corrective_action_owner", "status", "due_date", "closed_at", "created_at"],
         "DonorReview": ["review_id", "donor_id", "donor_name", "age", "blood_type", "infectious_history", "travel_risk", "missing_required_fields", "risk_score", "risk_level", "recommended_action", "review_priority", "intake_status", "reviewer_id", "clinical_notes", "attachment_placeholder", "rejection_reason", "created_at", "updated_at", "reviewed_at"],
         "WorkflowTask": ["task_id", "task_type", "title", "description", "assigned_to_user_id", "assigned_role_id", "priority", "status", "workflow_state", "queue_name", "due_date", "created_at", "completed_at", "related_record_type", "related_record_id", "escalation_level"],
         "ChangeControl": ["change_id", "request_id", "requested_by_id", "sop_id", "reason", "risk_level", "approval_status", "capa_required", "investigation_notes", "implementation_due_date", "created_at", "approved_at"],
@@ -438,6 +626,20 @@ def _entity_payload(entity: Any, entity_type: str) -> dict[str, Any]:
 def _workflow_target(entity: Any, entity_type: str) -> tuple[str | None, str | None, int | None, str | None]:
     if entity_type == "WorkflowTask":
         return entity.related_record_type, entity.related_record_id, entity.task_id, entity.workflow_state
+    if entity_type == "Donor":
+        return "Donor", str(entity.donor_pk), None, entity.current_workflow_state
+    if entity_type == "DonorScreening":
+        return "Donor", str(entity.donor_pk), None, "Pending Administrative Screen"
+    if entity_type == "MedicalSocialHistory":
+        return "Donor", str(entity.donor_pk), None, "Pending Medical Social History Review"
+    if entity_type == "RecoverySuitability":
+        return "Donor", str(entity.donor_pk), None, "Pending Recovery Suitability Review"
+    if entity_type == "ProcessingRelease":
+        return "Donor", str(entity.donor_pk), None, entity.release_status
+    if entity_type == "Deviation":
+        return "Deviation", str(entity.deviation_id), None, "Pending QA Review"
+    if entity_type == "CAPA":
+        return "CAPA", str(entity.capa_id), None, "Pending QA Review"
     if entity_type == "DonorReview":
         return "DonorReview", str(entity.review_id), None, entity.intake_status
     if entity_type == "ChangeControl":
@@ -564,9 +766,20 @@ def _timeline(db: Session, record_type: str | None, record_id: str | None) -> li
     return sorted(rows, key=lambda row: row["timestamp"])
 
 
-def _related_records(db: Session, entity: Any, entity_type: str) -> dict[str, list[dict[str, Any]]]:
+def _related_records(db: Session, entity: Any, entity_type: str) -> dict[str, Any]:
     record_type, record_id, _, _ = _workflow_target(entity, entity_type)
-    related: dict[str, list[dict[str, Any]]] = {"workflows": [], "investigations": [], "capas": [], "incidents": [], "ai_decisions": [], "escalations": []}
+    related: dict[str, Any] = {
+        "workflows": [],
+        "investigations": [],
+        "capas": [],
+        "deviations": [],
+        "processing_releases": [],
+        "infectious_disease_results": [],
+        "eligibility_decisions": [],
+        "incidents": [],
+        "ai_decisions": [],
+        "escalations": [],
+    }
     if record_type and record_id:
         related["workflows"] = [
             _model_dict(task, ["task_id", "task_type", "priority", "status", "workflow_state", "queue_name", "due_date"])
@@ -578,6 +791,34 @@ def _related_records(db: Session, entity: Any, entity_type: str) -> dict[str, li
                 .limit(25)
             ).scalars().all()
         ]
+    if entity_type == "Donor":
+        related.update(eligibility_record_bundle(db, entity))
+    if entity_type in {"DonorScreening", "MedicalSocialHistory", "RecoverySuitability", "ProcessingRelease"}:
+        donor = db.get(Donor, entity.donor_pk)
+        if donor:
+            related["donor"] = [
+                _model_dict(donor, ["donor_pk", "donor_identifier", "donor_name", "current_workflow_state", "eligibility_status", "final_disposition"])
+                | {"route_path": f"/donor/{donor.donor_pk}"}
+            ]
+            related.update(eligibility_record_bundle(db, donor))
+    if entity_type == "Deviation":
+        related["capas"] = [
+            _model_dict(capa, ["capa_id", "capa_code", "status", "due_date", "created_at"])
+            | {"route_path": f"/capa/{capa.capa_id}"}
+            for capa in db.execute(
+                select(CAPA)
+                .where(CAPA.deviation_id == entity.deviation_id)
+                .order_by(desc(CAPA.created_at))
+                .limit(25)
+            ).scalars().all()
+        ]
+    if entity_type == "CAPA" and entity.deviation_id:
+        deviation = db.get(Deviation, entity.deviation_id)
+        if deviation:
+            related["deviations"] = [
+                _model_dict(deviation, ["deviation_id", "deviation_code", "deviation_category", "severity", "status", "opened_at"])
+                | {"route_path": f"/deviation/{deviation.deviation_id}"}
+            ]
     if entity_type == "DonorReview":
         related["ai_decisions"] = [
             _model_dict(decision, ["decision_id", "donor_id", "risk_score", "recommendation", "workflow_stage", "human_override", "final_decision", "created_at"])
@@ -677,7 +918,7 @@ def _analytics_context(db: Session, route_key: str, role: Role) -> dict[str, Any
         select(VendorIncident.severity, func.count(VendorIncident.incident_id))
         .group_by(VendorIncident.severity)
     ).all()
-    return {
+    analytics = {
         "task_heatmap": task_rows,
         "workflow_sankey": [
             {"source": task.task_type, "target": task.workflow_state, "value": 1}
@@ -686,6 +927,8 @@ def _analytics_context(db: Session, route_key: str, role: Role) -> dict[str, Any
         "donor_state_distribution": [{"state": row[0], "count": row[1]} for row in state_counts],
         "incident_severity": [{"severity": row[0], "count": row[1]} for row in incident_counts],
     }
+    analytics.update(eligibility_analytics(db))
+    return analytics
 
 
 def resolve_route_context(
@@ -818,33 +1061,57 @@ def enterprise_search(db: Session, *, current_user: User, query: str, preview_ro
     results: list[dict[str, str]] = []
     if _has_any(permissions, ["donors.read", "donors.review", "donors.create"]):
         donors = db.execute(
-            select(DonorReview)
-            .where(or_(DonorReview.donor_id.ilike(like), DonorReview.donor_name.ilike(like)))
+            select(Donor)
+            .where(or_(Donor.donor_identifier.ilike(like), Donor.donor_name.ilike(like)))
             .limit(8)
         ).scalars().all()
         results.extend(
             _search_result(
-                donor.donor_id,
-                f"{donor.donor_name} | {donor.intake_status} | risk {donor.risk_score}",
-                f"/donor/{donor.review_id}",
+                donor.donor_identifier,
+                f"{donor.donor_name} | {donor.current_workflow_state} | {donor.eligibility_status}",
+                f"/donor/{donor.donor_pk}",
                 "Donor",
             )
             for donor in donors
         )
-    if _has_any(permissions, ["change_control.manage", "audit.review"]):
-        changes = db.execute(
-            select(ChangeControl)
-            .where(or_(ChangeControl.request_id.ilike(like), ChangeControl.reason.ilike(like)))
+    if _has_any(permissions, ["qms.manage", "change_control.manage", "audit.review"]):
+        deviations = db.execute(
+            select(Deviation)
+            .where(or_(Deviation.deviation_code.ilike(like), Deviation.description.ilike(like)))
             .limit(8)
         ).scalars().all()
         results.extend(
             _search_result(
-                change.request_id,
-                f"{change.approval_status} | {change.risk_level}",
-                route_path_for_record("ChangeControl", str(change.change_id), capa_required=change.capa_required),
-                "CAPA" if change.capa_required else "Investigation",
+                deviation.deviation_code,
+                f"{deviation.deviation_category} | {deviation.severity} | {deviation.status}",
+                f"/deviation/{deviation.deviation_id}",
+                "Deviation",
             )
-            for change in changes
+            for deviation in deviations
+        )
+        capas = db.execute(
+            select(CAPA)
+            .where(or_(CAPA.capa_code.ilike(like), CAPA.root_cause.ilike(like)))
+            .limit(8)
+        ).scalars().all()
+        results.extend(
+            _search_result(
+                capa.capa_code,
+                f"{capa.status} | owner {capa.corrective_action_owner}",
+                f"/capa/{capa.capa_id}",
+                "CAPA",
+            )
+            for capa in capas
+        )
+        releases = db.execute(select(ProcessingRelease).where(ProcessingRelease.release_identifier.ilike(like)).limit(8)).scalars().all()
+        results.extend(
+            _search_result(
+                release.release_identifier,
+                f"{release.release_status} | {release.final_disposition or 'No disposition'}",
+                f"/processing-release/{release.release_id}",
+                "Processing Release",
+            )
+            for release in releases
         )
     if _has_any(permissions, ["vendors.read", "vendors.manage"]):
         incidents = db.execute(
@@ -876,6 +1143,16 @@ def enterprise_search(db: Session, *, current_user: User, query: str, preview_ro
             for vendor in vendors
         )
     if _has_any(permissions, ["risk_rules.manage", "ai_governance.review"]):
+        eligibility_rules = db.execute(select(EligibilityRule).where(EligibilityRule.rule_name.ilike(like)).limit(8)).scalars().all()
+        results.extend(
+            _search_result(
+                rule.rule_name,
+                f"{rule.rule_category} | {rule.condition_field} {rule.condition_operator} {rule.condition_value}",
+                f"/eligibility-rule/{rule.rule_id}",
+                "Eligibility Rule",
+            )
+            for rule in eligibility_rules
+        )
         rules = db.execute(select(AIRiskRule).where(AIRiskRule.rule_name.ilike(like)).limit(8)).scalars().all()
         results.extend(
             _search_result(rule.rule_name, f"{rule.condition_type} {rule.condition_operator} {rule.condition_value}", f"/ai-rule/{rule.rule_id}", "AI Rule")

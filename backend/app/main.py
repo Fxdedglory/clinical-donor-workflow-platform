@@ -10,6 +10,7 @@ from app.routes import (
     change_control,
     dashboard,
     donors,
+    eligibility,
     enterprise_dashboard,
     escalations,
     functional_routes,
@@ -46,6 +47,7 @@ app.include_router(audit_logs.router)
 app.include_router(change_control.router)
 app.include_router(vendors.router)
 app.include_router(dashboard.router)
+app.include_router(eligibility.router)
 app.include_router(auth.router)
 app.include_router(ai_governance.router)
 app.include_router(admin.router)

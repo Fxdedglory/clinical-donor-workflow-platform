@@ -383,6 +383,308 @@ class DonorReview(Base):
     reviewer: Mapped[User | None] = relationship(back_populates="donor_reviews")
 
 
+class ReferralSource(Base):
+    __tablename__ = "dim_referral_source"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    source_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    source_name: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    contact_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    region: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class TissueType(Base):
+    __tablename__ = "dim_tissue_type"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    tissue_type_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tissue_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    tissue_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    min_age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_ischemic_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    preservation_window_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sop_reference: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class Disposition(Base):
+    __tablename__ = "dim_disposition"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    disposition_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    disposition_name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class EligibilityRule(Base):
+    __tablename__ = "dim_eligibility_rule"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    rule_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_name: Mapped[str] = mapped_column(String(180), nullable=False, unique=True)
+    rule_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    condition_field: Mapped[str] = mapped_column(String(120), nullable=False)
+    condition_operator: Mapped[str] = mapped_column(String(40), nullable=False)
+    condition_value: Mapped[str] = mapped_column(String(240), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(100), nullable=False)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False)
+    requires_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    required_role: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sop_reference: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class InfectiousDiseaseTest(Base):
+    __tablename__ = "dim_infectious_disease_test"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    test_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    test_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    pathogen: Mapped[str] = mapped_column(String(80), nullable=False)
+    test_method: Mapped[str] = mapped_column(String(80), nullable=False)
+    valid_window_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=168)
+    rejection_if_positive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    review_if_positive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class Donor(Base):
+    __tablename__ = "dim_donor"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    donor_pk: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_identifier: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    donor_review_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_donor_review.review_id"), nullable=True
+    )
+    donor_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    blood_type: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    sex: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    referral_source_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_referral_source.source_id"), nullable=True
+    )
+    time_of_death: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_organization: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    donor_history: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    current_workflow_state: Mapped[str] = mapped_column(String(120), nullable=False, default="Referral Received")
+    eligibility_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    final_disposition: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DonorScreening(Base):
+    __tablename__ = "fact_donor_screening"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    screening_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=False, index=True
+    )
+    referral_id: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    administrative_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    medical_social_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    infectious_disease_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    tissue_suitability_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    recovery_suitability_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    qa_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    automated_rule_outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    current_decision: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class EligibilityDecision(Base):
+    __tablename__ = "fact_eligibility_decision"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    decision_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=False, index=True
+    )
+    rule_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_eligibility_rule.rule_id"), nullable=True
+    )
+    decision_stage: Mapped[str] = mapped_column(String(100), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(100), nullable=False)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    requires_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    required_role: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    triggered_rules: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    final_disposition: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
+class InfectiousDiseaseResult(Base):
+    __tablename__ = "fact_infectious_disease_result"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    result_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=False, index=True
+    )
+    test_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_infectious_disease_test.test_id"), nullable=False
+    )
+    result_value: Mapped[str] = mapped_column(String(40), nullable=False)
+    specimen_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    specimen_window_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reviewed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    review_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class MedicalSocialHistory(Base):
+    __tablename__ = "fact_medical_social_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=False, index=True
+    )
+    cancer_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    neurological_disease: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    autoimmune_disease: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    transmissible_disease_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    iv_drug_use: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    incarceration_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    travel_exposure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    high_risk_behavior: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    unknown_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    review_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class RecoverySuitability(Base):
+    __tablename__ = "fact_recovery_suitability"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    recovery_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    donor_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=False, index=True
+    )
+    tissue_type_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_tissue_type.tissue_type_id"), nullable=False
+    )
+    refrigeration_timing_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    body_cooling_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Unknown")
+    trauma_contamination: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    blood_draw_timing_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hospital_release_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    recovery_environment: Mapped[str] = mapped_column(String(100), nullable=False, default="Hospital")
+    recovery_window_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProcessingRelease(Base):
+    __tablename__ = "fact_processing_release"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    release_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    release_identifier: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    donor_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=False, index=True
+    )
+    tissue_type_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_tissue_type.tissue_type_id"), nullable=False
+    )
+    sterility_testing: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    bioburden_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    environmental_monitoring: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    packaging_qc: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    labeling_verification: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    traceability_verification: Mapped[str] = mapped_column(String(80), nullable=False, default="Pending")
+    chain_of_custody_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deviation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    capa_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    release_status: Mapped[str] = mapped_column(String(100), nullable=False, default="Pending QA Review")
+    final_disposition: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Deviation(Base):
+    __tablename__ = "fact_deviation"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    deviation_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    deviation_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    donor_pk: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=True
+    )
+    release_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deviation_category: Mapped[str] = mapped_column(String(100), nullable=False)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(80), nullable=False, default="Open")
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CAPA(Base):
+    __tablename__ = "fact_capa"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    capa_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    capa_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    donor_pk: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=True
+    )
+    deviation_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_deviation.deviation_id"), nullable=True
+    )
+    release_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    root_cause: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    corrective_action_owner: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(80), nullable=False, default="Open")
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class AIDecision(Base):
     __tablename__ = "fact_ai_decision"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}

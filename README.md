@@ -1,18 +1,19 @@
 # Clinical Donor Screening & Quality Workflow Platform
 
-Enterprise-style healthcare operations platform for donor intake, governed AI-assisted donor screening, centralized workflow orchestration, function-first routing, master data records, decision routing, RBAC-secured transitions, audit trails, QMS/change control, SOP training, vendor SLA monitoring, actionable notifications, escalations, AI governance, and operational intelligence dashboards.
+Enterprise-style healthcare operations platform for donor referral intake, donor eligibility screening, tissue recovery suitability, processing release, governed AI-assisted decision support, centralized workflow orchestration, function-first routing, master data records, RBAC-secured transitions, audit trails, QMS/CAPA/deviation workflows, SOP training, vendor SLA monitoring, actionable notifications, escalations, AI governance, and operational intelligence dashboards.
 
 Repository: `github.com/Fxdedglory/clinical-donor-workflow-platform`
 
 ## Project Overview
 
-This project simulates internal enterprise healthcare software rather than a portfolio CRUD app. Donor records enter role-owned operational queues, rule-based decision support flags clinical risk, workflow tasks are routed through a state machine, escalations are created for overdue work, notifications link users back to assigned work, and regulated activities are traceable through audit logs.
+This project simulates internal donor-services and regulated tissue-processing software rather than a portfolio CRUD app. Donor referrals enter operational queues, eligibility rules evaluate administrative exclusions, medical/social history, infectious disease results, tissue-specific suitability, recovery windows, QMS release checks, and final disposition outcomes. Workflow tasks are routed through a state machine, escalations are created for overdue work, notifications link users back to exact records, and regulated activities are traceable through audit logs.
 
-The latest upgrade adds a function-first enterprise route layer. Routes now represent business functions and master data entities such as `/donor/{id}`, `/review/{id}`, `/capa/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Workspace buttons now trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, AI governance requirements, SLA routing, notifications, audit events, transition history, and task creation.
+The latest upgrade adds a donor eligibility decision engine and QMS workflow expansion. Routes now represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
 
 Resume themes demonstrated:
 
 - Enterprise healthcare workflow systems analysis
+- Donor eligibility, recovery suitability, and processing release workflow modeling
 - Role-centered operational workspace architecture
 - Regulated operational workflow design
 - RBAC security architecture with JWT authentication
@@ -37,7 +38,9 @@ FastAPI REST API -- JWT/RBAC dependencies
         +-- Functional route engine and role visibility lens
         +-- Master data registry and route context resolver
         +-- Role workspace engine and workspace configuration
-        +-- Donor intake and clinical review workflow
+        +-- Donor referral intake and eligibility review workflow
+        +-- Donor eligibility decision engine
+        +-- Infectious disease, tissue suitability, recovery, and release matrices
         +-- Database-governed AI screening and explainability engine
         +-- AI governance, override tracking, and workflow intelligence
         +-- Central workflow orchestration engine
@@ -87,8 +90,22 @@ Core enterprise tables:
 - `operational.fact_ai_decision`
 - `operational.fact_ai_override_event`
 - `operational.fact_workflow_timeline_event`
+- `operational.dim_donor`
+- `operational.dim_referral_source`
+- `operational.dim_tissue_type`
+- `operational.dim_eligibility_rule`
+- `operational.dim_infectious_disease_test`
+- `operational.dim_disposition`
+- `operational.fact_donor_screening`
+- `operational.fact_eligibility_decision`
+- `operational.fact_infectious_disease_result`
+- `operational.fact_medical_social_history`
+- `operational.fact_recovery_suitability`
+- `operational.fact_processing_release`
+- `operational.fact_deviation`
+- `operational.fact_capa`
 
-Clinical, QMS, and vendor tables:
+Legacy compatibility, QMS, and vendor tables:
 
 - `operational.fact_donor_review`
 - `operational.dim_sop`
@@ -104,15 +121,20 @@ Clinical, QMS, and vendor tables:
 - Role-permission bridge for route-level authorization
 - Function-first enterprise routing for master data, workflow operations, analytics, and administration routes
 - Route context resolver that parses URL query parameters, validates role visibility, loads master/workflow data, builds breadcrumbs, and returns authorized actions
-- Master data routes including `/donor`, `/capa`, `/investigation`, `/vendor`, `/sop`, `/user`, and `/ai-rule`
-- Workflow routes including `/workflow`, `/review`, `/escalation`, `/incident`, `/task`, and `/notification`
+- Master data routes including `/donor`, `/eligibility-rule`, `/infectious-disease-test`, `/tissue-type`, `/release`, `/deviation`, `/capa`, `/investigation`, `/vendor`, `/sop`, `/user`, and `/ai-rule`
+- Workflow routes including `/referral`, `/screening`, `/medical-review`, `/qa-review`, `/recovery`, `/processing-release`, `/workflow`, `/escalation`, `/incident`, `/task`, and `/notification`
 - Analytics routes including `/dashboard`, `/operations`, `/workload`, `/sla`, `/drift-analysis`, and `/workflow-intelligence`
 - Dynamic workspace engine that generates navigation, widgets, KPIs, queues, workbench columns, and task actions from role metadata
 - Centralized workflow orchestration engine for state validation, role authorization, decision matrices, SLA timers, task creation, notifications, audit events, and transition history
-- Expanded workflow state machine for Draft Intake, Pending Intake Validation, Pending Clinical Review, Clinical Review In Progress, Pending Additional Information, High Risk Escalation, QA Investigation, CAPA Investigation, Clinical Re-Review, Operations Escalation, Approved, Rejected, and Closed
+- Expanded workflow state machine for Referral Received, Intake In Progress, Pending Administrative Screen, Pending Medical Social History Review, Pending Infectious Disease Review, Pending Tissue Suitability Review, Pending Recovery Suitability Review, Pending Medical Director Review, Pending QA Review, Recovery Authorized, Processing Hold, Pending Processing Release, Released for Clinical Use, Released for Research Use, Quarantine, Rejected, Destroyed, and Closed
 - Workflow transition event history for who changed what, from/to state, action taken, notes, and decision context
 - Deep-link notification routing that opens the exact function route with record context without unsafe Streamlit session-state mutation
 - Contextual action ribbon that renders different workflow actions on the same route based on role, permission, and workflow state
+- Configurable donor eligibility rule engine with administrative, medical/social history, infectious disease, tissue-specific, recovery suitability, processing release, QMS compliance, customer restriction, and export restriction categories
+- Donor record pages showing referral source, workflow state, eligibility status, tissue types under review, infectious disease results, medical/social history flags, recovery suitability, QA/QMS status, linked CAPAs/deviations, final disposition, workflow timeline, related tasks, and action ribbon
+- Donor-specific workflow states from Referral Received through Processing Release, Quarantine, Rejected, Destroyed, and Closed
+- Processing release matrix for sterility testing, bioburden, environmental monitoring, packaging QC, labeling, traceability, chain of custody, deviations, and CAPA linkage
+- QMS expansion with dedicated deviation and CAPA master records
 - Workflow-aware action modals for AI override, CAPA creation, reassignment, priority escalation, QA review, and rejection rationale
 - Workflow timeline and related-record panels on detail routes
 - Enterprise search across donors, workflows, CAPAs, investigations, incidents, AI rules, users, vendors, tasks, and notifications
@@ -126,7 +148,7 @@ Clinical, QMS, and vendor tables:
 - Admin workspace preview mode for inspecting operational role workspaces without making admin a queue participant
 - User administration surface for create, disable, password reset, and role assignment workflows
 - Workflow task engine with owner, role, priority, status, workflow state, queue name, due date, related record, and escalation level
-- Workflow transition engine for intake-to-clinical, clinical-to-QA, QA approval/rejection, vendor escalation, and operations-manager routing
+- Workflow transition engine for referral intake, administrative screening, medical/social history review, infectious disease review, tissue suitability, recovery authorization, QA review, processing release, vendor escalation, and operations-manager routing
 - Top-right notification bell with unread counts, priority indicators, target record metadata, and mark-as-read workflow
 - Escalation engine for overdue donor review, SLA, and QMS tasks
 - SOP training assignment and acknowledgement tracking
@@ -134,6 +156,7 @@ Clinical, QMS, and vendor tables:
 - Enterprise operations, workforce, compliance, vendor, donor, and audit dashboards
 - Expanded audit trail with login activity, workflow changes, permission/user changes, escalation events, and IP address fields
 - Faker-powered demo data for donors, tasks, escalations, SLA incidents, SOP revisions, training assignments, notifications, and audit events
+- Dense donor-services demo data including 1,000+ donor master records, active referrals, infectious disease result sets, medical/social history reviews, tissue/recovery suitability checks, processing releases, deviations, CAPAs, workflow tasks, notifications, and 2,000+ audit events
 - Seeded AI governance data for risk rules, model versioning, AI decisions, override events, and workflow timeline traces
 
 ## Demo Credentials
@@ -160,7 +183,7 @@ Design concept used for the original dashboard direction:
 
 ![Dashboard concept](docs/screenshots/concept-dashboard.png)
 
-Rendered role-centered workspaces:
+Rendered enterprise route/workspace examples:
 
 ![Admin governance workspace](docs/screenshots/workspace-admin-governance.png)
 
@@ -223,28 +246,31 @@ uv run streamlit run frontend/app.py
 1. Sign in as `sysadmin` and confirm the default route is governance-focused administration, not an operational donor or vendor queue.
 2. Use the visibility lens to preview how Clinical Reviewer, Donor Intake Coordinator, QA, Vendor Ops, Business Technology Analyst, or Operations Manager see the same function routes.
 3. Open `/admin/workspaces` and `/admin/workflow-engine` to review role navigation, widget assignment, notification types, state-machine metadata, and workbench columns.
-4. Sign in as `clinical`, open `/review`, and select a donor review detail route such as `/review/1441`.
-5. Confirm the contextual action ribbon shows clinical actions while the timeline and related-record panels preserve workflow continuity.
-6. Use the notification bell and confirm a record-specific alert opens the exact function route, for example `/review/{id}`, `/task/{id}`, or `/capa/{id}`.
-7. Search for a donor, workflow, CAPA, incident, AI rule, or user from the sidebar and open the returned function route.
-8. Sign in as `qa` and open `/capa` or `/investigation` to review QMS-specific actions and compliance context.
+4. Sign in as `intake`, open `/referral`, and review referral intake records with authorization, time-of-death, chain-of-custody, and documentation context.
+5. Sign in as `clinical`, open `/medical-review`, `/screening`, or `/recovery`, and review donor eligibility stages, infectious disease matrices, medical/social history risks, and tissue suitability outcomes.
+6. Confirm the contextual action ribbon shows donor-services actions such as Validate Intake, Continue Infectious Disease Review, Request Medical Director Review, Authorize Recovery, Submit to QA Review, and Reject Donor.
+7. Use the notification bell and confirm a record-specific alert opens the exact function route, for example `/donor/{id}`, `/processing-release/{id}`, `/deviation/{id}`, `/capa/{id}`, or `/task/{id}`.
+8. Sign in as `qa` and open `/qa-review`, `/release`, `/deviation`, or `/capa` to review processing holds, deviations, CAPA, traceability, and release status.
 9. Sign in as `opsmanager` to review `/operations`, `/workload`, `/escalation`, and `/sla`.
-10. Sign in as `analyst` to review `/workflow-intelligence`, `/drift-analysis`, `/ai-rule`, AI governance metrics, bottleneck visualizations, rule simulation, AI audit traces, transition context, and human override trends.
+10. Sign in as `analyst` to review `/workflow-intelligence`, `/drift-analysis`, `/eligibility-rule`, `/ai-rule`, rule outcome distribution, override trends, decision matrix performance, bottleneck visualizations, and AI audit traces.
 
 ## Healthcare/QMS Concepts
 
-- **Clinical screening:** Donor review combines structured intake data, clinical notes, risk flags, risk score, reviewer decision, and exception escalation.
+- **Donor eligibility workflow:** The master workflow models referral intake, administrative exclusion screening, medical/social history review, infectious disease review, tissue-specific eligibility, recovery suitability, QA review, medical director escalation, processing release, and final disposition.
+- **Decision matrices:** Configurable rules evaluate administrative, infectious disease, recovery, processing release, and QMS conditions without source-code edits.
+- **Clinical screening:** Donor review combines structured intake data, clinical notes, eligibility flags, reviewer decision, and exception escalation.
 - **AI governance:** The risk engine is transparent, database-governed, explainable, auditable, and owned by the Business Technology Analyst without source-code edits.
 - **Decision support:** The risk engine recommends actions without replacing clinical judgment; reviewer overrides are captured as governed AI lifecycle events.
 - **Function-first routing:** Routes model enterprise functions and master data rather than departments; role determines visibility, context, and actions inside the same route.
 - **Role immersion:** Each role receives its own navigation, KPIs, widgets, queue columns, workflow actions, and notifications without duplicating URL structures.
 - **Workflow ownership:** Major operational events create tasks with owners, due dates, priority, workflow state, queue name, and escalation paths.
-- **Workflow routing:** State-machine transitions route work from Intake to Clinical Review to QA and Operations Management while creating tasks, notifications, and audit events.
+- **Workflow routing:** State-machine transitions route work from referral intake to administrative screen, medical/social review, infectious disease review, recovery suitability, QA release, and operations escalation while creating tasks, notifications, and audit events.
 - **Central orchestration:** Workflow actions are validated by a centralized engine that checks role authorization, current state, decision matrices, AI override rules, SLA routing, notification rules, and transition history before mutating records.
 - **Actionable notifications:** Bell notifications carry workflow task context and route users into exact function routes with preserved record context.
 - **Workflow intelligence:** Queue heatmaps, bottleneck flow analysis, SLA prediction validation, escalation matrices, and operational recommendations support process optimization.
 - **Audit trail:** Login, logout, donor decisions, workflow changes, user changes, training completion, and escalations are logged with before/after values.
 - **QMS workflow:** Change requests include SOP linkage, risk level, approval status, CAPA requirement, due dates, and investigation notes.
+- **QMS release workflow:** Release checks include sterility, bioburden, environmental monitoring, packaging QC, labeling verification, traceability, chain of custody, deviations, CAPA linkage, and disposition.
 - **SOP training:** SOP revisions can be assigned to roles or users and tracked through acknowledgement status and overdue training.
 - **Vendor governance:** Vendor incidents track uptime, ticket aging, SLA breach status, impact, and operational response.
 
@@ -259,6 +285,7 @@ uv run streamlit run frontend/app.py
 - `/api/reviews`
 - `/api/risk-analysis`
 - `/api/ai-governance`
+- `/api/eligibility`
 - `/api/workflow-tasks`
 - `/api/notifications`
 - `/api/escalations`
