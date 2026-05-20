@@ -1,7 +1,9 @@
+from urllib.parse import quote
+
 import streamlit as st
 from components.api import get_json, login, logout, patch_json, post_json
 from components.ui import apply_theme
-from views import admin_portal, audit_logs, role_center, role_workspace
+from views import admin_portal, audit_logs, functional_routes, role_center, role_workspace
 
 st.set_page_config(
     page_title="Clinical Donor Workflow",
@@ -19,22 +21,38 @@ ADMIN_PAGE_RENDERERS = {
 }
 
 
+def _query_value(key: str) -> str | None:
+    value = st.query_params.get(key)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _preview_param(preview_role_id: int | None) -> str:
+    return f"&preview_role_id={preview_role_id}" if preview_role_id else ""
+
+
+def set_route(route_path: str) -> None:
+    st.query_params["route"] = route_path
+
+
 def render_login() -> None:
     left, right = st.columns([0.75, 1.25])
     with left:
         st.title("Clinical Donor Workflow")
-        st.caption("Role-centered enterprise operations login")
+        st.caption("Function-first enterprise operations login")
         with st.form("login_form"):
             username = st.text_input("Username", value="sysadmin")
             password = st.text_input("Password", value="ClinicalDemo!2026", type="password")
             submitted = st.form_submit_button("Sign In")
         if submitted and login(username, password):
+            set_route("/")
             st.rerun()
     with right:
-        st.subheader("Department Workspaces")
+        st.subheader("Enterprise Functional Routes")
         st.write("Default password: `ClinicalDemo!2026`")
         st.write("Try `intake`, `clinical`, `qa`, `vendorops`, `opsmanager`, `analyst`, or `sysadmin`.")
-        st.info("Each role now receives a different workspace, queue, navigation model, KPI set, and workflow action surface.")
+        st.info("Routes now model enterprise functions and master data. Role determines visibility, actions, widgets, and operational context.")
 
 
 def workspace_request_path(preview_role_id: int | None) -> str:
@@ -43,56 +61,85 @@ def workspace_request_path(preview_role_id: int | None) -> str:
     return "/api/workspaces/me"
 
 
-def _query_value(key: str) -> str | None:
-    value = st.query_params.get(key)
-    if isinstance(value, list):
-        return value[0] if value else None
-    return value
+def navigation_request_path(preview_role_id: int | None) -> str:
+    if preview_role_id:
+        return f"/api/routes/navigation?preview_role_id={preview_role_id}"
+    return "/api/routes/navigation"
 
 
-def route_to_record(route: dict) -> None:
-    if route.get("page_key"):
-        st.query_params["workspace_nav"] = route["page_key"]
-    if route.get("record_type") and route.get("record_id"):
-        st.query_params["record_type"] = route["record_type"]
-        st.query_params["record_id"] = str(route["record_id"])
-    if route.get("workflow_state"):
-        st.query_params["workflow_state"] = route["workflow_state"]
-    if route.get("notification_id"):
-        st.query_params["notification_id"] = str(route["notification_id"])
-    if route.get("task_id"):
-        st.query_params["task_id"] = str(route["task_id"])
+def route_context_request_path(route_path: str, preview_role_id: int | None) -> str:
+    return f"/api/routes/resolve?route={quote(route_path, safe='')}{_preview_param(preview_role_id)}"
 
 
-def render_notification_bell(workspace: dict, navigation: list[dict]) -> None:
+def search_request_path(query: str, preview_role_id: int | None) -> str:
+    return f"/api/routes/search?q={quote(query, safe='')}{_preview_param(preview_role_id)}"
+
+
+def render_notification_bell(workspace: dict) -> None:
     notifications = workspace.get("notifications", [])
     unread = sum(1 for item in notifications if not item.get("is_read"))
-    route_to_label = {item["page_key"]: item["tab_label"] for item in navigation}
     with st.popover(f"Notifications ({unread})", width="stretch"):
         if not notifications:
             st.caption("No current workflow notifications.")
             return
-        for item in notifications[:8]:
+        for item in notifications[:10]:
             severity = item.get("priority", "Normal")
             st.markdown(f"**{item['title']}**")
             st.caption(f"{severity} - {item['notification_type']}")
             st.write(item["message"])
-            target = route_to_label.get(item.get("action_route") or "")
-            if item.get("workflow_context"):
-                state = item["workflow_context"].get("workflow_state")
-                queue = item["workflow_context"].get("queue_name")
-                if state or queue:
-                    st.caption(" | ".join(part for part in [state, queue] if part))
+            context = item.get("workflow_context") or {}
+            state = context.get("workflow_state")
+            queue = context.get("queue_name")
+            route_path = context.get("route_path") or item.get("action_route")
+            if state or queue:
+                st.caption(" | ".join(part for part in [state, queue] if part))
             cols = st.columns([1, 1])
-            if (target or item.get("related_record_id")) and cols[0].button("Open", key=f"open_notice_{item['notification_id']}"):
+            if (route_path or item.get("related_record_id")) and cols[0].button("Open", key=f"open_notice_{item['notification_id']}"):
                 route = post_json(f"/api/notifications/{item['notification_id']}/open", {})
-                if route:
-                    route_to_record(route)
+                if route and route.get("route_path"):
+                    set_route(route["route_path"])
                 st.rerun()
             if not item.get("is_read") and cols[1].button("Mark read", key=f"read_notice_{item['notification_id']}"):
                 patch_json(f"/api/notifications/{item['notification_id']}/read", {})
                 st.rerun()
             st.divider()
+
+
+def render_functional_navigation(navigation: dict) -> None:
+    current_route = _query_value("route") or navigation.get("default_route") or "/dashboard"
+    for group in navigation.get("groups", []):
+        st.markdown(f"**{group['group']}**")
+        for item in group["items"]:
+            active = current_route == item["route_path"] or current_route.startswith(f"{item['route_path']}/")
+            label = f"{'[x]' if active else '[ ]'} {item['label']}"
+            if st.button(label, key=f"nav_{item['route_path']}", width="stretch"):
+                set_route(item["route_path"])
+                st.rerun()
+        st.divider()
+
+
+def render_enterprise_search(preview_role_id: int | None) -> None:
+    with st.form("enterprise_search_form"):
+        query = st.text_input("Enterprise Search", placeholder="Donor, CAPA, incident, AI rule, workflow...")
+        submitted = st.form_submit_button("Search")
+    if submitted and query:
+        st.query_params["search"] = query
+    active_query = _query_value("search")
+    if not active_query:
+        return
+    results = get_json(search_request_path(active_query, preview_role_id)) or []
+    st.caption(f"Results for `{active_query}`")
+    if not results:
+        st.info("No matching enterprise records.")
+        return
+    for index, result in enumerate(results[:8]):
+        st.write(f"**{result['title']}**")
+        st.caption(f"{result['entity_type']} - {result['subtitle']}")
+        if st.button("Open", key=f"search_{index}_{result['route_path']}", width="stretch"):
+            set_route(result["route_path"])
+            if "search" in st.query_params:
+                del st.query_params["search"]
+            st.rerun()
 
 
 if "user" not in st.session_state:
@@ -102,7 +149,6 @@ if "user" not in st.session_state:
 user = st.session_state.user
 permissions = set(user.get("permissions", []))
 preview_role_id = None
-roles = []
 
 with st.sidebar:
     st.title("Clinical Donor Workflow")
@@ -113,76 +159,65 @@ with st.sidebar:
         role_options = {role["role_name"]: role["role_id"] for role in roles}
         default_role = user["role_name"] if user["role_name"] in role_options else "System Administrator"
         selected_role = st.radio(
-            "Workspace mode",
+            "Visibility lens",
             list(role_options.keys()) or [default_role],
             index=list(role_options.keys()).index(default_role) if default_role in role_options else 0,
         )
         preview_role_id = role_options.get(selected_role)
         if selected_role != user["role_name"]:
-            st.caption("Preview mode: operational queues are shown as role workspace previews.")
+            st.caption("Preview mode: routes stay function-based while visibility changes by role.")
+
+navigation = get_json(navigation_request_path(preview_role_id)) or {}
+if not navigation:
+    st.error("Functional route configuration is unavailable. Run database migrations and seed data.")
+    st.stop()
+
+current_route = _query_value("route") or navigation.get("default_route") or "/dashboard"
+if current_route == "/":
+    current_route = navigation.get("default_route") or "/dashboard"
+    st.query_params["route"] = current_route
 
 workspace = get_json(workspace_request_path(preview_role_id)) or {}
 if not workspace:
     st.error("Workspace configuration is unavailable. Run database migrations and seed data.")
     st.stop()
 
-navigation = workspace.get("navigation", [])
-nav_labels = [item["tab_label"] for item in navigation]
-page_key_to_label = {item["page_key"]: item["tab_label"] for item in navigation}
-label_to_page_key = {item["tab_label"]: item["page_key"] for item in navigation}
-if not nav_labels:
-    st.error("No visible workspace tabs are configured for this role.")
-    st.stop()
-nav_key = f"workspace_nav_{workspace['active_role_id']}"
-requested_page_key = _query_value("workspace_nav")
-requested_label = page_key_to_label.get(requested_page_key or "")
-if requested_label and st.session_state.get(nav_key) != requested_label:
-    st.session_state[nav_key] = requested_label
-if st.session_state.get(nav_key) not in nav_labels:
-    st.session_state[nav_key] = nav_labels[0]
-
-
-def _sync_nav_query() -> None:
-    selected_label = st.session_state.get(nav_key, nav_labels[0])
-    st.query_params["workspace_nav"] = label_to_page_key.get(selected_label, navigation[0]["page_key"])
-
 with st.sidebar:
     st.markdown(
         f"""
         <div class="workspace-card">
-            <div>{workspace["active_role"]}</div>
-            <strong>{workspace["workspace"]["workspace_name"]}</strong>
+            <div>{navigation["active_role"]}</div>
+            <strong>Functional Route Visibility</strong>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    selection = st.radio(
-        "Navigation",
-        nav_labels,
-        label_visibility="collapsed",
-        key=nav_key,
-        on_change=_sync_nav_query,
-    )
+    render_enterprise_search(preview_role_id)
     st.divider()
+    render_functional_navigation(navigation)
     if st.button("Logout"):
         logout()
+        st.query_params.clear()
         st.rerun()
     st.caption("FastAPI - PostgreSQL - Streamlit - QMS")
 
-selected_page = next(item for item in navigation if item["tab_label"] == selection)
-record_context = {
-    "record_type": _query_value("record_type"),
-    "record_id": _query_value("record_id"),
-    "workflow_state": _query_value("workflow_state"),
-    "notification_id": _query_value("notification_id"),
-    "task_id": _query_value("task_id"),
-}
-top_left, top_right = st.columns([0.78, 0.22])
-with top_right:
-    render_notification_bell(workspace, navigation)
+context = get_json(route_context_request_path(current_route, preview_role_id)) or {}
+if not context:
+    st.error("Route context could not be resolved.")
+    st.stop()
 
-renderer = ADMIN_PAGE_RENDERERS.get(selected_page["page_key"])
-if renderer:
-    renderer()
+top_left, top_right = st.columns([0.78, 0.22])
+with top_left:
+    st.caption(f"Route: `{context['route_path']}`")
+with top_right:
+    render_notification_bell(workspace)
+
+page_key = context.get("page_key")
+if context.get("kind") == "admin":
+    renderer = ADMIN_PAGE_RENDERERS.get(page_key)
+    if renderer:
+        renderer()
+    else:
+        role_workspace.render(workspace, page_key, context["label"])
 else:
-    role_workspace.render(workspace, selected_page["page_key"], selected_page["tab_label"], record_context)
+    functional_routes.render(context)

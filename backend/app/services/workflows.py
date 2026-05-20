@@ -56,12 +56,13 @@ def create_task(
             workflow_task_id=task.task_id,
             related_record_type=related_record_type,
             related_record_id=related_record_id,
-            action_route="role_tasks",
+            action_route=f"/task/{task.task_id}",
             workflow_context={
                 "task_id": task.task_id,
                 "workflow_state": workflow_state,
                 "queue_name": queue_name,
                 "due_date": due_date.isoformat() if due_date else None,
+                "route_path": f"/task/{task.task_id}",
             },
         )
     return task

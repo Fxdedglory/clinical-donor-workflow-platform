@@ -37,6 +37,7 @@ def evaluate_overdue_tasks(db: Session) -> list[EscalationEvent]:
             status="Open",
         )
         db.add(event)
+        db.flush()
         notify_role(
             db,
             role_name="Operations Manager",
@@ -46,7 +47,7 @@ def evaluate_overdue_tasks(db: Session) -> list[EscalationEvent]:
             priority="Critical",
             related_record_type=task.related_record_type,
             related_record_id=task.related_record_id,
-            action_route="role_escalations",
+            action_route=f"/escalation/{event.escalation_id}",
         )
         created.append(event)
     return created

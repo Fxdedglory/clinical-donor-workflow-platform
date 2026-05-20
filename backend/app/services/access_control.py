@@ -65,6 +65,7 @@ ROLE_DEFINITIONS = {
             "training.manage",
             "tasks.read",
             "tasks.update",
+            "notifications.read",
             "dashboard.view",
         ],
         "job_description": "Quality systems owner for compliance review, deviations, CAPA, and SOP training follow-up.",

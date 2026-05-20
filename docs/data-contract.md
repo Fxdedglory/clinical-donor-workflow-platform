@@ -94,7 +94,35 @@ In-app notifications capture:
 - read/unread state
 - creation timestamp
 
-Notifications are rendered through the top-right workspace bell rather than a dedicated navigation page. The `action_route` maps the alert back to a role workspace tab.
+Notifications are rendered through the top-right bell rather than a separate inbox page. The `action_route` stores an exact function route such as `/review/{id}`, `/task/{id}`, `/capa/{id}`, or `/workflow-intelligence`, so clicking an alert reloads the record with workflow state, authorized actions, timeline, and related records intact.
+
+## Functional Route Context
+
+The route engine resolves each URL into a route context:
+
+- route path
+- route key
+- route group
+- route kind
+- entity type
+- entity payload or collection rows
+- workflow state
+- related task
+- role lens
+- authorized action ribbon
+- workflow timeline
+- related records
+- breadcrumbs
+- analytics payload when applicable
+
+Route groups:
+
+- Master Data: `/donor`, `/capa`, `/investigation`, `/vendor`, `/sop`, `/user`, `/ai-rule`
+- Workflow Operations: `/workflow`, `/review`, `/escalation`, `/incident`, `/task`, `/notification`
+- Analytics & Intelligence: `/dashboard`, `/operations`, `/workload`, `/sla`, `/drift-analysis`, `/workflow-intelligence`
+- Administration: `/admin/users`, `/admin/workspaces`, `/admin/workflow-engine`, `/admin/permissions`, `/admin/responsibility-center`
+
+The route structure is shared across roles. Role, permission, and workflow state determine visible navigation, widgets, contextual actions, and modal requirements.
 
 ## Role Workspace Configuration
 

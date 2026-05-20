@@ -12,6 +12,7 @@ from app.routes import (
     donors,
     enterprise_dashboard,
     escalations,
+    functional_routes,
     notifications,
     reviews,
     risk_analysis,
@@ -54,6 +55,7 @@ app.include_router(escalations.router)
 app.include_router(training.router)
 app.include_router(enterprise_dashboard.router)
 app.include_router(workspaces.router)
+app.include_router(functional_routes.router)
 
 
 @app.get("/health", tags=["System"])

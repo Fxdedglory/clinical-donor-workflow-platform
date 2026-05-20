@@ -6,6 +6,7 @@ clinical-donor-workflow-platform/
 |   |   |-- models/
 |   |   |-- routes/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- functional_routes.py
 |   |   |   |-- workspaces.py
 |   |   |   |-- workflow_tasks.py
 |   |   |   |-- auth.py
@@ -13,6 +14,7 @@ clinical-donor-workflow-platform/
 |   |   |-- schemas/
 |   |   |-- services/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- functional_routes.py
 |   |   |   |-- workflow_orchestration.py
 |   |   |   |-- workspace_config.py
 |   |   |   |-- workspace_engine.py
@@ -24,6 +26,7 @@ clinical-donor-workflow-platform/
 |   |-- components/
 |   |-- pages/
 |   |-- views/
+|   |   |-- functional_routes.py
 |   |   |-- role_workspace.py
 |   |   |-- admin_portal.py
 |   |   `-- ...
@@ -43,6 +46,8 @@ clinical-donor-workflow-platform/
 |   |-- resume-positioning.md
 |   |-- screenshots/
 |   |   |-- business-technology-analyst-intelligence.png
+|   |   |-- functional-route-intelligence.png
+|   |   |-- functional-route-review.png
 |   |   |-- workflow-orchestration-deeplink.png
 |   |   |-- workspace-ai-governance.png
 |   |   |-- workspace-ai-governance-mobile.png

@@ -295,7 +295,7 @@ def record_override_if_needed(
         priority="High",
         related_record_type="DonorReview",
         related_record_id=str(donor.review_id),
-        action_route="ai_audit_review",
+        action_route="/drift-analysis",
     )
     return event
 

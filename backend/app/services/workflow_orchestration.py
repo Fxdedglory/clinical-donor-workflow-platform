@@ -27,6 +27,7 @@ from app.services.ai_governance import (
     record_override_if_needed,
 )
 from app.services.audit import log_audit, serialize_model
+from app.services.functional_routes import route_path_for_record
 from app.services.notifications import notify_role
 from app.services.risk_engine import RiskAnalysis
 
@@ -160,7 +161,17 @@ def route_to_record(
         workflow_state=state,
         fallback_page_key=action_route,
     )
+    route_path = action_route if action_route and action_route.startswith("/") else None
+    if not route_path:
+        route_path = route_path_for_record(
+            record_type,
+            record_id,
+            role_name=role.role_name,
+            workflow_state=state,
+            task_id=workflow_task_id,
+        )
     return {
+        "route_path": route_path,
         "page_key": page_key,
         "route_label": route_label,
         "record_type": record_type,
@@ -421,6 +432,13 @@ def execute_workflow_transition(
             record_type=related_record_type,
             workflow_state=target_state,
         )
+        route_path = route_path_for_record(
+            related_record_type,
+            related_record_id,
+            role_name=target_role.role_name,
+            workflow_state=target_state,
+            task_id=new_task.task_id,
+        )
         notify_role(
             db,
             role_name=target_role.role_name,
@@ -431,13 +449,15 @@ def execute_workflow_transition(
             workflow_task_id=new_task.task_id,
             related_record_type=related_record_type,
             related_record_id=related_record_id,
-            action_route=page_key,
+            action_route=route_path,
             workflow_context={
                 "workflow_state": target_state,
                 "from_state": current_state,
                 "action_taken": action_name,
                 "queue_name": new_task.queue_name,
                 "due_date": due_date.isoformat() if due_date else None,
+                "route_path": route_path,
+                "legacy_page_key": page_key,
                 "decision_context": decision_context,
             },
         )

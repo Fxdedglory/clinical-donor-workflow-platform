@@ -48,6 +48,7 @@ from app.services.ai_governance import (
 )
 from app.services.audit import log_audit, serialize_model
 from app.services.escalations import evaluate_overdue_tasks
+from app.services.functional_routes import route_path_for_record
 from app.services.notifications import create_notification
 from app.services.risk_engine import analyze_donor_risk
 from app.services.workspace_config import ensure_workspace_definitions
@@ -257,13 +258,26 @@ def _ensure_notification_density(db, roles: dict[str, Role], users_by_role: dict
                 workflow_task_id=task.task_id,
                 related_record_type=task.related_record_type,
                 related_record_id=task.related_record_id,
-                action_route="role_tasks",
+                action_route=route_path_for_record(
+                    task.related_record_type,
+                    task.related_record_id,
+                    role_name=role_name,
+                    workflow_state=task.workflow_state,
+                    task_id=task.task_id,
+                ),
                 workflow_context={
                     "task_id": task.task_id,
                     "workflow_state": task.workflow_state,
                     "queue_name": task.queue_name,
                     "due_date": task.due_date.isoformat() if task.due_date else None,
                     "escalation_level": task.escalation_level,
+                    "route_path": route_path_for_record(
+                        task.related_record_type,
+                        task.related_record_id,
+                        role_name=role_name,
+                        workflow_state=task.workflow_state,
+                        task_id=task.task_id,
+                    ),
                 },
             )
 
@@ -480,7 +494,7 @@ def ensure_enterprise_data(db) -> None:
                 message="Enterprise workflow tasks and regulated operations dashboards are available for review.",
                 notification_type="System",
                 priority="Normal",
-                action_route="role_dashboard",
+                action_route="/dashboard",
             )
 
     existing_escalation_notice = db.execute(
@@ -499,7 +513,7 @@ def ensure_enterprise_data(db) -> None:
             message="Overdue donor review and vendor SLA tasks require operations manager review.",
             notification_type="Escalation",
             priority="Critical",
-            action_route="role_escalations",
+            action_route="/escalation",
         )
 
     _ensure_notification_density(db, roles, users_by_role)
@@ -672,9 +686,10 @@ def seed_database(records: int, force: bool = False) -> None:
             )
 
         changes = []
-        for idx in range(1, 26):
+        for idx in range(1, 76):
             status_choice = random.choice(["Draft", "Investigation", "Pending Approval", "Approved", "Rejected"])
             created_at = _random_datetime(120)
+            capa_required = idx <= 45 or random.random() < 0.35
             changes.append(
                 ChangeControl(
                     request_id=f"CCR-2026-{idx:04d}",
@@ -683,7 +698,7 @@ def seed_database(records: int, force: bool = False) -> None:
                     reason=random.choice(CHANGE_REASONS),
                     risk_level=random.choice(["Low", "Moderate", "High", "Critical"]),
                     approval_status=status_choice,
-                    capa_required=random.random() < 0.35,
+                    capa_required=capa_required,
                     investigation_notes=fake.paragraph(nb_sentences=2),
                     implementation_due_date=created_at + timedelta(days=random.randint(7, 45)),
                     created_at=created_at,

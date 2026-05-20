@@ -272,6 +272,7 @@ class WorkflowTransitionEventRead(BaseModel):
 
 
 class WorkflowRouteResponse(BaseModel):
+    route_path: str
     page_key: str
     route_label: str
     record_type: str | None = None
