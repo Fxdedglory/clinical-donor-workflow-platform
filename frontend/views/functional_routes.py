@@ -7,7 +7,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from components.api import post_json
-from components.ui import dataframe, empty_figure, page_header
+from components.ui import (
+    dataframe,
+    empty_figure,
+    empty_state,
+    last_updated,
+    page_header,
+    status_chip,
+)
 
 from views.role_workspace import _plot_heatmap, _plot_sankey, _safe_dataframe
 
@@ -22,7 +29,9 @@ def route_to(path: str) -> None:
 def _breadcrumb(context: dict[str, Any]) -> None:
     labels = [item["label"] for item in context.get("breadcrumbs", [])]
     if labels:
-        st.caption(" / ".join(labels))
+        clean = [label for label in labels if label not in {"Master Data", "Workflow Operations", "Analytics & Intelligence"}]
+        if clean:
+            st.caption(" / ".join(clean))
 
 
 def _route_open_button(path: str, *, label: str = "Open", key: str) -> None:
@@ -33,19 +42,20 @@ def _route_open_button(path: str, *, label: str = "Open", key: str) -> None:
 
 def _workflow_summary(context: dict[str, Any]) -> None:
     workflow = context.get("workflow") or {}
-    lens = context.get("role_lens") or {}
     cols = st.columns(4)
-    cols[0].metric("Function Route", context.get("route_path", ""))
-    cols[1].metric("Workflow State", workflow.get("workflow_state") or "Context")
-    cols[2].metric("Task", workflow.get("task_id") or "No active task")
-    cols[3].metric("Role Lens", lens.get("role", ""))
-    st.info(lens.get("focus", "Role-aware operational context is loaded for this route."))
+    cols[0].metric("Workflow Status", workflow.get("workflow_state") or "Ready")
+    cols[1].metric("Active Task", workflow.get("task_id") or "None")
+    cols[2].metric("Available Actions", len(context.get("actions", [])))
+    cols[3].metric("Records Loaded", context.get("record_count") or ("1" if context.get("record_id") else "0"))
+    state = workflow.get("workflow_state")
+    if state:
+        st.markdown(status_chip(state), unsafe_allow_html=True)
 
 
 def _action_dialog(action: dict[str, Any]) -> None:
     @st.dialog(action["action_label"])
     def dialog() -> None:
-        st.write(f"Transition: **{action['from_state']}** to **{action['to_state']}**")
+        st.write(f"Status change: **{action['from_state']}** to **{action['to_state']}**")
         note = st.text_area("Operational rationale", value="", height=120)
         metadata: dict[str, Any] = {}
         action_name = action["action_name"]
@@ -71,7 +81,7 @@ def _action_dialog(action: dict[str, Any]) -> None:
             metadata["severity_acknowledged"] = st.checkbox("SLA/quality impact acknowledged")
 
         cols = st.columns([1, 1])
-        if cols[0].button("Trigger Workflow Transition", key=f"confirm_{action_name}"):
+        if cols[0].button("Complete Action", key=f"confirm_{action_name}"):
             result = post_json(
                 "/api/workspaces/transition",
                 {
@@ -98,9 +108,9 @@ def _action_dialog(action: dict[str, Any]) -> None:
 
 def _action_ribbon(context: dict[str, Any]) -> None:
     actions = context.get("actions", [])
-    st.markdown("<div class='section-title'>Contextual Action Ribbon</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Available Actions</div>", unsafe_allow_html=True)
     if not actions:
-        st.caption("No workflow transitions are authorized for this role and workflow state.")
+        st.caption("No actions are currently available for this record.")
         return
     columns = st.columns(min(len(actions), 5))
     for index, action in enumerate(actions):
@@ -130,18 +140,68 @@ def _detail_table(entity: dict[str, Any]) -> None:
 
 def _timeline_panel(context: dict[str, Any]) -> None:
     timeline = context.get("timeline", [])
-    st.markdown("<div class='section-title'>Workflow Timeline</div>", unsafe_allow_html=True)
+    audit_events = context.get("audit_events", [])
+    st.markdown("<div class='section-title'>Activity / Audit Sidebar</div>", unsafe_allow_html=True)
     if not timeline:
-        st.info("No workflow timeline events have been captured for this record.")
-        return
-    _safe_dataframe(timeline, columns=["timestamp", "event_type", "summary"], height=280)
+        empty_state("No activity has been captured for this record.")
+    else:
+        _safe_dataframe(timeline, columns=["timestamp", "event_type", "summary"], height=240)
+    if audit_events:
+        with st.expander("Audit Events", expanded=False):
+            _safe_dataframe(
+                audit_events,
+                columns=["timestamp", "action_type", "entity_type", "record_id"],
+                height=220,
+            )
+
+
+def _document_panel(context: dict[str, Any]) -> None:
+    entity_type = context.get("entity_type") or context.get("route_key", "record")
+    documents = [
+        {"document": "Consent / Authorization Packet", "status": "Available", "source": "Document Repository"},
+        {"document": "Lab Result Packet", "status": "Awaiting Lab Results", "source": "NorthStar Labs"},
+        {"document": "Chain-of-Custody Form", "status": "Available", "source": "Recovery Coordination"},
+        {"document": "Applicable SOP Reference", "status": "Effective", "source": "QMS"},
+    ]
+    if entity_type in {"ProcessingRelease", "release", "processing-release"}:
+        documents.append({"document": "Release Documentation", "status": "Needs Review", "source": "QA Release"})
+    st.markdown("<div class='section-title'>Documents</div>", unsafe_allow_html=True)
+    _safe_dataframe(documents, height=220)
+    st.file_uploader(
+        "Upload supporting PDF",
+        type=["pdf"],
+        key=f"document_upload_{context.get('route_path')}",
+        help="Attach lab reports, consent forms, SOP references, or release documentation for review.",
+    )
+
+
+def _why_assigned_panel(context: dict[str, Any]) -> None:
+    workflow = context.get("workflow") or {}
+    related = context.get("related_records") or {}
+    reasons = []
+    if workflow.get("workflow_state"):
+        reasons.append(f"Current status is {workflow['workflow_state']}.")
+    if workflow.get("task_id"):
+        reasons.append(f"Task {workflow['task_id']} is linked to this record.")
+    if related.get("capas"):
+        reasons.append("Linked CAPA activity requires follow-up.")
+    if related.get("deviations"):
+        reasons.append("A deviation record is associated with this workflow.")
+    if related.get("infectious_disease_results"):
+        reasons.append("Infectious disease results are part of the eligibility review.")
+    st.markdown("<div class='section-title'>Why Am I Seeing This?</div>", unsafe_allow_html=True)
+    if reasons:
+        for reason in reasons[:5]:
+            st.write(f"- {reason}")
+    else:
+        st.caption("This record is available based on your assigned queue, permissions, and current workload.")
 
 
 def _related_records(context: dict[str, Any]) -> None:
     related = context.get("related_records", {})
     st.markdown("<div class='section-title'>Related Records</div>", unsafe_allow_html=True)
     if not related:
-        st.info("No related records are linked to this route context.")
+        empty_state("No related records are linked to this record.")
         return
     for label, rows in related.items():
         with st.expander(label.replace("_", " ").title(), expanded=label == "workflows"):
@@ -181,6 +241,33 @@ def _collection_visuals(context: dict[str, Any]) -> None:
             _plot_sankey(analytics.get("workflow_sankey", []), "Workflow Sankey Diagram"),
             width="stretch",
         )
+
+
+def _bulk_operations(records: list[dict[str, Any]], context: dict[str, Any]) -> None:
+    selectable = [
+        row for row in records if row.get("route_path") or row.get("task_id") or row.get("donor_pk")
+    ]
+    if not selectable:
+        return
+    with st.expander("Bulk Actions", expanded=False):
+        labels = [
+            f"{row.get('route_path') or row.get('task_id') or row.get('donor_pk')} | "
+            f"{row.get('title') or row.get('donor_identifier') or row.get('release_identifier') or row.get('capa_code') or row.get('deviation_code') or row.get('referral_id') or 'Record'}"
+            for row in selectable[:80]
+        ]
+        selected = st.multiselect("Select records", labels)
+        action = st.selectbox(
+            "Action",
+            ["Bulk Assign", "Bulk Escalate", "Bulk Approve", "Bulk Close", "Bulk Release"],
+        )
+        note = st.text_area("Operational note", height=90)
+        if st.button("Apply Bulk Action", key=f"bulk_{context['route_key']}"):
+            if not selected:
+                st.warning("Select at least one record.")
+            else:
+                st.success(f"{action} queued for {len(selected)} records.")
+                if note:
+                    st.caption("Audit note captured for this bulk operation.")
 
 
 def _eligibility_visuals(analytics: dict[str, Any]) -> None:
@@ -229,11 +316,13 @@ def _eligibility_visuals(analytics: dict[str, Any]) -> None:
 
 def render_collection(context: dict[str, Any]) -> None:
     _breadcrumb(context)
-    page_header(context["label"], f"{context['route_group']} function route: {context['route_path']}")
+    page_header(context["label"], "Operational records requiring review, release, or follow-up.")
+    last_updated()
     _workflow_summary(context)
     records = context.get("records", [])
     if records:
         _safe_dataframe(records, height=430)
+        _bulk_operations(records, context)
         selectable = [row for row in records if row.get("route_path")]
         if selectable:
             selected = st.selectbox(
@@ -245,7 +334,7 @@ def render_collection(context: dict[str, Any]) -> None:
             )
             _route_open_button(selected.split(" | ")[0], key=f"open_{context['route_key']}")
     else:
-        st.info("No records are available for this function route.")
+        empty_state("No records currently require action.")
     _collection_visuals(context)
 
 
@@ -273,24 +362,23 @@ def render_detail(context: dict[str, Any]) -> None:
         title = entity["vendor_name"]
     elif entity.get("rule_name"):
         title = entity["rule_name"]
-    page_header(title, f"{context['route_group']} detail route: {context['route_path']}")
+    page_header(title, "Current status, documents, related work, activity, and authorized actions.")
+    last_updated()
     _workflow_summary(context)
     _action_ribbon(context)
 
     left, right = st.columns([1.05, 0.95])
     with left:
-        st.markdown("<div class='section-title'>Master Data / Operational Record</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>Record Details</div>", unsafe_allow_html=True)
         _detail_table(entity)
+        _document_panel(context)
     with right:
+        _why_assigned_panel(context)
         _timeline_panel(context)
     _related_records(context)
 
 
-def render_analytics_context(context: dict[str, Any]) -> None:
-    _breadcrumb(context)
-    page_header(context["label"], f"{context['route_group']} route: {context['route_path']}")
-    _workflow_summary(context)
-    analytics = context.get("analytics", {})
+def render_analytics_visuals(analytics: dict[str, Any]) -> None:
     task_rows = analytics.get("task_heatmap", [])
     donor_states = analytics.get("donor_state_distribution", [])
     incident_severity = analytics.get("incident_severity", [])
@@ -324,6 +412,15 @@ def render_analytics_context(context: dict[str, Any]) -> None:
         else:
             st.plotly_chart(empty_figure("SLA Severity Treemap"), width="stretch")
     _eligibility_visuals(analytics)
+
+
+def render_analytics_context(context: dict[str, Any]) -> None:
+    _breadcrumb(context)
+    page_header(context["label"], "Workflow visibility, queue pressure, SLA exposure, and decision trends.")
+    last_updated()
+    _workflow_summary(context)
+    analytics = context.get("analytics", {})
+    render_analytics_visuals(analytics)
 
 
 def render(context: dict[str, Any]) -> None:

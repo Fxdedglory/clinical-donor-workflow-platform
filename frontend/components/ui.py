@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -26,24 +27,75 @@ STATUS_COLORS = {
     "Clinical Re-Review": "#805ad5",
     "Operations Escalation": "#c53030",
     "Approved": "#178a6f",
-    "Rejected": "#c53030",
-    "Closed": "#2f855a",
-    "Open": "#c05621",
+    "Released": "#178a6f",
+    "Released for Clinical Use": "#178a6f",
+    "Released for Research Use": "#178a6f",
+    "Release Approved": "#178a6f",
+    "Recovery Authorized": "#178a6f",
     "Resolved": "#178a6f",
+    "Eligible": "#178a6f",
+    "Pending": "#b7791f",
+    "Conditional": "#b7791f",
+    "Needs Review": "#b7791f",
+    "Pending Administrative Screen": "#b7791f",
+    "Pending Medical Social History Review": "#b7791f",
+    "Pending Infectious Disease Review": "#b7791f",
+    "Pending Tissue Suitability Review": "#b7791f",
+    "Pending Recovery Suitability Review": "#b7791f",
+    "Pending Medical Director Review": "#b7791f",
+    "Pending QA Review": "#b7791f",
+    "Pending Processing Release": "#b7791f",
+    "Awaiting Lab Results": "#b7791f",
+    "Awaiting Signatures": "#b7791f",
+    "Awaiting External Review": "#b7791f",
+    "Awaiting Medical Director Review": "#b7791f",
+    "Escalated": "#c05621",
+    "High Priority": "#c05621",
+    "SLA Risk": "#c05621",
+    "Processing Hold": "#c05621",
+    "Release Hold": "#c05621",
+    "Hold": "#c05621",
+    "Rejected": "#c53030",
+    "Critical": "#c53030",
+    "Blocked": "#c53030",
+    "Overdue": "#c53030",
+    "Destroyed": "#c53030",
+    "Quarantine": "#c53030",
+    "Closed": "#2f855a",
+    "Archived": "#64748b",
+    "Inactive": "#64748b",
+    "Open": "#c05621",
 }
 
 
-def apply_theme() -> None:
+def apply_theme(compact_sidebar: bool = False) -> None:
+    compact_css = """
+        section[data-testid="stSidebar"] {
+            min-width: 6.4rem !important;
+            max-width: 6.4rem !important;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stSidebarContent"] {
+            padding-left: 0.45rem;
+            padding-right: 0.45rem;
+        }
+    """ if compact_sidebar else ""
     st.markdown(
         """
         <style>
         :root {
             --clinical-teal: #127c75;
+            --clinical-teal-dark: #0f5f5a;
             --clinical-slate: #243141;
             --clinical-muted: #657282;
             --clinical-border: #d9e1e8;
             --clinical-surface: #ffffff;
             --clinical-bg: #f7f9fb;
+            --clinical-success: #178a6f;
+            --clinical-warning: #b7791f;
+            --clinical-orange: #c05621;
+            --clinical-danger: #c53030;
+            --clinical-gray: #64748b;
         }
 
         .stApp {
@@ -62,7 +114,7 @@ def apply_theme() -> None:
         }
 
         section[data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #063548 0%, #082638 100%);
+            background: #0b2738;
             border-right: 1px solid rgba(255,255,255,0.08);
         }
 
@@ -130,14 +182,69 @@ def apply_theme() -> None:
             color: #0b2738 !important;
         }
 
+        section[data-testid="stSidebar"] div.stButton button {
+            border-radius: 7px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.92);
+            min-height: 2.4rem;
+            font-size: 0.88rem;
+            font-weight: 600;
+            box-shadow: none;
+        }
+
+        section[data-testid="stSidebar"] div.stButton button:hover {
+            border-color: #8dd3ca;
+            background: #ffffff;
+        }
+
         section[data-testid="stSidebar"] hr {
             border-color: rgba(255,255,255,0.16);
         }
 
         .block-container {
-            padding-top: 1.8rem;
+            padding-top: 1.05rem;
             padding-bottom: 2rem;
             max-width: 1440px;
+        }
+
+        .app-topbar {
+            background: #ffffff;
+            border: 1px solid var(--clinical-border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 2px rgba(36,49,65,0.04);
+        }
+
+        .system-notice {
+            background: #fff8ed;
+            border: 1px solid #f0d29d;
+            border-left: 4px solid var(--clinical-orange);
+            border-radius: 8px;
+            color: #5f3d07;
+            padding: 10px 14px;
+            margin: 0 0 14px;
+            font-size: 0.92rem;
+        }
+
+        .operational-card {
+            background: #ffffff;
+            border: 1px solid var(--clinical-border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
+            box-shadow: 0 1px 2px rgba(36,49,65,0.04);
+        }
+
+        .operational-card h3 {
+            margin: 0 0 8px;
+            font-size: 1rem;
+            color: var(--clinical-slate);
+        }
+
+        .muted-small {
+            color: var(--clinical-muted);
+            font-size: 0.78rem;
         }
 
         div[data-testid="stMetric"] {
@@ -189,11 +296,36 @@ def apply_theme() -> None:
             color: #ffffff;
         }
 
+        .soft-chip {
+            display: inline-block;
+            border-radius: 6px;
+            padding: 3px 7px;
+            font-size: 0.76rem;
+            font-weight: 650;
+            color: var(--clinical-slate);
+            background: #eef3f7;
+            border: 1px solid #d9e1e8;
+        }
+
         .section-title {
             font-weight: 700;
             color: var(--clinical-slate);
             margin-bottom: 0.35rem;
         }
+
+        .empty-state {
+            background: #ffffff;
+            border: 1px dashed var(--clinical-border);
+            border-radius: 8px;
+            padding: 18px;
+            color: var(--clinical-muted);
+            text-align: center;
+            margin-bottom: 14px;
+        }
+
+        """
+        + compact_css
+        + """
         </style>
         """,
         unsafe_allow_html=True,
@@ -205,15 +337,28 @@ def page_header(title: str, subtitle: str) -> None:
     st.markdown(f"<div class='clinical-kicker'>{subtitle}</div>", unsafe_allow_html=True)
 
 
+def last_updated(label: str | None = None) -> None:
+    value = label or datetime.now().strftime("%I:%M %p").lstrip("0")
+    st.markdown(f"<div class='muted-small'>Last Updated: {value}</div>", unsafe_allow_html=True)
+
+
 def status_chip(label: str, palette: dict[str, str] | None = None) -> str:
     colors = palette or STATUS_COLORS
     color = colors.get(label, "#657282")
     return f"<span class='status-chip' style='background:{color}'>{label}</span>"
 
 
+def soft_chip(label: str) -> str:
+    return f"<span class='soft-chip'>{label}</span>"
+
+
+def empty_state(message: str) -> None:
+    st.markdown(f"<div class='empty-state'>{message}</div>", unsafe_allow_html=True)
+
+
 def dataframe(records: list[dict[str, Any]], columns: list[str] | None = None, height: int = 420) -> None:
     if not records:
-        st.info("No records match the current filters.")
+        empty_state("No records match the current filters.")
         return
     df = pd.DataFrame(records)
     if columns:

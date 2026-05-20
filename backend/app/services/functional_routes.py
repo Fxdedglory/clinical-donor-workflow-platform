@@ -12,6 +12,7 @@ from app.models import (
     SOP,
     AIDecision,
     AIRiskRule,
+    AuditLog,
     ChangeControl,
     Deviation,
     Donor,
@@ -59,9 +60,9 @@ ACTIVE_DONOR_STATES = [
 
 ROUTE_DEFINITIONS = [
     {
-        "group": "Master Data",
+        "group": "Records",
         "items": [
-            {"route_path": "/donor", "label": "Donor Master", "permissions": ["donors.read", "donors.create", "donors.review"]},
+            {"route_path": "/donor", "label": "Donors", "permissions": ["donors.read", "donors.create", "donors.review"]},
             {"route_path": "/eligibility-rule", "label": "Eligibility Rules", "permissions": ["eligibility.manage", "risk_rules.manage", "ai_governance.review"]},
             {"route_path": "/infectious-disease-test", "label": "Infectious Disease Tests", "permissions": ["eligibility.read", "donors.review"]},
             {"route_path": "/tissue-type", "label": "Tissue Types", "permissions": ["eligibility.read", "donors.review", "release.manage"]},
@@ -76,7 +77,7 @@ ROUTE_DEFINITIONS = [
         ],
     },
     {
-        "group": "Workflow Operations",
+        "group": "My Work",
         "items": [
             {"route_path": "/workflow", "label": "Workflow", "permissions": ["tasks.read", "tasks.manage", "workflow.analytics"]},
             {"route_path": "/referral", "label": "Referral", "permissions": ["donors.create", "donors.read"]},
@@ -92,11 +93,9 @@ ROUTE_DEFINITIONS = [
         ],
     },
     {
-        "group": "Analytics & Intelligence",
+        "group": "Dashboard",
         "items": [
             {"route_path": "/dashboard", "label": "Dashboard", "permissions": ["dashboard.view"]},
-            {"route_path": "/operations", "label": "Operations", "permissions": ["dashboard.view", "tasks.manage"]},
-            {"route_path": "/workload", "label": "Workload", "permissions": ["tasks.read", "tasks.manage"]},
             {"route_path": "/sla", "label": "SLA", "permissions": ["vendors.read", "vendors.manage"]},
             {"route_path": "/drift-analysis", "label": "Drift Analysis", "permissions": ["ai_governance.review", "workflow.analytics"]},
             {"route_path": "/workflow-intelligence", "label": "Workflow Intelligence", "permissions": ["workflow.analytics", "ai_governance.review"]},
@@ -110,6 +109,7 @@ ROUTE_DEFINITIONS = [
             {"route_path": "/admin/workflow-engine", "label": "Workflow Engine", "permissions": ["workflow.configure"]},
             {"route_path": "/admin/workspaces", "label": "Workspaces", "permissions": ["workflow.configure"]},
             {"route_path": "/admin/permissions", "label": "Permissions", "permissions": ["roles.manage"]},
+            {"route_path": "/admin/audit-logs", "label": "Audit Logs", "permissions": ["audit.review"]},
             {"route_path": "/admin/responsibility-center", "label": "Responsibility Center", "permissions": ["system.admin"]},
             {"route_path": "/admin/system-health", "label": "System Health", "permissions": ["system.admin"]},
         ],
@@ -180,13 +180,13 @@ def functional_navigation(db: Session, current_user: User, preview_role_id: int 
 
 def default_route_for_role(role_name: str, groups: list[dict[str, Any]] | None = None) -> str:
     defaults = {
-        "System Administrator": "/admin/workflow-engine",
-        "Donor Intake Coordinator": "/referral",
-        "Clinical Reviewer": "/medical-review",
-        "Quality Assurance Specialist": "/qa-review",
-        "Vendor Operations Analyst": "/sla",
-        "Operations Manager": "/operations",
-        "Business Technology Analyst": "/workflow-intelligence",
+        "System Administrator": "/admin/users",
+        "Donor Intake Coordinator": "/dashboard",
+        "Clinical Reviewer": "/dashboard",
+        "Quality Assurance Specialist": "/dashboard",
+        "Vendor Operations Analyst": "/dashboard",
+        "Operations Manager": "/dashboard",
+        "Business Technology Analyst": "/dashboard",
     }
     default = defaults.get(role_name)
     if default:
@@ -311,7 +311,7 @@ def _route_group(route_key: str) -> str:
         "user",
         "ai-rule",
     }:
-        return "Master Data"
+        return "Records"
     if route_key in {
         "workflow",
         "review",
@@ -326,13 +326,13 @@ def _route_group(route_key: str) -> str:
         "task",
         "notification",
     }:
-        return "Workflow Operations"
-    return "Analytics & Intelligence"
+        return "My Work"
+    return "Dashboard"
 
 
 def _route_label(route_key: str) -> str:
     labels = {
-        "donor": "Donor Master",
+        "donor": "Donors",
         "eligibility-rule": "Eligibility Rule",
         "infectious-disease-test": "Infectious Disease Test",
         "tissue-type": "Tissue Type",
@@ -344,7 +344,7 @@ def _route_label(route_key: str) -> str:
         "sop": "SOP",
         "user": "User",
         "ai-rule": "AI Rule",
-        "workflow": "Workflow",
+        "workflow": "Workflows",
         "review": "Clinical Review",
         "referral": "Referral",
         "screening": "Screening",
@@ -357,8 +357,8 @@ def _route_label(route_key: str) -> str:
         "task": "Task",
         "notification": "Notification",
         "dashboard": "Dashboard",
-        "operations": "Operations",
-        "workload": "Workload",
+        "operations": "Dashboard",
+        "workload": "Dashboard",
         "sla": "SLA",
         "drift-analysis": "Drift Analysis",
         "workflow-intelligence": "Workflow Intelligence",
@@ -367,6 +367,7 @@ def _route_label(route_key: str) -> str:
         "admin/workflow-engine": "Workflow Engine",
         "admin/workspaces": "Workspace Configuration",
         "admin/permissions": "Permissions",
+        "admin/audit-logs": "Audit Logs",
         "admin/responsibility-center": "Responsibility Center",
         "admin/system-health": "System Health",
     }
@@ -766,6 +767,38 @@ def _timeline(db: Session, record_type: str | None, record_id: str | None) -> li
     return sorted(rows, key=lambda row: row["timestamp"])
 
 
+def _audit_events(db: Session, record_type: str | None, record_id: str | None) -> list[dict[str, Any]]:
+    if not record_type or not record_id:
+        return []
+    events = db.execute(
+        select(AuditLog)
+        .where(
+            or_(
+                AuditLog.record_id == str(record_id),
+                AuditLog.entity_id == str(record_id),
+            )
+        )
+        .order_by(desc(AuditLog.timestamp))
+        .limit(60)
+    ).scalars().all()
+    return [
+        _model_dict(
+            event,
+            [
+                "audit_id",
+                "action_type",
+                "table_name",
+                "record_id",
+                "entity_type",
+                "entity_id",
+                "ip_address",
+                "timestamp",
+            ],
+        )
+        for event in events
+    ]
+
+
 def _related_records(db: Session, entity: Any, entity_type: str) -> dict[str, Any]:
     record_type, record_id, _, _ = _workflow_target(entity, entity_type)
     related: dict[str, Any] = {
@@ -972,7 +1005,7 @@ def resolve_route_context(
                 task_id = tasks[0].task_id
                 workflow_state = workflow_state or tasks[0].workflow_state
 
-    kind = "detail" if record_id else "analytics" if route_group == "Analytics & Intelligence" else "collection"
+    kind = "detail" if record_id else "analytics" if route_group == "Dashboard" else "collection"
     if route_group == "Administration":
         kind = "admin"
 
@@ -1012,6 +1045,7 @@ def resolve_route_context(
         },
         "actions": actions,
         "timeline": _timeline(db, record_type, workflow_record_id),
+        "audit_events": _audit_events(db, record_type, workflow_record_id),
         "related_records": _related_records(db, entity, entity_type) if entity and entity_type else {},
         "role_lens": _role_lens(db, role, route_key, workflow_state),
         "breadcrumbs": breadcrumbs,
@@ -1034,6 +1068,7 @@ def page_key_for_route(route_key: str, role_name: str) -> str:
         "admin/workflow-engine": "workflow_configuration",
         "admin/workspaces": "workspace_configuration",
         "admin/permissions": "admin_roles",
+        "admin/audit-logs": "audit_administration",
         "admin/responsibility-center": "responsibility_center",
         "admin/system-health": "system_health",
     }

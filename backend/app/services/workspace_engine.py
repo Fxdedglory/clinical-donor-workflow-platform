@@ -25,6 +25,7 @@ from app.models import (
     WorkflowTransitionRule,
 )
 from app.services.ai_governance import governance_analytics, governance_kpis
+from app.services.functional_routes import route_path_for_record
 from app.services.workflow_orchestration import execute_workflow_transition
 
 
@@ -115,6 +116,12 @@ def _queue_rows_for_tasks(db: Session, tasks: list[WorkflowTask]) -> list[dict[s
             "escalation_status": "Escalated" if task.escalation_level else "Normal",
             "related_record_type": task.related_record_type,
             "related_record_id": task.related_record_id,
+            "route_path": route_path_for_record(
+                task.related_record_type,
+                task.related_record_id,
+                workflow_state=task.workflow_state,
+                task_id=task.task_id,
+            ),
         }
         if task.related_record_type == "DonorReview":
             donor = db.get(DonorReview, int(task.related_record_id))

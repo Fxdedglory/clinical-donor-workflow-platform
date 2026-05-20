@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,7 @@ from app.auth.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    get_password_hash,
     verify_password,
 )
 from app.core.config import settings
@@ -19,6 +21,16 @@ from app.schemas.auth import RefreshTokenRequest, TokenResponse, UserSession
 from app.services.audit import log_audit
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication & RBAC"])
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+
+
+class PasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
 
 
 def _session_for_user(db: Session, user: User) -> UserSession:
@@ -120,3 +132,56 @@ def logout(
 def me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserSession:
     return _session_for_user(db, current_user)
 
+
+@router.patch("/me", response_model=UserSession)
+def update_profile(
+    payload: ProfileUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserSession:
+    old_value = {"full_name": current_user.full_name, "email": current_user.email}
+    if payload.email and payload.email != current_user.email:
+        existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+        current_user.email = payload.email
+    if payload.full_name:
+        current_user.full_name = payload.full_name
+    log_audit(
+        db,
+        user_id=current_user.user_id,
+        action_type="UPDATE_PROFILE",
+        table_name="dim_user",
+        record_id=str(current_user.user_id),
+        old_value=old_value,
+        new_value={"full_name": current_user.full_name, "email": current_user.email},
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    db.refresh(current_user)
+    return _session_for_user(db, current_user)
+
+
+@router.patch("/me/password")
+def update_password(
+    payload: PasswordUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    current_user.hashed_password = get_password_hash(payload.new_password)
+    log_audit(
+        db,
+        user_id=current_user.user_id,
+        action_type="UPDATE_PASSWORD",
+        table_name="dim_user",
+        record_id=str(current_user.user_id),
+        old_value=None,
+        new_value={"username": current_user.username},
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    return {"status": "password_updated"}
