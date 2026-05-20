@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS operational.fact_donor_review (
     risk_level varchar(40) NOT NULL DEFAULT 'Low',
     recommended_action varchar(80) NOT NULL DEFAULT 'Approve',
     review_priority varchar(40) NOT NULL DEFAULT 'Routine',
-    intake_status varchar(40) NOT NULL DEFAULT 'Pending',
+    intake_status varchar(40) NOT NULL DEFAULT 'Draft Intake',
     reviewer_id integer REFERENCES operational.dim_user(user_id),
     clinical_notes text NOT NULL DEFAULT '',
     attachment_placeholder varchar(240) NOT NULL DEFAULT '',

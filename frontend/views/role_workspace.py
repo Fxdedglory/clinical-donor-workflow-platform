@@ -23,6 +23,47 @@ def _safe_dataframe(records: list[dict[str, Any]], columns: list[str] | None = N
         dataframe(records, height=height)
 
 
+def _record_context_panel(record_context: dict[str, Any] | None) -> None:
+    if not record_context or not record_context.get("record_type") or not record_context.get("record_id"):
+        return
+    record_type = record_context["record_type"]
+    record_id = str(record_context["record_id"])
+    state = record_context.get("workflow_state") or ""
+    st.markdown("<div class='section-title'>Workflow Record Context</div>", unsafe_allow_html=True)
+    cols = st.columns(4)
+    cols[0].metric("Record Type", record_type)
+    cols[1].metric("Record ID", record_id)
+    cols[2].metric("Workflow State", state or "Loaded")
+    cols[3].metric("Task", record_context.get("task_id") or "Context")
+
+    if record_type == "DonorReview":
+        donor = get_json(f"/api/donors/{record_id}")
+        if donor:
+            _safe_dataframe(
+                [
+                    {
+                        "donor_id": donor.get("donor_id"),
+                        "donor_name": donor.get("donor_name"),
+                        "intake_status": donor.get("intake_status"),
+                        "risk_score": donor.get("risk_score"),
+                        "risk_level": donor.get("risk_level"),
+                        "recommended_action": donor.get("recommended_action"),
+                        "review_priority": donor.get("review_priority"),
+                    }
+                ],
+                height=90,
+            )
+
+    timeline = get_json(f"/api/ai-governance/timeline/{record_type}/{record_id}") or []
+    if timeline:
+        with st.expander("Workflow Timeline", expanded=False):
+            _safe_dataframe(
+                timeline,
+                columns=["created_at", "event_type", "event_summary", "created_by"],
+                height=220,
+            )
+
+
 AI_GOVERNANCE_PAGES = {
     "ai_risk_dashboard",
     "workflow_intelligence",
@@ -119,6 +160,156 @@ def _governance_metrics(kpis: dict[str, Any], labels: list[str]) -> None:
         columns[index % len(columns)].metric(label, value)
 
 
+def _trend_from_records(records: list[dict[str, Any]], date_field: str, value_name: str) -> list[dict[str, Any]]:
+    if not records:
+        return []
+    frame = pd.DataFrame(records)
+    if date_field not in frame:
+        return []
+    frame[date_field] = pd.to_datetime(frame[date_field], errors="coerce")
+    frame = frame.dropna(subset=[date_field])
+    if frame.empty:
+        return []
+    trend = frame.groupby(frame[date_field].dt.date).size().reset_index(name=value_name)
+    trend.columns = ["date", value_name]
+    trend["date"] = trend["date"].astype(str)
+    return trend.to_dict("records")
+
+
+def _role_operational_visuals(workspace: dict) -> None:
+    role = workspace.get("active_role")
+    data = workspace.get("widget_data", {})
+    if role == "Business Technology Analyst":
+        return
+
+    st.markdown("<div class='section-title'>Operational Intelligence</div>", unsafe_allow_html=True)
+    if role == "Donor Intake Coordinator":
+        intake = data.get("intake_queue", [])
+        heatmap_rows = [
+            {
+                "age_bucket": row.get("sla_timer", "On track"),
+                "priority": row.get("priority", "Standard"),
+                "volume": 1,
+            }
+            for row in intake
+        ]
+        matrix_rows = [
+            {
+                "missing_documents": row.get("missing_documents", "No"),
+                "submission_status": row.get("submission_status", "Draft"),
+                "volume": 1,
+            }
+            for row in intake
+        ]
+        left, right = st.columns(2)
+        with left:
+            st.plotly_chart(
+                _plot_heatmap(
+                    heatmap_rows,
+                    x="age_bucket",
+                    y="priority",
+                    z="volume",
+                    title="Intake Queue Aging Heatmap",
+                    color_scale="YlOrRd",
+                ),
+                width="stretch",
+            )
+        with right:
+            st.plotly_chart(
+                _plot_heatmap(
+                    matrix_rows,
+                    x="missing_documents",
+                    y="submission_status",
+                    z="volume",
+                    title="Missing Documentation Matrix",
+                ),
+                width="stretch",
+            )
+        st.plotly_chart(
+            _plot_line(_trend_from_records(intake, "assigned_date", "intake_count"), x="date", y="intake_count", title="Intake Throughput Trend"),
+            width="stretch",
+        )
+    elif role == "Clinical Reviewer":
+        queue = data.get("clinical_review_queue", [])
+        risk_rows = [
+            {"workflow_stage": row.get("workflow_status", ""), "risk_category": "High" if row.get("risk_score", 0) >= 50 else "Moderate/Low", "volume": 1}
+            for row in queue
+        ]
+        funnel_frame = pd.DataFrame(
+            [
+                {"stage": "Pending", "count": len(queue)},
+                {"stage": "High Risk", "count": len(data.get("high_risk_cases", []))},
+                {"stage": "Escalated", "count": len(data.get("role_escalations", []))},
+            ]
+        )
+        left, right = st.columns(2)
+        with left:
+            st.plotly_chart(
+                _plot_heatmap(risk_rows, x="workflow_stage", y="risk_category", z="volume", title="Risk Distribution Heatmap", color_scale="YlOrRd"),
+                width="stretch",
+            )
+        with right:
+            fig = px.funnel(funnel_frame, x="count", y="stage", title="Escalation Funnel")
+            fig.update_layout(height=360, margin=dict(l=20, r=20, t=50, b=20))
+            st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(
+            _plot_line(_trend_from_records(data.get("review_sla_timer", []), "due_date", "sla_tasks"), x="date", y="sla_tasks", title="SLA Timeline View"),
+            width="stretch",
+        )
+    elif role == "Quality Assurance Specialist":
+        changes = data.get("qa_investigations", [])
+        capa_rows = [
+            {"risk_level": row.get("risk_level", "Moderate"), "capa_required": str(row.get("capa_required", False)), "volume": 1}
+            for row in changes
+        ]
+        sankey_rows = [
+            {"source": row.get("approval_status", "Investigation"), "target": row.get("workflow_state", "QA Investigation"), "value": 1}
+            for row in changes
+        ]
+        left, right = st.columns(2)
+        with left:
+            st.plotly_chart(_plot_heatmap(capa_rows, x="capa_required", y="risk_level", z="volume", title="CAPA Aging Heatmap", color_scale="Purples"), width="stretch")
+        with right:
+            st.plotly_chart(_plot_sankey(sankey_rows, "Investigation Sankey Diagram"), width="stretch")
+        st.plotly_chart(_plot_line(_trend_from_records(changes, "implementation_due_date", "sop_violations"), x="date", y="sop_violations", title="SOP Violation Trend"), width="stretch")
+    elif role == "Vendor Operations Analyst":
+        incidents = data.get("incident_queue", [])
+        heatmap_rows = [
+            {"vendor": row.get("vendor", ""), "severity": row.get("severity", ""), "volume": 1}
+            for row in incidents
+        ]
+        frame = pd.DataFrame(incidents)
+        left, right = st.columns(2)
+        with left:
+            st.plotly_chart(_plot_heatmap(heatmap_rows, x="vendor", y="severity", z="volume", title="SLA Heatmap", color_scale="OrRd"), width="stretch")
+        with right:
+            if not frame.empty:
+                fig = px.scatter(frame, x="ticket_age_hours", y="uptime_percent", size="ticket_age_hours", color="severity", title="Severity Bubble Chart")
+                fig.update_layout(height=360, margin=dict(l=20, r=20, t=50, b=20))
+            else:
+                fig = empty_figure("Severity Bubble Chart")
+            st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_plot_line(_trend_from_records(incidents, "opened_at", "incident_count"), x="date", y="incident_count", title="Incident Timeline"), width="stretch")
+    elif role == "Operations Manager":
+        tasks = data.get("queue_management", [])
+        workload = data.get("workforce_utilization", [])
+        heatmap_rows = [
+            {"queue": row.get("queue_name", ""), "status": row.get("status", ""), "volume": 1}
+            for row in tasks
+        ]
+        left, right = st.columns(2)
+        with left:
+            st.plotly_chart(_plot_heatmap(heatmap_rows, x="queue", y="status", z="volume", title="Enterprise Queue Heatmap", color_scale="Blues"), width="stretch")
+        with right:
+            if workload:
+                fig = px.bar(pd.DataFrame(workload), x="owner_role", y="task_count", color="status", title="Workforce Load Balancer")
+                fig.update_layout(height=360, margin=dict(l=20, r=20, t=50, b=20))
+            else:
+                fig = empty_figure("Workforce Load Balancer")
+            st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_plot_line(_trend_from_records(data.get("role_escalations", []), "due_date", "escalations"), x="date", y="escalations", title="Escalation Trend Timeline"), width="stretch")
+
+
 def _page_records(workspace: dict, page_key: str) -> list[dict[str, Any]]:
     widget_data = workspace.get("widget_data", {})
     if page_key in widget_data:
@@ -172,6 +363,14 @@ def _transition_panel(workspace: dict, page_records: list[dict[str, Any]]) -> No
             value=str((selected_task or default_task or {}).get("related_record_id", "")),
         )
         note = st.text_area("Transition note", value="")
+        metadata: dict[str, Any] = {}
+        if workspace.get("active_role") == "Clinical Reviewer":
+            human_override = st.checkbox("Human override of AI recommendation")
+            override_reason = st.text_area("Override reason", value="" if not human_override else note)
+            metadata = {
+                "human_override": human_override,
+                "override_reason": override_reason,
+            }
         submitted = st.form_submit_button("Route Workflow")
     if submitted:
         task_id = (selected_task or default_task or {}).get("task_id")
@@ -183,6 +382,7 @@ def _transition_panel(workspace: dict, page_records: list[dict[str, Any]]) -> No
                 "related_record_id": record_id,
                 "task_id": task_id,
                 "note": note,
+                "metadata": metadata,
             },
         )
         if result:
@@ -209,6 +409,7 @@ def _dashboard(workspace: dict) -> None:
             with container:
                 st.markdown(f"<div class='section-title'>{widget['widget_title']}</div>", unsafe_allow_html=True)
                 _safe_dataframe(widget_data.get(widget["widget_key"], []), height=260)
+    _role_operational_visuals(workspace)
 
 
 def _queue_page(workspace: dict, page_key: str, title: str) -> None:
@@ -311,7 +512,7 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
                     title="Risk Distribution Heatmap",
                     color_scale="YlOrRd",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
         with right:
             st.plotly_chart(
@@ -321,9 +522,9 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
                     y="override_count",
                     title="Human Override Trend",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
-        st.plotly_chart(_plot_rule_frequency(analytics.get("rule_trigger_frequency", [])), use_container_width=True)
+        st.plotly_chart(_plot_rule_frequency(analytics.get("rule_trigger_frequency", [])), width="stretch")
         st.markdown("<div class='section-title'>Recent AI Decisions</div>", unsafe_allow_html=True)
         _safe_dataframe(workspace.get("widget_data", {}).get("ai_risk_dashboard", []), columns=workspace["workspace"].get("workbench_columns"), height=300)
         return
@@ -331,7 +532,7 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
     if page_key in {"workflow_intelligence", "workflow_analytics"}:
         st.plotly_chart(
             _plot_sankey(analytics.get("workflow_bottleneck_sankey", []), "Workflow Bottleneck Sankey Diagram"),
-            use_container_width=True,
+            width="stretch",
         )
         left, right = st.columns(2)
         with left:
@@ -344,7 +545,7 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
                     title="Workflow Queue Heatmap",
                     color_scale="Teal",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
         with right:
             st.markdown("<div class='section-title'>Operational Recommendation Engine</div>", unsafe_allow_html=True)
@@ -363,12 +564,12 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
                     title="Escalation Root Cause Matrix",
                     color_scale="OrRd",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
         with right:
             st.plotly_chart(
                 _plot_sankey(analytics.get("workflow_bottleneck_sankey", []), "Escalation Routing Pattern"),
-                use_container_width=True,
+                width="stretch",
             )
         st.markdown("<div class='section-title'>Escalation Intelligence Findings</div>", unsafe_allow_html=True)
         _safe_dataframe(analytics.get("operational_recommendations", []), height=280)
@@ -384,17 +585,17 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
                     y="override_count",
                     title="Human Override Trend",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
         with right:
-            st.plotly_chart(_plot_sla_accuracy(analytics.get("sla_prediction_accuracy", [])), use_container_width=True)
-        st.plotly_chart(_plot_rule_frequency(analytics.get("rule_trigger_frequency", [])), use_container_width=True)
+            st.plotly_chart(_plot_sla_accuracy(analytics.get("sla_prediction_accuracy", [])), width="stretch")
+        st.plotly_chart(_plot_rule_frequency(analytics.get("rule_trigger_frequency", [])), width="stretch")
         return
 
     left, right = st.columns(2)
     with left:
-        st.plotly_chart(_plot_sla_accuracy(analytics.get("sla_prediction_accuracy", [])), use_container_width=True)
-        st.plotly_chart(_plot_rule_frequency(analytics.get("rule_trigger_frequency", [])), use_container_width=True)
+        st.plotly_chart(_plot_sla_accuracy(analytics.get("sla_prediction_accuracy", [])), width="stretch")
+        st.plotly_chart(_plot_rule_frequency(analytics.get("rule_trigger_frequency", [])), width="stretch")
     with right:
         st.plotly_chart(
             _plot_heatmap(
@@ -405,7 +606,7 @@ def _ai_visual_workspace(workspace: dict, page_key: str, title: str) -> None:
                 title="Escalation Root Cause Matrix",
                 color_scale="OrRd",
             ),
-            use_container_width=True,
+            width="stretch",
         )
         st.markdown("<div class='section-title'>Operational Recommendations</div>", unsafe_allow_html=True)
         _safe_dataframe(analytics.get("operational_recommendations", []), height=300)
@@ -761,7 +962,13 @@ def _integration_management() -> None:
     )
 
 
-def render(workspace: dict, page_key: str, title: str) -> None:
+def render(
+    workspace: dict,
+    page_key: str,
+    title: str,
+    record_context: dict[str, Any] | None = None,
+) -> None:
+    _record_context_panel(record_context)
     if page_key == "role_dashboard":
         if workspace.get("active_role") == "Business Technology Analyst":
             _ai_visual_workspace(workspace, "ai_governance", "AI Governance")

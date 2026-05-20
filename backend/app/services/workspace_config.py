@@ -9,6 +9,9 @@ from app.models import (
     RoleNavigationConfig,
     RoleWorkspaceConfig,
     WorkflowAssignmentRule,
+    WorkflowEscalationRule,
+    WorkflowNavigationRoute,
+    WorkflowNotificationRule,
     WorkflowStateMachine,
     WorkflowTransitionRule,
 )
@@ -49,7 +52,7 @@ WORKSPACE_DEFINITIONS: dict[str, dict] = {
             "assigned_date",
             "due_date",
         ],
-        "notification_types": ["Intake Rejected", "Missing Documentation", "Urgent Intake Assignment"],
+        "notification_types": ["Intake Rejected", "Missing Documentation", "Urgent Intake Assignment", "SLA Nearing Breach"],
         "theme_config": {"accent": "#127c75", "density": "focused"},
     },
     "Clinical Reviewer": {
@@ -115,7 +118,7 @@ WORKSPACE_DEFINITIONS: dict[str, dict] = {
             "implementation_due_date",
             "workflow_state",
         ],
-        "notification_types": ["New Investigation", "SOP Deviation", "Unresolved CAPA"],
+        "notification_types": ["New Investigation", "SOP Deviation", "Unresolved CAPA", "Unresolved Escalation"],
         "theme_config": {"accent": "#6b46c1", "density": "compliance"},
     },
     "Vendor Operations Analyst": {
@@ -266,42 +269,146 @@ WORKSPACE_DEFINITIONS: dict[str, dict] = {
 }
 
 WORKFLOW_STATES = [
-    ("Draft Intake", "Intake", "Donor Intake Coordinator", False),
-    ("Pending Intake Review", "Intake", "Donor Intake Coordinator", False),
-    ("Pending Clinical Review", "Clinical", "Clinical Reviewer", False),
-    ("Clinical Escalation", "Clinical", "Operations Manager", False),
-    ("Pending QA Review", "Quality", "Quality Assurance Specialist", False),
-    ("CAPA Investigation", "Quality", "Quality Assurance Specialist", False),
-    ("Vendor SLA Investigation", "Vendor", "Vendor Operations Analyst", False),
-    ("Approved", "Terminal", None, True),
-    ("Rejected", "Terminal", None, True),
-    ("Closed", "Terminal", None, True),
+    {
+        "state_name": "Draft Intake",
+        "category": "Intake",
+        "owner": "Donor Intake Coordinator",
+        "allowed_roles": ["Donor Intake Coordinator"],
+        "allowed_actions": ["save_draft", "upload_documentation", "validate_intake", "submit_to_clinical_review", "escalate_intake_issue"],
+        "next": ["Pending Intake Validation", "Pending Clinical Review", "Pending Additional Information", "Operations Escalation"],
+        "sla_hours": 24,
+        "terminal": False,
+    },
+    {
+        "state_name": "Pending Intake Validation",
+        "category": "Intake",
+        "owner": "Donor Intake Coordinator",
+        "allowed_roles": ["Donor Intake Coordinator"],
+        "allowed_actions": ["validate_intake", "submit_intake", "request_additional_documentation", "escalate_intake_issue"],
+        "next": ["Pending Clinical Review", "Pending Additional Information", "Operations Escalation"],
+        "sla_hours": 18,
+        "terminal": False,
+    },
+    {
+        "state_name": "Pending Clinical Review",
+        "category": "Clinical",
+        "owner": "Clinical Reviewer",
+        "allowed_roles": ["Clinical Reviewer"],
+        "allowed_actions": ["start_clinical_review", "approve_donor", "reject_donor", "escalate_to_qa", "request_additional_information", "override_ai_recommendation"],
+        "next": ["Clinical Review In Progress", "Approved", "Rejected", "QA Investigation", "Pending Additional Information"],
+        "sla_hours": 24,
+        "terminal": False,
+    },
+    {
+        "state_name": "Clinical Review In Progress",
+        "category": "Clinical",
+        "owner": "Clinical Reviewer",
+        "allowed_roles": ["Clinical Reviewer"],
+        "allowed_actions": ["approve_donor", "reject_donor", "escalate_to_qa", "request_additional_information", "override_ai_recommendation"],
+        "next": ["Approved", "Rejected", "QA Investigation", "Pending Additional Information"],
+        "sla_hours": 18,
+        "terminal": False,
+    },
+    {
+        "state_name": "Pending Additional Information",
+        "category": "Intake",
+        "owner": "Donor Intake Coordinator",
+        "allowed_roles": ["Donor Intake Coordinator", "Clinical Reviewer"],
+        "allowed_actions": ["upload_documentation", "submit_to_clinical_review", "escalate_intake_issue"],
+        "next": ["Pending Clinical Review", "Operations Escalation"],
+        "sla_hours": 24,
+        "terminal": False,
+    },
+    {
+        "state_name": "High Risk Escalation",
+        "category": "Clinical",
+        "owner": "Quality Assurance Specialist",
+        "allowed_roles": ["Clinical Reviewer", "Quality Assurance Specialist", "Operations Manager"],
+        "allowed_actions": ["escalate_to_qa", "open_investigation", "approve_escalations"],
+        "next": ["QA Investigation", "Operations Escalation"],
+        "sla_hours": 8,
+        "terminal": False,
+    },
+    {
+        "state_name": "QA Investigation",
+        "category": "Quality",
+        "owner": "Quality Assurance Specialist",
+        "allowed_roles": ["Quality Assurance Specialist"],
+        "allowed_actions": ["approve_workflow", "reject_workflow", "open_capa", "request_re_review", "escalate_investigation"],
+        "next": ["Approved", "Rejected", "CAPA Investigation", "Clinical Re-Review", "Operations Escalation"],
+        "sla_hours": 48,
+        "terminal": False,
+    },
+    {
+        "state_name": "CAPA Investigation",
+        "category": "Quality",
+        "owner": "Quality Assurance Specialist",
+        "allowed_roles": ["Quality Assurance Specialist"],
+        "allowed_actions": ["create_capa", "request_re_review", "close_investigation", "escalate_investigation"],
+        "next": ["Clinical Re-Review", "Closed", "Operations Escalation"],
+        "sla_hours": 120,
+        "terminal": False,
+    },
+    {
+        "state_name": "Clinical Re-Review",
+        "category": "Clinical",
+        "owner": "Clinical Reviewer",
+        "allowed_roles": ["Clinical Reviewer"],
+        "allowed_actions": ["approve_donor", "reject_donor", "escalate_to_qa", "override_ai_recommendation"],
+        "next": ["Approved", "Rejected", "QA Investigation"],
+        "sla_hours": 24,
+        "terminal": False,
+    },
+    {
+        "state_name": "Operations Escalation",
+        "category": "Operations",
+        "owner": "Operations Manager",
+        "allowed_roles": ["Operations Manager"],
+        "allowed_actions": ["reassign_tasks", "override_priorities", "approve_escalations", "resolve_bottleneck", "force_workflow_transition"],
+        "next": ["Pending Clinical Review", "QA Investigation", "Closed"],
+        "sla_hours": 8,
+        "terminal": False,
+    },
+    {"state_name": "Vendor SLA Investigation", "category": "Vendor", "owner": "Vendor Operations Analyst", "allowed_roles": ["Vendor Operations Analyst"], "allowed_actions": ["open_incident", "escalate_vendor_issue", "resolve_incident", "assign_vendor_investigation", "request_vendor_update"], "next": ["Operations Escalation", "Closed"], "sla_hours": 24, "terminal": False},
+    {"state_name": "Approved", "category": "Terminal", "owner": None, "allowed_roles": [], "allowed_actions": [], "next": ["Closed"], "sla_hours": 0, "terminal": True},
+    {"state_name": "Rejected", "category": "Terminal", "owner": None, "allowed_roles": [], "allowed_actions": [], "next": ["Closed"], "sla_hours": 0, "terminal": True},
+    {"state_name": "Closed", "category": "Terminal", "owner": None, "allowed_roles": [], "allowed_actions": [], "next": [], "sla_hours": 0, "terminal": True},
 ]
 
 WORKFLOW_TRANSITIONS = [
+    ("save_draft", "Save Draft", "Draft Intake", "Draft Intake", "Donor Intake Coordinator", "Donor Intake Coordinator", "Draft Intake Task", "Urgent Intake Assignment", "SAVE_DRAFT_INTAKE", 24),
+    ("upload_documentation", "Upload Documentation", "Draft Intake", "Pending Intake Validation", "Donor Intake Coordinator", "Donor Intake Coordinator", "Documentation Validation Task", "Missing Documentation", "UPLOAD_DOCUMENTATION", 18),
+    ("validate_intake", "Validate Intake", "Draft Intake", "Pending Intake Validation", "Donor Intake Coordinator", "Donor Intake Coordinator", "Intake Validation Task", "Urgent Intake Assignment", "VALIDATE_INTAKE", 18),
+    ("submit_intake", "Submit Intake", "Pending Intake Validation", "Pending Clinical Review", "Donor Intake Coordinator", "Clinical Reviewer", "Donor Review Task", "New Donor Assigned", "SUBMIT_INTAKE", 24),
     ("submit_to_clinical_review", "Submit for Clinical Review", "Draft Intake", "Pending Clinical Review", "Donor Intake Coordinator", "Clinical Reviewer", "Donor Review Task", "New Donor Assigned", "SUBMIT_TO_CLINICAL_REVIEW", 24),
-    ("request_additional_documentation", "Request Additional Documentation", "Pending Intake Review", "Pending Intake Review", "Donor Intake Coordinator", "Donor Intake Coordinator", "Intake Documentation Task", "Missing Documentation", "REQUEST_ADDITIONAL_DOCUMENTATION", 24),
-    ("escalate_intake_issue", "Escalate Intake Issue", "Pending Intake Review", "Clinical Escalation", "Donor Intake Coordinator", "Operations Manager", "Intake Escalation", "Enterprise Bottleneck", "ESCALATE_INTAKE_ISSUE", 8),
-    ("approve_donor", "Approve Donor", "Pending Clinical Review", "Pending QA Review", "Clinical Reviewer", "Quality Assurance Specialist", "QA Approval Review", "New Investigation", "APPROVE_DONOR_TO_QA", 48),
+    ("request_additional_documentation", "Request Additional Documentation", "Pending Intake Validation", "Pending Additional Information", "Donor Intake Coordinator", "Donor Intake Coordinator", "Missing Documentation Queue", "Missing Documentation", "REQUEST_ADDITIONAL_DOCUMENTATION", 24),
+    ("escalate_intake_issue", "Escalate Intake Issue", "Pending Intake Validation", "Operations Escalation", "Donor Intake Coordinator", "Operations Manager", "Intake Escalation", "Enterprise Bottleneck", "ESCALATE_INTAKE_ISSUE", 8),
+    ("start_clinical_review", "Start Clinical Review", "Pending Clinical Review", "Clinical Review In Progress", "Clinical Reviewer", "Clinical Reviewer", "Clinical Review Task", "New Donor Assigned", "START_CLINICAL_REVIEW", 18),
+    ("approve_donor", "Approve Donor", "Pending Clinical Review", "Approved", "Clinical Reviewer", None, "Donor Approval Closure", "System", "APPROVE_DONOR", 0),
     ("reject_donor", "Reject Donor", "Pending Clinical Review", "Rejected", "Clinical Reviewer", None, "Donor Rejection Closure", "Intake Rejected", "REJECT_DONOR", 0),
-    ("escalate_case", "Escalate Case", "Pending Clinical Review", "Clinical Escalation", "Clinical Reviewer", "Operations Manager", "Clinical Escalation", "Escalated Review", "ESCALATE_CLINICAL_CASE", 8),
-    ("request_qa_review", "Request QA Review", "Pending Clinical Review", "Pending QA Review", "Clinical Reviewer", "Quality Assurance Specialist", "QA Investigation Task", "New Investigation", "REQUEST_QA_REVIEW", 48),
-    ("request_additional_information", "Request Additional Information", "Pending Clinical Review", "Pending Intake Review", "Clinical Reviewer", "Donor Intake Coordinator", "Intake Follow-up Task", "Missing Documentation", "REQUEST_ADDITIONAL_INFORMATION", 24),
-    ("open_investigation", "Open Investigation", "Pending QA Review", "CAPA Investigation", "Quality Assurance Specialist", "Quality Assurance Specialist", "CAPA Investigation", "Unresolved CAPA", "OPEN_QA_INVESTIGATION", 72),
+    ("escalate_to_qa", "Escalate to QA", "Pending Clinical Review", "QA Investigation", "Clinical Reviewer", "Quality Assurance Specialist", "QA Investigation Task", "New Investigation", "ESCALATE_TO_QA", 48),
+    ("escalate_case", "Escalate Case", "Pending Clinical Review", "QA Investigation", "Clinical Reviewer", "Quality Assurance Specialist", "QA Investigation Task", "Escalated Review", "ESCALATE_CLINICAL_CASE", 48),
+    ("request_qa_review", "Request QA Review", "Pending Clinical Review", "QA Investigation", "Clinical Reviewer", "Quality Assurance Specialist", "QA Investigation Task", "New Investigation", "REQUEST_QA_REVIEW", 48),
+    ("request_additional_information", "Request Additional Information", "Pending Clinical Review", "Pending Additional Information", "Clinical Reviewer", "Donor Intake Coordinator", "Intake Follow-up Task", "Missing Documentation", "REQUEST_ADDITIONAL_INFORMATION", 24),
+    ("override_ai_recommendation", "Override AI Recommendation", "Pending Clinical Review", "Clinical Review In Progress", "Clinical Reviewer", "Business Technology Analyst", "AI Override Review", "AI Override", "OVERRIDE_AI_RECOMMENDATION", 24),
+    ("open_investigation", "Open Investigation", "QA Investigation", "QA Investigation", "Quality Assurance Specialist", "Quality Assurance Specialist", "QA Investigation Task", "New Investigation", "OPEN_QA_INVESTIGATION", 48),
+    ("open_capa", "Open CAPA", "QA Investigation", "CAPA Investigation", "Quality Assurance Specialist", "Quality Assurance Specialist", "CAPA Investigation", "Unresolved CAPA", "OPEN_CAPA", 120),
     ("create_capa", "Create CAPA", "CAPA Investigation", "CAPA Investigation", "Quality Assurance Specialist", "Quality Assurance Specialist", "CAPA Follow-up", "Unresolved CAPA", "CREATE_CAPA", 120),
-    ("approve_workflow", "Approve Workflow", "Pending QA Review", "Approved", "Quality Assurance Specialist", None, "Workflow Approval", "System", "APPROVE_WORKFLOW", 0),
-    ("reject_workflow", "Reject Workflow", "Pending QA Review", "Rejected", "Quality Assurance Specialist", None, "Workflow Rejection", "System", "REJECT_WORKFLOW", 0),
-    ("request_re_review", "Request Re-Review", "Pending QA Review", "Pending Clinical Review", "Quality Assurance Specialist", "Clinical Reviewer", "Clinical Re-Review", "New Donor Assigned", "REQUEST_RE_REVIEW", 24),
+    ("approve_workflow", "Approve Workflow", "QA Investigation", "Approved", "Quality Assurance Specialist", None, "Workflow Approval", "System", "APPROVE_WORKFLOW", 0),
+    ("reject_workflow", "Reject Workflow", "QA Investigation", "Rejected", "Quality Assurance Specialist", None, "Workflow Rejection", "System", "REJECT_WORKFLOW", 0),
+    ("request_re_review", "Request Re-Review", "QA Investigation", "Clinical Re-Review", "Quality Assurance Specialist", "Clinical Reviewer", "Clinical Re-Review", "New Donor Assigned", "REQUEST_RE_REVIEW", 24),
+    ("escalate_investigation", "Escalate Investigation", "QA Investigation", "Operations Escalation", "Quality Assurance Specialist", "Operations Manager", "QA Escalation", "Unresolved Escalation", "ESCALATE_QA_INVESTIGATION", 8),
     ("close_investigation", "Close Investigation", "CAPA Investigation", "Closed", "Quality Assurance Specialist", None, "Investigation Closure", "System", "CLOSE_INVESTIGATION", 0),
     ("open_incident", "Open Incident", "Vendor SLA Investigation", "Vendor SLA Investigation", "Vendor Operations Analyst", "Vendor Operations Analyst", "SLA Investigation Task", "SLA Breach", "OPEN_VENDOR_INCIDENT", 24),
-    ("escalate_vendor_issue", "Escalate Vendor Issue", "Vendor SLA Investigation", "Clinical Escalation", "Vendor Operations Analyst", "Operations Manager", "Vendor Escalation", "Critical Escalation", "ESCALATE_VENDOR_ISSUE", 8),
+    ("escalate_vendor_issue", "Escalate Vendor Issue", "Vendor SLA Investigation", "Operations Escalation", "Vendor Operations Analyst", "Operations Manager", "Vendor Escalation", "Critical Escalation", "ESCALATE_VENDOR_ISSUE", 8),
     ("resolve_incident", "Resolve Incident", "Vendor SLA Investigation", "Closed", "Vendor Operations Analyst", None, "Vendor Resolution", "System", "RESOLVE_VENDOR_INCIDENT", 0),
     ("assign_vendor_investigation", "Assign Vendor Investigation", "Vendor SLA Investigation", "Vendor SLA Investigation", "Vendor Operations Analyst", "Vendor Operations Analyst", "Vendor Investigation", "SLA Breach", "ASSIGN_VENDOR_INVESTIGATION", 24),
     ("request_vendor_update", "Request Vendor Update", "Vendor SLA Investigation", "Vendor SLA Investigation", "Vendor Operations Analyst", "Vendor Operations Analyst", "Vendor Update Request", "Outage Alert", "REQUEST_VENDOR_UPDATE", 8),
-    ("reassign_tasks", "Reassign Tasks", "Clinical Escalation", "Pending Clinical Review", "Operations Manager", "Clinical Reviewer", "Manager Reassignment", "New Donor Assigned", "REASSIGN_TASKS", 24),
-    ("override_priorities", "Override Priorities", "Clinical Escalation", "Clinical Escalation", "Operations Manager", "Operations Manager", "Priority Override", "Enterprise Bottleneck", "OVERRIDE_PRIORITIES", 8),
-    ("approve_escalations", "Approve Escalations", "Clinical Escalation", "Pending QA Review", "Operations Manager", "Quality Assurance Specialist", "Escalation Approval", "New Investigation", "APPROVE_ESCALATION", 24),
-    ("resolve_bottleneck", "Resolve Operational Bottleneck", "Clinical Escalation", "Closed", "Operations Manager", None, "Bottleneck Resolution", "System", "RESOLVE_BOTTLENECK", 0),
+    ("reassign_tasks", "Reassign Tasks", "Operations Escalation", "Pending Clinical Review", "Operations Manager", "Clinical Reviewer", "Manager Reassignment", "New Donor Assigned", "REASSIGN_TASKS", 24),
+    ("override_priorities", "Override Priorities", "Operations Escalation", "Operations Escalation", "Operations Manager", "Operations Manager", "Priority Override", "Enterprise Bottleneck", "OVERRIDE_PRIORITIES", 8),
+    ("approve_escalations", "Approve Escalations", "Operations Escalation", "QA Investigation", "Operations Manager", "Quality Assurance Specialist", "Escalation Approval", "New Investigation", "APPROVE_ESCALATION", 24),
+    ("force_workflow_transition", "Force Workflow Transition", "Operations Escalation", "QA Investigation", "Operations Manager", "Quality Assurance Specialist", "Forced Workflow Transition", "Unresolved Escalation", "FORCE_WORKFLOW_TRANSITION", 24),
+    ("resolve_bottleneck", "Resolve Operational Bottleneck", "Operations Escalation", "Closed", "Operations Manager", None, "Bottleneck Resolution", "System", "RESOLVE_BOTTLENECK", 0),
 ]
 
 
@@ -362,13 +469,33 @@ def ensure_workspace_definitions(db: Session, roles: dict[str, Role]) -> None:
     existing_states = {
         item.state_name: item for item in db.execute(select(WorkflowStateMachine)).scalars().all()
     }
-    for index, (state_name, category, owner_role_name, is_terminal) in enumerate(WORKFLOW_STATES, start=1):
+    for index, state_def in enumerate(WORKFLOW_STATES, start=1):
+        state_name = state_def["state_name"]
+        category = state_def["category"]
+        owner_role_name = state_def["owner"]
+        is_terminal = state_def["terminal"]
         owner = roles.get(owner_role_name) if owner_role_name else None
         state = existing_states.get(state_name)
+        escalation_rules = {
+            "threshold_hours": state_def["sla_hours"],
+            "target_role": "Operations Manager" if not is_terminal else None,
+            "trigger": "sla_breach_or_stagnation",
+        }
+        notification_rules = {
+            "on_enter": state_def["allowed_roles"],
+            "sla_warning_hours": max(1, int(state_def["sla_hours"] / 2)) if state_def["sla_hours"] else 0,
+        }
         if state:
             state.state_category = category
             state.owning_role_id = owner.role_id if owner else None
+            state.allowed_roles = state_def["allowed_roles"]
+            state.allowed_actions = state_def["allowed_actions"]
+            state.next_possible_states = state_def["next"]
+            state.sla_hours = state_def["sla_hours"]
+            state.escalation_rules = escalation_rules
+            state.notification_rules = notification_rules
             state.is_terminal = is_terminal
+            state.is_terminal_state = is_terminal
             state.sort_order = index
         else:
             db.add(
@@ -376,7 +503,14 @@ def ensure_workspace_definitions(db: Session, roles: dict[str, Role]) -> None:
                     state_name=state_name,
                     state_category=category,
                     owning_role_id=owner.role_id if owner else None,
+                    allowed_roles=state_def["allowed_roles"],
+                    allowed_actions=state_def["allowed_actions"],
+                    next_possible_states=state_def["next"],
+                    sla_hours=state_def["sla_hours"],
+                    escalation_rules=escalation_rules,
+                    notification_rules=notification_rules,
                     is_terminal=is_terminal,
+                    is_terminal_state=is_terminal,
                     sort_order=index,
                 )
             )
@@ -434,5 +568,74 @@ def ensure_workspace_definitions(db: Session, roles: dict[str, Role]) -> None:
                     is_active=True,
                 )
             )
+
+    db.execute(delete(WorkflowEscalationRule))
+    for state_def in WORKFLOW_STATES:
+        if state_def["terminal"] or not state_def["sla_hours"]:
+            continue
+        target_role = roles.get("Operations Manager")
+        db.add(
+            WorkflowEscalationRule(
+                workflow_state=state_def["state_name"],
+                trigger_condition="sla_breach_or_workflow_stagnation",
+                threshold_hours=state_def["sla_hours"],
+                target_role_id=target_role.role_id if target_role else None,
+                escalation_type=f"{state_def['category']} SLA Escalation",
+                priority="Critical" if state_def["sla_hours"] <= 8 else "High",
+                is_active=True,
+            )
+        )
+
+    db.execute(delete(WorkflowNotificationRule))
+    for transition in WORKFLOW_TRANSITIONS:
+        _, action_label, _, to_state, _, target_role_name, _, notification_type, _, sla_hours = transition
+        target_role = roles.get(target_role_name) if target_role_name else None
+        if not target_role:
+            continue
+        db.add(
+            WorkflowNotificationRule(
+                workflow_state=to_state,
+                event_type=action_label,
+                target_role_id=target_role.role_id,
+                notification_type=notification_type,
+                priority="Critical" if sla_hours <= 8 and sla_hours > 0 else "High" if sla_hours else "Normal",
+                template=f"{action_label} routed a workflow record to {to_state}.",
+                is_active=True,
+            )
+        )
+
+    route_definitions = [
+        ("Donor Intake Coordinator", "DonorReview", "Draft Intake", "donor_intake_form", "Draft Intake"),
+        ("Donor Intake Coordinator", "DonorReview", "Pending Intake Validation", "intake_queue", "Intake Queue"),
+        ("Donor Intake Coordinator", "DonorReview", "Pending Additional Information", "intake_queue", "Missing Documentation Queue"),
+        ("Clinical Reviewer", "DonorReview", "Pending Clinical Review", "clinical_review_queue", "Clinical Review Queue"),
+        ("Clinical Reviewer", "DonorReview", "Clinical Review In Progress", "clinical_review_queue", "Clinical Review Workbench"),
+        ("Clinical Reviewer", "DonorReview", "Clinical Re-Review", "clinical_review_queue", "Clinical Re-Review"),
+        ("Clinical Reviewer", "DonorReview", "QA Investigation", "high_risk_cases", "High Risk Cases"),
+        ("Quality Assurance Specialist", "DonorReview", "QA Investigation", "qa_investigations", "QA Investigation"),
+        ("Quality Assurance Specialist", "DonorReview", "CAPA Investigation", "capa_queue", "CAPA Queue"),
+        ("Operations Manager", "DonorReview", "Operations Escalation", "role_escalations", "Escalation Center"),
+        ("Operations Manager", "WorkflowTask", "Operations Escalation", "queue_management", "Queue Management"),
+        ("Vendor Operations Analyst", "VendorIncident", "Vendor SLA Investigation", "incident_queue", "Incident Queue"),
+        ("Business Technology Analyst", "DonorReview", "Pending Clinical Review", "ai_audit_review", "AI Audit Review"),
+        ("Business Technology Analyst", "DonorReview", "QA Investigation", "ai_audit_review", "AI Audit Review"),
+        ("Business Technology Analyst", "AIDecision", None, "ai_audit_review", "AI Decision Trace"),
+    ]
+    db.execute(delete(WorkflowNavigationRoute))
+    for role_name, record_type, workflow_state, page_key, route_label in route_definitions:
+        role = roles.get(role_name)
+        if not role:
+            continue
+        db.add(
+            WorkflowNavigationRoute(
+                role_id=role.role_id,
+                record_type=record_type,
+                workflow_state=workflow_state,
+                page_key=page_key,
+                route_label=route_label,
+                preserve_context=True,
+                is_active=True,
+            )
+        )
 
     db.flush()

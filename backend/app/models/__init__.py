@@ -22,9 +22,13 @@ from app.models.entities import (
     Vendor,
     VendorIncident,
     WorkflowAssignmentRule,
+    WorkflowEscalationRule,
+    WorkflowNavigationRoute,
+    WorkflowNotificationRule,
     WorkflowStateMachine,
     WorkflowTask,
     WorkflowTimelineEvent,
+    WorkflowTransitionEvent,
     WorkflowTransitionRule,
 )
 
@@ -52,9 +56,13 @@ __all__ = [
     "Vendor",
     "VendorIncident",
     "WorkflowAssignmentRule",
+    "WorkflowEscalationRule",
+    "WorkflowNavigationRoute",
+    "WorkflowNotificationRule",
     "WorkflowStateMachine",
     "WorkflowTask",
-    "WorkflowTransitionRule",
     "WorkflowTimelineEvent",
+    "WorkflowTransitionEvent",
+    "WorkflowTransitionRule",
 ]
 

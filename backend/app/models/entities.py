@@ -165,7 +165,14 @@ class WorkflowStateMachine(Base):
     owning_role_id: Mapped[int | None] = mapped_column(
         ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
     )
+    allowed_roles: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    allowed_actions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    next_possible_states: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    sla_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    escalation_rules: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    notification_rules: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_terminal_state: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
@@ -206,6 +213,54 @@ class WorkflowAssignmentRule(Base):
     task_type: Mapped[str] = mapped_column(String(100), nullable=False)
     priority_rule: Mapped[str] = mapped_column(String(100), nullable=False, default="inherit")
     sla_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class WorkflowEscalationRule(Base):
+    __tablename__ = "workflow_escalation_rule"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    escalation_rule_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    workflow_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    trigger_condition: Mapped[str] = mapped_column(String(140), nullable=False)
+    threshold_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    target_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    escalation_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    priority: Mapped[str] = mapped_column(String(40), nullable=False, default="High")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class WorkflowNotificationRule(Base):
+    __tablename__ = "workflow_notification_rule"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    notification_rule_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    workflow_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Normal")
+    template: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class WorkflowNavigationRoute(Base):
+    __tablename__ = "workflow_navigation_route"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    route_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    role_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=False
+    )
+    record_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    workflow_state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    page_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    route_label: Mapped[str] = mapped_column(String(140), nullable=False)
+    preserve_context: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -310,7 +365,7 @@ class DonorReview(Base):
     risk_level: Mapped[str] = mapped_column(String(40), nullable=False, default="Low")
     recommended_action: Mapped[str] = mapped_column(String(80), nullable=False, default="Approve")
     review_priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Routine")
-    intake_status: Mapped[str] = mapped_column(String(40), nullable=False, default="Pending")
+    intake_status: Mapped[str] = mapped_column(String(40), nullable=False, default="Draft Intake")
     reviewer_id: Mapped[int | None] = mapped_column(
         ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
     )
@@ -390,6 +445,26 @@ class WorkflowTimelineEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
+
+
+class WorkflowTransitionEvent(Base):
+    __tablename__ = "workflow_transition_event"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    transition_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    record_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    record_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    from_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    to_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    action_taken: Mapped[str] = mapped_column(String(120), nullable=False)
+    performed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    decision_context: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class AuditLog(Base):
@@ -502,9 +577,13 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
     priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Normal")
+    workflow_task_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_workflow_task.task_id"), nullable=True
+    )
     related_record_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     related_record_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     action_route: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_context: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

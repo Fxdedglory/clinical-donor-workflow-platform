@@ -31,9 +31,13 @@ from app.models import (
     Vendor,
     VendorIncident,
     WorkflowAssignmentRule,
+    WorkflowEscalationRule,
+    WorkflowNavigationRoute,
+    WorkflowNotificationRule,
     WorkflowStateMachine,
     WorkflowTask,
     WorkflowTimelineEvent,
+    WorkflowTransitionEvent,
     WorkflowTransitionRule,
 )
 from app.services.access_control import DEFAULT_PASSWORD, ROLE_DEFINITIONS
@@ -51,7 +55,15 @@ from app.services.workspace_config import ensure_workspace_definitions
 fake = Faker()
 
 BLOOD_TYPES = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "Unknown"]
-STATUSES = ["Pending", "Under Review", "Approved", "Rejected", "Deferred"]
+STATUSES = [
+    "Pending Intake Validation",
+    "Pending Clinical Review",
+    "Clinical Review In Progress",
+    "Pending Additional Information",
+    "QA Investigation",
+    "Approved",
+    "Rejected",
+]
 NOTES = [
     "Routine intake packet reviewed. No abnormal disclosures.",
     "Recent travel documented; confirm exposure questionnaire during clinical review.",
@@ -60,6 +72,9 @@ NOTES = [
     "Self-reported hepatitis history requires medical director review.",
     "Missing consent attestation on imported intake packet.",
     "Clinical notes indicate unexplained weight loss; escalation recommended.",
+    "Chain-of-custody missing for one imported lab attachment; QA review required.",
+    "Conflicting documentation between donor questionnaire and lab validation packet.",
+    "Failed lab validation documented by NorthStar Labs interface.",
 ]
 CHANGE_REASONS = [
     "Revise donor intake checklist to include updated travel risk attestation.",
@@ -199,6 +214,60 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
     return users_by_role
 
 
+def _ensure_notification_density(db, roles: dict[str, Role], users_by_role: dict[str, User]) -> None:
+    role_notification_types = {
+        "Donor Intake Coordinator": ["Missing Documentation", "Urgent Intake Assignment", "SLA Nearing Breach"],
+        "Clinical Reviewer": ["New Donor Assigned", "SLA Nearing Breach", "Escalated Review"],
+        "Quality Assurance Specialist": ["New Investigation", "Unresolved CAPA", "SOP Deviation"],
+        "Vendor Operations Analyst": ["SLA Breach", "Outage Alert", "Critical Escalation"],
+        "Operations Manager": ["Enterprise Bottleneck", "Staffing Overload", "Unresolved Escalation"],
+        "Business Technology Analyst": ["AI Anomaly", "AI Override", "Workflow Bottleneck", "SLA Prediction"],
+    }
+    for role_name, notification_types in role_notification_types.items():
+        role = roles.get(role_name)
+        user = users_by_role.get(role_name)
+        if not role or not user:
+            continue
+        existing_count = len(
+            db.execute(select(Notification.notification_id).where(Notification.user_id == user.user_id)).all()
+        )
+        if existing_count >= 8:
+            continue
+        tasks = db.execute(
+            select(WorkflowTask)
+            .where(
+                WorkflowTask.assigned_role_id == role.role_id,
+                WorkflowTask.status.not_in(["Completed", "Rejected"]),
+            )
+            .order_by(WorkflowTask.due_date, WorkflowTask.created_at)
+            .limit(12)
+        ).scalars().all()
+        if not tasks:
+            continue
+        for index, task in enumerate(tasks[: 8 - existing_count]):
+            notification_type = notification_types[index % len(notification_types)]
+            priority = "Critical" if task.priority in {"Critical", "STAT"} or task.escalation_level else task.priority
+            create_notification(
+                db,
+                user_id=user.user_id,
+                title=f"[{priority}] {task.title}",
+                message=f"{task.related_record_type} {task.related_record_id} is in {task.workflow_state} for {task.queue_name}.",
+                notification_type=notification_type,
+                priority=priority,
+                workflow_task_id=task.task_id,
+                related_record_type=task.related_record_type,
+                related_record_id=task.related_record_id,
+                action_route="role_tasks",
+                workflow_context={
+                    "task_id": task.task_id,
+                    "workflow_state": task.workflow_state,
+                    "queue_name": task.queue_name,
+                    "due_date": task.due_date.isoformat() if task.due_date else None,
+                    "escalation_level": task.escalation_level,
+                },
+            )
+
+
 def ensure_enterprise_data(db) -> None:
     roles = _ensure_roles(db)
     users_by_role = _ensure_users(db, roles)
@@ -215,7 +284,17 @@ def ensure_enterprise_data(db) -> None:
 
         active_donors = db.execute(
             select(DonorReview)
-            .where(DonorReview.intake_status.in_(["Pending", "Under Review", "Deferred"]))
+            .where(
+                DonorReview.intake_status.in_(
+                    [
+                        "Pending Intake Validation",
+                        "Pending Clinical Review",
+                        "Clinical Review In Progress",
+                        "Pending Additional Information",
+                        "QA Investigation",
+                    ]
+                )
+            )
             .order_by(DonorReview.risk_score.desc(), DonorReview.created_at)
             .limit(160)
         ).scalars().all()
@@ -295,7 +374,7 @@ def ensure_enterprise_data(db) -> None:
         intake_user = users_by_role["Donor Intake Coordinator"]
         intake_donors = db.execute(
             select(DonorReview)
-            .where(DonorReview.intake_status.in_(["Pending", "Deferred"]))
+            .where(DonorReview.intake_status.in_(["Pending Intake Validation", "Pending Additional Information"]))
             .order_by(DonorReview.created_at.desc())
             .limit(65)
         ).scalars().all()
@@ -309,7 +388,7 @@ def ensure_enterprise_data(db) -> None:
                     assigned_role_id=roles["Donor Intake Coordinator"].role_id,
                     priority="High" if donor.missing_required_fields or donor.risk_score >= 50 else "Standard",
                     status=random.choice(["Assigned", "In Progress", "Blocked"]),
-                    workflow_state="Pending Intake Review",
+                    workflow_state="Pending Intake Validation",
                     queue_name="My Intake Workbench",
                     due_date=donor.created_at + timedelta(hours=18),
                     related_record_id=str(donor.review_id),
@@ -341,7 +420,7 @@ def ensure_enterprise_data(db) -> None:
                     assigned_role_id=roles["Operations Manager"].role_id,
                     priority="Critical",
                     status="Escalated",
-                    workflow_state="Clinical Escalation",
+                    workflow_state="Operations Escalation",
                     queue_name="Enterprise Queue Management",
                     due_date=datetime.now(UTC) + timedelta(hours=8),
                     related_record_id=str(task.task_id),
@@ -423,6 +502,7 @@ def ensure_enterprise_data(db) -> None:
             action_route="role_escalations",
         )
 
+    _ensure_notification_density(db, roles, users_by_role)
     evaluate_overdue_tasks(db)
     db.commit()
 
@@ -441,6 +521,7 @@ def seed_database(records: int, force: bool = False) -> None:
             for model in [
                 AuditLog,
                 WorkflowTimelineEvent,
+                WorkflowTransitionEvent,
                 AIOverrideEvent,
                 AIDecision,
                 TrainingCompletion,
@@ -448,6 +529,9 @@ def seed_database(records: int, force: bool = False) -> None:
                 EscalationEvent,
                 Notification,
                 WorkflowTask,
+                WorkflowNotificationRule,
+                WorkflowEscalationRule,
+                WorkflowNavigationRoute,
                 WorkflowAssignmentRule,
                 WorkflowTransitionRule,
                 WorkflowStateMachine,
@@ -523,13 +607,13 @@ def seed_database(records: int, force: bool = False) -> None:
             missing = random.random() < 0.07
             status_choice = random.choices(
                 STATUSES,
-                weights=[32, 16, 34, 8, 10],
+                weights=[22, 24, 12, 10, 9, 17, 6],
                 k=1,
             )[0]
             created_at = _random_datetime(45)
-            reviewer = random.choice(users) if status_choice != "Pending" else None
+            reviewer = random.choice(users) if status_choice != "Pending Intake Validation" else None
             reviewed_at = None
-            if status_choice in {"Approved", "Rejected", "Deferred"}:
+            if status_choice in {"Approved", "Rejected"}:
                 reviewed_at = created_at + timedelta(hours=random.randint(2, 96))
 
             donor = DonorReview(

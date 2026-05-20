@@ -5,12 +5,25 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, ChangeControl, DonorReview, Vendor, VendorIncident
 
+ACTIVE_DONOR_STATES = [
+    "Draft Intake",
+    "Pending Intake Validation",
+    "Pending Clinical Review",
+    "Clinical Review In Progress",
+    "Pending Additional Information",
+    "High Risk Escalation",
+    "QA Investigation",
+    "CAPA Investigation",
+    "Clinical Re-Review",
+    "Operations Escalation",
+]
+
 
 def get_dashboard_metrics(db: Session) -> dict:
     donor_counts = db.execute(
         select(
             func.count(DonorReview.review_id),
-            func.sum(case((DonorReview.intake_status == "Pending", 1), else_=0)),
+            func.sum(case((DonorReview.intake_status.in_(ACTIVE_DONOR_STATES), 1), else_=0)),
             func.sum(case((DonorReview.intake_status == "Approved", 1), else_=0)),
             func.sum(case((DonorReview.intake_status == "Rejected", 1), else_=0)),
             func.avg(DonorReview.risk_score),
@@ -80,14 +93,14 @@ def get_dashboard_metrics(db: Session) -> dict:
             func.avg(func.extract("epoch", func.now() - DonorReview.created_at) / 3600),
             func.count(DonorReview.review_id),
         )
-        .where(DonorReview.intake_status.in_(["Pending", "Under Review", "Deferred"]))
+        .where(DonorReview.intake_status.in_(ACTIVE_DONOR_STATES))
         .group_by(DonorReview.review_priority)
         .order_by(DonorReview.review_priority)
     ).all()
 
     top_queue = db.execute(
         select(DonorReview)
-        .where(DonorReview.intake_status.in_(["Pending", "Under Review", "Deferred"]))
+        .where(DonorReview.intake_status.in_(ACTIVE_DONOR_STATES))
         .order_by(desc(DonorReview.risk_score), DonorReview.created_at)
         .limit(10)
     ).scalars().all()

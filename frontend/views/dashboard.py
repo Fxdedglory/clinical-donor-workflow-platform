@@ -25,7 +25,7 @@ def render() -> None:
     with left:
         risk_df = pd.DataFrame(payload.get("risk_distribution", []))
         if risk_df.empty:
-            st.plotly_chart(empty_figure("Risk Distribution"), use_container_width=True)
+            st.plotly_chart(empty_figure("Risk Distribution"), width="stretch")
         else:
             risk_order = ["Low", "Moderate", "High", "Critical"]
             risk_df["risk_level"] = pd.Categorical(
@@ -42,17 +42,17 @@ def render() -> None:
                 labels={"risk_level": "Risk Level", "count": "Donors"},
             )
             fig.update_layout(height=330, margin=dict(l=20, r=20, t=55, b=20), showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with right:
         daily_df = pd.DataFrame(payload.get("daily_review_trend", []))
         if daily_df.empty:
-            st.plotly_chart(empty_figure("Daily Review Trend"), use_container_width=True)
+            st.plotly_chart(empty_figure("Daily Review Trend"), width="stretch")
         else:
             fig = px.line(daily_df, x="date", y="count", markers=True, title="Daily Review Trend")
             fig.update_traces(line_color="#127c75")
             fig.update_layout(height=330, margin=dict(l=20, r=20, t=55, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     queue, vendor = st.columns([1.2, 1])
     with queue:

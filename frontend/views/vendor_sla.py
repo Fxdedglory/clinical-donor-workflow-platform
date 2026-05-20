@@ -31,13 +31,13 @@ def render() -> None:
     with left:
         incident_df = pd.DataFrame(incidents)
         if incident_df.empty:
-            st.plotly_chart(empty_figure("Incident Severity"), use_container_width=True)
+            st.plotly_chart(empty_figure("Incident Severity"), width="stretch")
         else:
             severity_df = incident_df.groupby("severity").size().reset_index(name="count")
             fig = px.bar(severity_df, x="severity", y="count", title="Incident Severity")
             fig.update_traces(marker_color="#127c75")
             fig.update_layout(height=320, margin=dict(l=20, r=20, t=55, b=20), showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
     with right:
         dataframe(
             vendors,

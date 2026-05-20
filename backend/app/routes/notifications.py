@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import get_current_user, require_permission
 from app.database import get_db
 from app.models import Notification, User
-from app.schemas import NotificationCreate, NotificationRead
+from app.schemas import NotificationCreate, NotificationRead, WorkflowRouteResponse
 from app.services.notifications import create_notification
+from app.services.workflow_orchestration import notification_route
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
@@ -64,3 +65,16 @@ def mark_read(
     db.refresh(notification)
     return notification
 
+
+@router.post("/{notification_id}/open", response_model=WorkflowRouteResponse)
+def open_notification(
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    notification = db.get(Notification, notification_id)
+    if not notification or notification.user_id != current_user.user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    route = notification_route(db, notification=notification, current_user=current_user)
+    db.commit()
+    return route

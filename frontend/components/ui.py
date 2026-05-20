@@ -15,11 +15,19 @@ RISK_COLORS = {
 }
 
 STATUS_COLORS = {
-    "Pending": "#2b6cb0",
-    "Under Review": "#6b46c1",
+    "Draft Intake": "#64748b",
+    "Pending Intake Validation": "#2b6cb0",
+    "Pending Clinical Review": "#6b46c1",
+    "Clinical Review In Progress": "#4c51bf",
+    "Pending Additional Information": "#b7791f",
+    "High Risk Escalation": "#c05621",
+    "QA Investigation": "#7b341e",
+    "CAPA Investigation": "#9b2c2c",
+    "Clinical Re-Review": "#805ad5",
+    "Operations Escalation": "#c53030",
     "Approved": "#178a6f",
     "Rejected": "#c53030",
-    "Deferred": "#b7791f",
+    "Closed": "#2f855a",
     "Open": "#c05621",
     "Resolved": "#178a6f",
 }
@@ -211,7 +219,7 @@ def dataframe(records: list[dict[str, Any]], columns: list[str] | None = None, h
     if columns:
         df = df[[col for col in columns if col in df.columns]]
     df = df.rename(columns=lambda col: str(col).replace("_", " ").title())
-    st.dataframe(df, use_container_width=True, height=height, hide_index=True)
+    st.dataframe(df, width="stretch", height=height, hide_index=True)
 
 
 def json_preview(value: Any, max_chars: int = 140) -> str:

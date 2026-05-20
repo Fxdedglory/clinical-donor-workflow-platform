@@ -1,6 +1,6 @@
 # Clinical Donor Screening & Quality Workflow Platform
 
-Enterprise-style healthcare operations platform for donor intake, governed AI-assisted donor screening, role-centered operational workspaces, RBAC-secured workflow orchestration, audit trails, QMS/change control, SOP training, vendor SLA monitoring, notification routing, escalations, AI governance, and operational intelligence dashboards.
+Enterprise-style healthcare operations platform for donor intake, governed AI-assisted donor screening, centralized workflow orchestration, decision routing, role-centered operational workspaces, RBAC-secured transitions, audit trails, QMS/change control, SOP training, vendor SLA monitoring, actionable notifications, escalations, AI governance, and operational intelligence dashboards.
 
 Repository: `github.com/Fxdedglory/clinical-donor-workflow-platform`
 
@@ -8,7 +8,7 @@ Repository: `github.com/Fxdedglory/clinical-donor-workflow-platform`
 
 This project simulates internal enterprise healthcare software rather than a portfolio CRUD app. Donor records enter role-owned operational queues, rule-based decision support flags clinical risk, workflow tasks are routed through a state machine, escalations are created for overdue work, notifications link users back to assigned work, and regulated activities are traceable through audit logs.
 
-The latest upgrade adds a Business Technology Analyst workspace for enterprise AI governance and workflow intelligence. AI risk logic is now database-governed, explainable, auditable, human-reviewable, and visible through heatmaps, Sankey flow analysis, override trends, SLA prediction validation, escalation matrices, and a rule simulation sandbox.
+The latest upgrade adds an enterprise workflow orchestration layer. Workspace buttons now trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, AI governance requirements, SLA routing, notifications, audit events, transition history, and task creation.
 
 Resume themes demonstrated:
 
@@ -19,6 +19,8 @@ Resume themes demonstrated:
 - Governed AI-assisted clinical decision support concepts
 - Explainability, human override tracking, and AI audit review
 - Workflow intelligence, bottleneck analysis, and operational optimization
+- Enterprise decision matrices and centralized state orchestration
+- Workflow-linked notifications with deep-link routing
 - QMS/change control, SOP training, CAPA, and auditability
 - Vendor SLA operations and escalation handling
 - Administrative workflow ownership and operational dashboards
@@ -36,6 +38,8 @@ FastAPI REST API -- JWT/RBAC dependencies
         +-- Donor intake and clinical review workflow
         +-- Database-governed AI screening and explainability engine
         +-- AI governance, override tracking, and workflow intelligence
+        +-- Central workflow orchestration engine
+        +-- Decision matrices and transition event history
         +-- Workflow task engine
         +-- Notification bell and workflow alert routing
         +-- Workflow state machine and transition rules
@@ -63,7 +67,11 @@ Core enterprise tables:
 - `operational.role_dashboard_widget`
 - `operational.workflow_state_machine`
 - `operational.workflow_transition_rule`
+- `operational.workflow_transition_event`
 - `operational.workflow_assignment_rule`
+- `operational.workflow_escalation_rule`
+- `operational.workflow_notification_rule`
+- `operational.workflow_navigation_route`
 - `operational.fact_workflow_task`
 - `operational.fact_notification`
 - `operational.fact_escalation_event`
@@ -91,11 +99,15 @@ Clinical, QMS, and vendor tables:
 - Seven enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst
 - Role-permission bridge for route-level authorization
 - Dynamic workspace engine that generates navigation, widgets, KPIs, queues, workbench columns, and task actions from role metadata
+- Centralized workflow orchestration engine for state validation, role authorization, decision matrices, SLA timers, task creation, notifications, audit events, and transition history
+- Expanded workflow state machine for Draft Intake, Pending Intake Validation, Pending Clinical Review, Clinical Review In Progress, Pending Additional Information, High Risk Escalation, QA Investigation, CAPA Investigation, Clinical Re-Review, Operations Escalation, Approved, Rejected, and Closed
+- Workflow transition event history for who changed what, from/to state, action taken, notes, and decision context
+- Deep-link notification routing that opens the correct role workspace tab with record context without unsafe Streamlit session-state mutation
 - Business Technology Analyst workspace for AI risk dashboarding, workflow intelligence, AI governance, risk rule configuration, escalation analytics, AI audit review, and operational trends
 - Database-driven AI risk rules with active/inactive status, condition operator, score delta, severity, and auto-escalation governance
 - AI explainability panel showing triggered rules, score contributions, escalation reasons, workflow impact, confidence level, and historical comparisons
 - Human-in-the-loop override tracking with override reason, reviewer, before/after decision, notification routing, and workflow timeline events
-- Operational intelligence visualizations: risk distribution heatmap, workflow bottleneck Sankey diagram, human override trend, SLA prediction accuracy chart, escalation root cause matrix, and workflow queue heatmap
+- Operational intelligence visualizations across roles: intake aging heatmap, documentation matrix, clinical risk heatmap, SLA timeline, escalation funnel, QA CAPA heatmap, investigation Sankey, vendor SLA heatmap, incident timeline, enterprise queue heatmap, workforce load balancer, AI workflow bottleneck Sankey, override trends, SLA prediction accuracy, escalation root cause matrix, and workflow queue heatmap
 - Rule simulation sandbox for previewing risk threshold and escalation impact without changing production workflows
 - System Administrator governance workspace with admin-only role, workspace, workflow, audit, system health, and integration surfaces
 - Admin workspace preview mode for inspecting operational role workspaces without making admin a queue participant
@@ -143,6 +155,10 @@ Rendered role-centered workspaces:
 
 ![AI governance workspace](docs/screenshots/workspace-ai-governance.png)
 
+![Workflow notification deep link](docs/screenshots/workflow-orchestration-deeplink.png)
+
+![Business Technology Analyst workflow intelligence](docs/screenshots/business-technology-analyst-intelligence.png)
+
 ![Mobile AI governance workspace](docs/screenshots/workspace-ai-governance-mobile.png)
 
 ![Mobile intake workspace](docs/screenshots/workspace-intake-mobile.png)
@@ -189,14 +205,14 @@ uv run streamlit run frontend/app.py
 
 1. Sign in as `sysadmin` and confirm the default workspace is Platform Governance, not an operational donor or vendor queue.
 2. Use Workspace Mode to preview Clinical Reviewer, Donor Intake Coordinator, QA, Vendor Ops, Business Technology Analyst, or Operations Manager workspaces.
-3. Open Workspace Configuration to review role navigation, widget assignment, notification types, and workbench columns.
+3. Open Workspace Configuration and Workflow Configuration to review role navigation, widget assignment, notification types, state-machine metadata, and workbench columns.
 4. Sign in as `intake`, create a draft donor intake, and route a task with `submit_to_clinical_review`.
 5. Sign in as `clinical` and confirm the new clinical task appears in the Clinical Review Workbench.
 6. Use a clinical action such as Request QA Review, Escalate Case, Approve Donor, or Reject Donor.
 7. Sign in as `qa` to review investigations, CAPA queue, deviations, and SOP compliance.
 8. Sign in as `vendorops` to review SLA monitor, incident queue, and vendor escalations.
 9. Sign in as `opsmanager` to review enterprise backlog, workforce load, escalation center, and queue management.
-10. Sign in as `analyst` to review AI governance metrics, workflow bottleneck visualizations, rule simulation, AI audit traces, and human override trends.
+10. Sign in as `analyst` to review AI governance metrics, workflow bottleneck visualizations, rule simulation, AI audit traces, transition context, and human override trends.
 
 ## Healthcare/QMS Concepts
 
@@ -206,6 +222,8 @@ uv run streamlit run frontend/app.py
 - **Role immersion:** Each role loads a department-specific workspace with its own navigation, KPIs, widgets, queue columns, workflow actions, and notifications.
 - **Workflow ownership:** Major operational events create tasks with owners, due dates, priority, workflow state, queue name, and escalation paths.
 - **Workflow routing:** State-machine transitions route work from Intake to Clinical Review to QA and Operations Management while creating tasks, notifications, and audit events.
+- **Central orchestration:** Workflow actions are validated by a centralized engine that checks role authorization, current state, decision matrices, AI override rules, SLA routing, notification rules, and transition history before mutating records.
+- **Actionable notifications:** Bell notifications carry workflow task context and route users back into the correct role-native tab and record context.
 - **Workflow intelligence:** Queue heatmaps, bottleneck flow analysis, SLA prediction validation, escalation matrices, and operational recommendations support process optimization.
 - **Audit trail:** Login, logout, donor decisions, workflow changes, user changes, training completion, and escalations are logged with before/after values.
 - **QMS workflow:** Change requests include SOP linkage, risk level, approval status, CAPA requirement, due dates, and investigation notes.
@@ -217,6 +235,8 @@ uv run streamlit run frontend/app.py
 - `/api/auth`
 - `/api/admin`
 - `/api/workspaces`
+- `/api/workspaces/transition-events`
+- `/api/workspaces/states`
 - `/api/donors`
 - `/api/reviews`
 - `/api/risk-analysis`

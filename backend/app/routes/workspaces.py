@@ -10,6 +10,8 @@ from app.models import (
     RoleNavigationConfig,
     RoleWorkspaceConfig,
     User,
+    WorkflowStateMachine,
+    WorkflowTransitionEvent,
     WorkflowTransitionRule,
 )
 from app.schemas import (
@@ -17,11 +19,14 @@ from app.schemas import (
     RoleNavigationConfigRead,
     RoleWorkspaceConfigRead,
     RoleWorkspaceConfigUpdate,
+    WorkflowStateMachineRead,
+    WorkflowTransitionEventRead,
     WorkflowTransitionRead,
     WorkflowTransitionRequest,
     WorkspaceResponse,
 )
 from app.services.audit import log_audit, serialize_model
+from app.services.workflow_orchestration import recent_transition_events
 from app.services.workspace_engine import execute_transition, workspace_payload
 
 router = APIRouter(prefix="/api/workspaces", tags=["Role-Centered Workspaces"])
@@ -62,6 +67,7 @@ def transition(
         related_record_id=payload.related_record_id,
         task_id=payload.task_id,
         note=payload.note,
+        metadata=payload.metadata,
     )
 
 
@@ -143,3 +149,22 @@ def list_transition_rules(
     db: Session = Depends(get_db),
 ) -> list[WorkflowTransitionRule]:
     return list(db.execute(select(WorkflowTransitionRule).order_by(WorkflowTransitionRule.action_name)).scalars().all())
+
+
+@router.get("/states", response_model=list[WorkflowStateMachineRead])
+def list_workflow_states(
+    _: User = Depends(require_permission("workflow.configure")),
+    db: Session = Depends(get_db),
+) -> list[WorkflowStateMachine]:
+    return list(db.execute(select(WorkflowStateMachine).order_by(WorkflowStateMachine.sort_order)).scalars().all())
+
+
+@router.get("/transition-events", response_model=list[WorkflowTransitionEventRead])
+def list_transition_events(
+    record_type: str | None = Query(default=None),
+    record_id: str | None = Query(default=None),
+    limit: int = Query(default=100, le=500),
+    _: User = Depends(require_permission("audit.review")),
+    db: Session = Depends(get_db),
+) -> list[WorkflowTransitionEvent]:
+    return recent_transition_events(db, record_type=record_type, record_id=record_id, limit=limit)

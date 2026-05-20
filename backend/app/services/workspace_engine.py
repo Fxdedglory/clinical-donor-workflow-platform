@@ -25,25 +25,7 @@ from app.models import (
     WorkflowTransitionRule,
 )
 from app.services.ai_governance import governance_analytics, governance_kpis
-from app.services.audit import log_audit, serialize_model
-from app.services.notifications import notify_role
-
-TERMINAL_STATES = {"Approved", "Rejected", "Closed"}
-
-TASK_FIELDS = [
-    "task_type",
-    "title",
-    "assigned_to_user_id",
-    "assigned_role_id",
-    "priority",
-    "status",
-    "workflow_state",
-    "queue_name",
-    "due_date",
-    "related_record_id",
-    "related_record_type",
-    "escalation_level",
-]
+from app.services.workflow_orchestration import execute_workflow_transition
 
 
 def _permissions_for_user(db: Session, user: User) -> set[str]:
@@ -180,7 +162,17 @@ def _donor_rows(db: Session, *, high_risk_only: bool = False, limit: int = 80) -
     query = select(DonorReview)
     if high_risk_only:
         query = query.where(DonorReview.risk_score >= 50)
-    query = query.where(DonorReview.intake_status.in_(["Pending", "Under Review", "Deferred"]))
+    query = query.where(
+        DonorReview.intake_status.in_(
+            [
+                "Pending Intake Validation",
+                "Pending Clinical Review",
+                "Clinical Review In Progress",
+                "Pending Additional Information",
+                "QA Investigation",
+            ]
+        )
+    )
     donors = db.execute(query.order_by(desc(DonorReview.risk_score), DonorReview.created_at).limit(limit)).scalars().all()
     rows = []
     for donor in donors:
@@ -214,7 +206,7 @@ def _change_rows(db: Session, *, capa_only: bool = False, limit: int = 80) -> li
             "approval_status": item.approval_status,
             "capa_required": item.capa_required,
             "implementation_due_date": item.implementation_due_date,
-            "workflow_state": "CAPA Investigation" if item.capa_required else "Pending QA Review",
+            "workflow_state": "CAPA Investigation" if item.capa_required else "QA Investigation",
             "reason": item.reason,
         }
         for item in changes
@@ -237,6 +229,7 @@ def _vendor_rows(db: Session, limit: int = 80) -> list[dict[str, Any]]:
             "sla_breached": incident.sla_breached,
             "uptime_percent": incident.uptime_percent,
             "ticket_age_hours": incident.ticket_age_hours,
+            "opened_at": incident.opened_at,
             "impact_summary": incident.impact_summary,
         }
         for incident, vendor_name in rows
@@ -266,7 +259,11 @@ def _workspace_kpis(db: Session, role: Role, user: User) -> dict[str, Any]:
     now = datetime.now(UTC)
 
     if role.role_name == "Donor Intake Coordinator":
-        pending = db.execute(select(func.count(DonorReview.review_id)).where(DonorReview.intake_status == "Pending")).scalar() or 0
+        pending = db.execute(
+            select(func.count(DonorReview.review_id)).where(
+                DonorReview.intake_status.in_(["Draft Intake", "Pending Intake Validation"])
+            )
+        ).scalar() or 0
         incomplete = db.execute(select(func.count(DonorReview.review_id)).where(DonorReview.missing_required_fields.is_(True))).scalar() or 0
         return {
             "Pending Intake Packages": int(pending),
@@ -277,7 +274,11 @@ def _workspace_kpis(db: Session, role: Role, user: User) -> dict[str, Any]:
         }
 
     if role.role_name == "Clinical Reviewer":
-        pending = db.execute(select(func.count(DonorReview.review_id)).where(DonorReview.intake_status.in_(["Pending", "Under Review"]))).scalar() or 0
+        pending = db.execute(
+            select(func.count(DonorReview.review_id)).where(
+                DonorReview.intake_status.in_(["Pending Clinical Review", "Clinical Review In Progress", "Clinical Re-Review"])
+            )
+        ).scalar() or 0
         high_risk = db.execute(select(func.count(DonorReview.review_id)).where(DonorReview.risk_score >= 50)).scalar() or 0
         avg_review = db.execute(
             select(func.avg(func.extract("epoch", DonorReview.reviewed_at - DonorReview.created_at) / 3600)).where(
@@ -526,103 +527,15 @@ def execute_transition(
     related_record_id: str,
     task_id: int | None = None,
     note: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    rule = db.execute(
-        select(WorkflowTransitionRule).where(
-            WorkflowTransitionRule.action_name == action_name,
-            WorkflowTransitionRule.is_active.is_(True),
-        )
-    ).scalar_one_or_none()
-    if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow transition not found")
-
-    permissions = _permissions_for_user(db, current_user)
-    if current_user.role_id != rule.source_role_id and "system.admin" not in permissions:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Transition is not allowed for this role")
-
-    task = db.get(WorkflowTask, task_id) if task_id else None
-    old_task_value = serialize_model(task, TASK_FIELDS) if task else None
-    if task:
-        task.workflow_state = rule.to_state
-        task.status = "Completed" if rule.to_state in TERMINAL_STATES else "In Progress"
-        if rule.to_state in TERMINAL_STATES:
-            task.completed_at = datetime.now(UTC)
-
-    if related_record_type == "DonorReview":
-        donor = db.get(DonorReview, int(related_record_id))
-        if donor:
-            donor.intake_status = rule.to_state if rule.to_state not in TERMINAL_STATES else rule.to_state
-            donor.updated_at = datetime.now(UTC)
-            if rule.to_state in {"Approved", "Rejected"}:
-                donor.reviewed_at = datetime.now(UTC)
-                donor.reviewer_id = current_user.user_id
-                if rule.to_state == "Rejected" and note:
-                    donor.rejection_reason = note
-
-    new_task = None
-    target_role = db.get(Role, rule.target_role_id) if rule.target_role_id else None
-    if target_role and rule.to_state not in TERMINAL_STATES:
-        target_config = _config_for_role(db, target_role)
-        due_date = datetime.now(UTC) + timedelta(hours=rule.sla_hours)
-        priority = task.priority if task else "High"
-        if action_name.startswith("escalate") or "Escalation" in rule.task_type:
-            priority = "Critical"
-        new_task = WorkflowTask(
-            task_type=rule.task_type,
-            title=f"{rule.action_label}: {related_record_type} {related_record_id}",
-            description=note or f"Workflow routed from {rule.from_state} to {rule.to_state}.",
-            assigned_role_id=target_role.role_id,
-            priority=priority,
-            status="Assigned",
-            workflow_state=rule.to_state,
-            queue_name=target_config.default_queue,
-            due_date=due_date if rule.sla_hours > 0 else None,
-            related_record_id=related_record_id,
-            related_record_type=related_record_type,
-            escalation_level=1 if "Escalation" in rule.task_type else 0,
-        )
-        db.add(new_task)
-        db.flush()
-        notify_role(
-            db,
-            role_name=target_role.role_name,
-            title=rule.notification_type,
-            message=f"{rule.action_label} routed {related_record_type} {related_record_id} to {target_config.default_queue}.",
-            notification_type=rule.notification_type,
-            priority=priority,
-            related_record_type=related_record_type,
-            related_record_id=related_record_id,
-            action_route=target_config.visible_tabs[0]["page_key"] if target_config.visible_tabs else "role_tasks",
-        )
-
-    log_audit(
+    return execute_workflow_transition(
         db,
-        user_id=current_user.user_id,
-        action_type=rule.audit_action,
-        table_name="workflow_transition_rule",
-        record_id=action_name,
-        old_value=old_task_value,
-        new_value={
-            "action": action_name,
-            "from_state": rule.from_state,
-            "to_state": rule.to_state,
-            "related_record_type": related_record_type,
-            "related_record_id": related_record_id,
-            "new_task_id": new_task.task_id if new_task else None,
-            "note": note,
-        },
-        entity_type=related_record_type,
-        entity_id=related_record_id,
+        current_user=current_user,
+        action_name=action_name,
+        related_record_type=related_record_type,
+        related_record_id=related_record_id,
+        task_id=task_id,
+        note=note,
+        metadata=metadata,
     )
-    db.commit()
-    if new_task:
-        db.refresh(new_task)
-    if task:
-        db.refresh(task)
-    return {
-        "action": action_name,
-        "from_state": rule.from_state,
-        "to_state": rule.to_state,
-        "updated_task_id": task.task_id if task else None,
-        "created_task_id": new_task.task_id if new_task else None,
-    }

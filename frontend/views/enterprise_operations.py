@@ -26,7 +26,7 @@ def render() -> None:
     task_df = pd.DataFrame(payload.get("tasks_by_status", []))
     with left:
         if task_df.empty:
-            st.plotly_chart(empty_figure("Tasks by Status"), use_container_width=True)
+            st.plotly_chart(empty_figure("Tasks by Status"), width="stretch")
         else:
             fig = px.bar(
                 task_df,
@@ -36,12 +36,12 @@ def render() -> None:
                 title="Tasks by Status and Priority",
             )
             fig.update_layout(height=330, margin=dict(l=20, r=20, t=55, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     workload_df = pd.DataFrame(payload.get("workload_by_user", []))
     with right:
         if workload_df.empty:
-            st.plotly_chart(empty_figure("Workload by User"), use_container_width=True)
+            st.plotly_chart(empty_figure("Workload by User"), width="stretch")
         else:
             fig = px.bar(
                 workload_df,
@@ -51,7 +51,7 @@ def render() -> None:
                 title="Workload Distribution",
             )
             fig.update_layout(height=330, margin=dict(l=20, r=20, t=55, b=80), xaxis_tickangle=-25)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     st.subheader("Compliance and Training")
     training_cols = st.columns(2)

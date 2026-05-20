@@ -23,7 +23,13 @@ backend/app/services/workspace_config.py
 
 backend/app/services/workspace_engine.py
   Runtime workspace payload generation, role-specific KPIs,
-  widget data, queue scoping, and workflow transition execution
+  widget data, queue scoping, and available action discovery
+
+backend/app/services/workflow_orchestration.py
+  Central workflow engine for role-authorized transitions, current-state
+  validation, decision matrices, AI override governance, SLA task routing,
+  workflow-linked notifications, audit logging, transition events, and
+  timeline continuity
 
 backend/app/routes/ai_governance.py
   Analyst-owned AI governance API for dashboards, governed rules,
@@ -65,11 +71,14 @@ Streamlit login form
 ```text
 Role user selects workflow action
   -> POST /api/workspaces/transition
-  -> transition rule validates source role
+  -> workflow_orchestration validates source role and current state
+  -> decision matrix determines target state, priority, task type, and notification type
+  -> AI governance layer runs when clinical decisions require recommendation review
   -> related task changes workflow_state/status
   -> downstream role task is created when needed
-  -> target role receives notification
+  -> target role receives workflow-linked notification with deep-link route
   -> donor/change/vendor record is updated when applicable
+  -> workflow_transition_event captures from/to state, action, user, notes, and decision context
   -> audit log captures before/after transition event
 ```
 
@@ -101,6 +110,18 @@ Business Technology Analyst configures active AI risk rules
      and bottleneck flow patterns
 ```
 
+## Notification Routing Flow
+
+```text
+User opens notification bell
+  -> POST /api/notifications/{id}/open
+  -> notification is marked read
+  -> workflow_orchestration.route_to_record resolves page_key by role,
+     record type, and workflow state
+  -> Streamlit writes query parameters only
+  -> app reloads into the correct role tab with record context
+```
+
 ## Data Layers
 
 - `staging`: reserved for future raw imports
@@ -124,4 +145,6 @@ Business Technology Analyst configures active AI risk rules
 - Database-governed AI rule engine
 - AI explainability and human override tracking
 - Workflow intelligence analytics and rule simulation sandbox
+- Workflow transition event history
+- Workflow navigation routes for role-aware record deep links
 - Expanded audit trail

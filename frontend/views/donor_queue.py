@@ -14,7 +14,19 @@ def render() -> None:
     filters = st.columns([1, 1, 2])
     status = filters[0].selectbox(
         "Intake status",
-        ["All", "Pending", "Under Review", "Deferred", "Approved", "Rejected"],
+        [
+            "All",
+            "Draft Intake",
+            "Pending Intake Validation",
+            "Pending Clinical Review",
+            "Clinical Review In Progress",
+            "Pending Additional Information",
+            "QA Investigation",
+            "Operations Escalation",
+            "Approved",
+            "Rejected",
+            "Closed",
+        ],
     )
     risk = filters[1].selectbox("Risk level", ["All", "Low", "Moderate", "High", "Critical"])
     limit = filters[2].slider("Records", 25, 500, 200, 25)

@@ -4,15 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.database import get_db
-from app.models import DonorReview, WorkflowTask
+from app.models import DonorReview, User
 from app.schemas import DonorDecision, DonorReviewCreate, DonorReviewRead, DonorReviewUpdate
 from app.services.ai_governance import (
     governed_analysis,
     record_ai_decision,
-    record_override_if_needed,
 )
 from app.services.audit import log_audit, serialize_model
+from app.services.workflow_orchestration import execute_workflow_transition
 from app.services.workflows import create_task
 
 router = APIRouter(prefix="/api/donors", tags=["Donors"])
@@ -93,6 +94,7 @@ def get_donor(review_id: int, db: Session = Depends(get_db)) -> DonorReview:
 @router.post("", response_model=DonorReviewRead, status_code=status.HTTP_201_CREATED)
 def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> DonorReview:
     donor = DonorReview(**payload.model_dump())
+    donor.intake_status = "Draft Intake"
     apply_risk_analysis(db, donor)
     db.add(donor)
     db.flush()
@@ -163,47 +165,43 @@ def update_donor(
 
 @router.post("/{review_id}/decision", response_model=DonorReviewRead)
 def record_decision(
-    review_id: int, payload: DonorDecision, db: Session = Depends(get_db)
+    review_id: int,
+    payload: DonorDecision,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> DonorReview:
     donor = db.get(DonorReview, review_id)
     if not donor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Donor review not found")
 
-    old_value = serialize_model(donor, AUDIT_FIELDS)
-    donor.intake_status = payload.intake_status
-    donor.reviewer_id = payload.reviewer_id or donor.reviewer_id
-    donor.rejection_reason = payload.rejection_reason
-    donor.reviewed_at = datetime.now(UTC)
-    record_override_if_needed(
-        db,
-        donor,
-        final_decision=payload.intake_status,
-        reviewer_id=donor.reviewer_id,
-        override_reason=payload.ai_override_reason or payload.rejection_reason,
-        explicit_override=payload.ai_override,
-    )
-    db.flush()
-    tasks = db.execute(
-        select(WorkflowTask).where(
-            WorkflowTask.related_record_type == "DonorReview",
-            WorkflowTask.related_record_id == str(donor.review_id),
-            WorkflowTask.status != "Completed",
-        )
-    ).scalars().all()
-    for task in tasks:
-        task.status = "Completed"
-        task.completed_at = donor.reviewed_at
+    action_map = {
+        "Approved": "approve_donor",
+        "Rejected": "reject_donor",
+        "Pending Additional Information": "request_additional_information",
+        "Deferred": "request_additional_information",
+        "Under Review": "request_additional_information",
+        "QA Investigation": "escalate_to_qa",
+    }
+    action_name = action_map.get(payload.intake_status)
+    if not action_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported donor decision")
 
-    log_audit(
+    execute_workflow_transition(
         db,
-        user_id=donor.reviewer_id,
-        action_type=f"DONOR_{payload.intake_status.upper()}",
-        table_name="fact_donor_review",
-        record_id=str(donor.review_id),
-        old_value=old_value,
-        new_value=serialize_model(donor, AUDIT_FIELDS),
+        current_user=current_user,
+        action_name=action_name,
+        related_record_type="DonorReview",
+        related_record_id=str(review_id),
+        note=payload.rejection_reason or payload.ai_override_reason or "",
+        metadata={
+            "final_decision": payload.intake_status,
+            "reviewer_id": payload.reviewer_id,
+            "human_override": payload.ai_override,
+            "override_reason": payload.ai_override_reason,
+        },
     )
-    db.commit()
-    db.refresh(donor)
-    return donor
+    refreshed = db.get(DonorReview, review_id)
+    if not refreshed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Donor review not found")
+    return refreshed
 

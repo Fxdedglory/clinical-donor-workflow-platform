@@ -90,9 +90,11 @@ class NotificationRead(BaseModel):
     message: str
     notification_type: str
     priority: str
+    workflow_task_id: int | None
     related_record_type: str | None
     related_record_id: str | None
     action_route: str | None
+    workflow_context: dict
     is_read: bool
     created_at: datetime
 
@@ -103,9 +105,11 @@ class NotificationCreate(BaseModel):
     message: str
     notification_type: str
     priority: str = "Normal"
+    workflow_task_id: int | None = None
     related_record_type: str | None = None
     related_record_id: str | None = None
     action_route: str | None = None
+    workflow_context: dict | None = None
 
 
 class EscalationEventRead(BaseModel):
@@ -231,6 +235,50 @@ class WorkflowTransitionRequest(BaseModel):
     related_record_id: str
     task_id: int | None = None
     note: str = ""
+    metadata: dict | None = None
+
+
+class WorkflowStateMachineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    state_id: int
+    state_name: str
+    state_category: str
+    owning_role_id: int | None
+    allowed_roles: list[str]
+    allowed_actions: list[str]
+    next_possible_states: list[str]
+    sla_hours: int
+    escalation_rules: dict
+    notification_rules: dict
+    is_terminal: bool
+    is_terminal_state: bool
+    sort_order: int
+
+
+class WorkflowTransitionEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    transition_id: int
+    record_id: str
+    record_type: str
+    from_state: str
+    to_state: str
+    action_taken: str
+    performed_by: int | None
+    timestamp: datetime
+    notes: str
+    decision_context: dict
+
+
+class WorkflowRouteResponse(BaseModel):
+    page_key: str
+    route_label: str
+    record_type: str | None = None
+    record_id: str | None = None
+    workflow_state: str | None = None
+    notification_id: int | None = None
+    task_id: int | None = None
 
 
 class WorkspaceResponse(BaseModel):

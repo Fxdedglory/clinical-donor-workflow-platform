@@ -51,7 +51,7 @@ def render() -> None:
         st.write(f"Recommended action: **{donor['recommended_action']}**")
         st.write(f"Review priority: **{donor['review_priority']}**")
         with st.form("decision_form"):
-            decision = st.selectbox("Decision", ["Approved", "Rejected", "Deferred", "Under Review"])
+            decision = st.selectbox("Decision", ["Approved", "Rejected", "Pending Additional Information", "QA Investigation"])
             reviewer_id = st.number_input("Reviewer user ID", min_value=1, value=donor.get("reviewer_id") or 1)
             rejection_reason = st.text_area("Decision rationale", value=donor.get("rejection_reason") or "")
             ai_override = st.checkbox("Human override of AI recommendation")

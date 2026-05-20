@@ -135,15 +135,29 @@ Notifications are rendered through the top-right workspace bell rather than a de
 `operational.workflow_state_machine` defines regulated workflow states:
 
 - Draft Intake
-- Pending Intake Review
+- Pending Intake Validation
 - Pending Clinical Review
-- Clinical Escalation
-- Pending QA Review
+- Clinical Review In Progress
+- Pending Additional Information
+- High Risk Escalation
+- QA Investigation
 - CAPA Investigation
+- Clinical Re-Review
+- Operations Escalation
 - Vendor SLA Investigation
 - Approved
 - Rejected
 - Closed
+
+Each state also stores:
+
+- allowed roles
+- allowed actions
+- next possible states
+- SLA hours
+- escalation rules
+- notification rules
+- terminal-state flag
 
 `operational.workflow_transition_rule` defines role-aware actions:
 
@@ -160,6 +174,23 @@ Notifications are rendered through the top-right workspace bell rather than a de
 - active flag
 
 `operational.workflow_assignment_rule` stores assignment routing metadata for workflow orchestration.
+
+`operational.workflow_transition_event` stores every governed transition:
+
+- record id / type
+- from state
+- to state
+- action taken
+- user who performed the transition
+- timestamp
+- notes
+- decision context
+
+`operational.workflow_escalation_rule` stores SLA and stagnation escalation thresholds by workflow state.
+
+`operational.workflow_notification_rule` stores role-aware notification rules for workflow events.
+
+`operational.workflow_navigation_route` maps record type and workflow state back to the correct role-native workspace tab.
 
 ## AI Governance
 

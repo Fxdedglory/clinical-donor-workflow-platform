@@ -8,6 +8,19 @@ from app.schemas import DonorReviewRead
 
 router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
 
+ACTIVE_DONOR_STATES = [
+    "Draft Intake",
+    "Pending Intake Validation",
+    "Pending Clinical Review",
+    "Clinical Review In Progress",
+    "Pending Additional Information",
+    "High Risk Escalation",
+    "QA Investigation",
+    "CAPA Investigation",
+    "Clinical Re-Review",
+    "Operations Escalation",
+]
+
 
 @router.get("", response_model=list[DonorReviewRead])
 def list_reviews(
@@ -17,7 +30,7 @@ def list_reviews(
 ) -> list[DonorReview]:
     query = select(DonorReview)
     if queue == "active":
-        query = query.where(DonorReview.intake_status.in_(["Pending", "Under Review", "Deferred"]))
+        query = query.where(DonorReview.intake_status.in_(ACTIVE_DONOR_STATES))
     elif queue == "closed":
         query = query.where(DonorReview.intake_status.in_(["Approved", "Rejected"]))
     query = query.order_by(desc(DonorReview.risk_score), DonorReview.created_at).limit(limit)

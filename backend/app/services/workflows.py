@@ -44,6 +44,7 @@ def create_task(
         related_record_type=related_record_type,
     )
     db.add(task)
+    db.flush()
     if assigned_role_name:
         notify_role(
             db,
@@ -52,9 +53,16 @@ def create_task(
             message=title,
             notification_type="Task Assignment",
             priority=priority,
+            workflow_task_id=task.task_id,
             related_record_type=related_record_type,
             related_record_id=related_record_id,
             action_route="role_tasks",
+            workflow_context={
+                "task_id": task.task_id,
+                "workflow_state": workflow_state,
+                "queue_name": queue_name,
+                "due_date": due_date.isoformat() if due_date else None,
+            },
         )
     return task
 

@@ -1,5 +1,5 @@
 import streamlit as st
-from components.api import get_json, login, logout, patch_json
+from components.api import get_json, login, logout, patch_json, post_json
 from components.ui import apply_theme
 from views import admin_portal, audit_logs, role_center, role_workspace
 
@@ -43,11 +43,32 @@ def workspace_request_path(preview_role_id: int | None) -> str:
     return "/api/workspaces/me"
 
 
+def _query_value(key: str) -> str | None:
+    value = st.query_params.get(key)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def route_to_record(route: dict) -> None:
+    if route.get("page_key"):
+        st.query_params["workspace_nav"] = route["page_key"]
+    if route.get("record_type") and route.get("record_id"):
+        st.query_params["record_type"] = route["record_type"]
+        st.query_params["record_id"] = str(route["record_id"])
+    if route.get("workflow_state"):
+        st.query_params["workflow_state"] = route["workflow_state"]
+    if route.get("notification_id"):
+        st.query_params["notification_id"] = str(route["notification_id"])
+    if route.get("task_id"):
+        st.query_params["task_id"] = str(route["task_id"])
+
+
 def render_notification_bell(workspace: dict, navigation: list[dict]) -> None:
     notifications = workspace.get("notifications", [])
     unread = sum(1 for item in notifications if not item.get("is_read"))
     route_to_label = {item["page_key"]: item["tab_label"] for item in navigation}
-    with st.popover(f"Notifications ({unread})", use_container_width=True):
+    with st.popover(f"Notifications ({unread})", width="stretch"):
         if not notifications:
             st.caption("No current workflow notifications.")
             return
@@ -57,10 +78,16 @@ def render_notification_bell(workspace: dict, navigation: list[dict]) -> None:
             st.caption(f"{severity} - {item['notification_type']}")
             st.write(item["message"])
             target = route_to_label.get(item.get("action_route") or "")
+            if item.get("workflow_context"):
+                state = item["workflow_context"].get("workflow_state")
+                queue = item["workflow_context"].get("queue_name")
+                if state or queue:
+                    st.caption(" | ".join(part for part in [state, queue] if part))
             cols = st.columns([1, 1])
-            if target and cols[0].button("Open", key=f"open_notice_{item['notification_id']}"):
-                patch_json(f"/api/notifications/{item['notification_id']}/read", {})
-                st.session_state.workspace_nav = target
+            if (target or item.get("related_record_id")) and cols[0].button("Open", key=f"open_notice_{item['notification_id']}"):
+                route = post_json(f"/api/notifications/{item['notification_id']}/open", {})
+                if route:
+                    route_to_record(route)
                 st.rerun()
             if not item.get("is_read") and cols[1].button("Mark read", key=f"read_notice_{item['notification_id']}"):
                 patch_json(f"/api/notifications/{item['notification_id']}/read", {})
@@ -101,11 +128,23 @@ if not workspace:
 
 navigation = workspace.get("navigation", [])
 nav_labels = [item["tab_label"] for item in navigation]
+page_key_to_label = {item["page_key"]: item["tab_label"] for item in navigation}
+label_to_page_key = {item["tab_label"]: item["page_key"] for item in navigation}
 if not nav_labels:
     st.error("No visible workspace tabs are configured for this role.")
     st.stop()
-if st.session_state.get("workspace_nav") not in nav_labels:
-    st.session_state.workspace_nav = nav_labels[0]
+nav_key = f"workspace_nav_{workspace['active_role_id']}"
+requested_page_key = _query_value("workspace_nav")
+requested_label = page_key_to_label.get(requested_page_key or "")
+if requested_label and st.session_state.get(nav_key) != requested_label:
+    st.session_state[nav_key] = requested_label
+if st.session_state.get(nav_key) not in nav_labels:
+    st.session_state[nav_key] = nav_labels[0]
+
+
+def _sync_nav_query() -> None:
+    selected_label = st.session_state.get(nav_key, nav_labels[0])
+    st.query_params["workspace_nav"] = label_to_page_key.get(selected_label, navigation[0]["page_key"])
 
 with st.sidebar:
     st.markdown(
@@ -117,7 +156,13 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
-    selection = st.radio("Navigation", nav_labels, label_visibility="collapsed", key="workspace_nav")
+    selection = st.radio(
+        "Navigation",
+        nav_labels,
+        label_visibility="collapsed",
+        key=nav_key,
+        on_change=_sync_nav_query,
+    )
     st.divider()
     if st.button("Logout"):
         logout()
@@ -125,6 +170,13 @@ with st.sidebar:
     st.caption("FastAPI - PostgreSQL - Streamlit - QMS")
 
 selected_page = next(item for item in navigation if item["tab_label"] == selection)
+record_context = {
+    "record_type": _query_value("record_type"),
+    "record_id": _query_value("record_id"),
+    "workflow_state": _query_value("workflow_state"),
+    "notification_id": _query_value("notification_id"),
+    "task_id": _query_value("task_id"),
+}
 top_left, top_right = st.columns([0.78, 0.22])
 with top_right:
     render_notification_bell(workspace, navigation)
@@ -133,4 +185,4 @@ renderer = ADMIN_PAGE_RENDERERS.get(selected_page["page_key"])
 if renderer:
     renderer()
 else:
-    role_workspace.render(workspace, selected_page["page_key"], selected_page["tab_label"])
+    role_workspace.render(workspace, selected_page["page_key"], selected_page["tab_label"], record_context)

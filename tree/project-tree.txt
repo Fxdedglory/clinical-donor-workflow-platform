@@ -13,6 +13,7 @@ clinical-donor-workflow-platform/
 |   |   |-- schemas/
 |   |   |-- services/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- workflow_orchestration.py
 |   |   |   |-- workspace_config.py
 |   |   |   |-- workspace_engine.py
 |   |   |   |-- workflows.py
@@ -31,6 +32,7 @@ clinical-donor-workflow-platform/
 |   |-- ddl/
 |   |-- migrations/
 |   |   |-- versions/
+|   |   |   |-- 202605200001_workflow_orchestration.py
 |   |   |   |-- 202605190004_ai_governance.py
 |   |   |   `-- ...
 |   `-- seeds/
@@ -40,6 +42,8 @@ clinical-donor-workflow-platform/
 |   |-- data-contract.md
 |   |-- resume-positioning.md
 |   |-- screenshots/
+|   |   |-- business-technology-analyst-intelligence.png
+|   |   |-- workflow-orchestration-deeplink.png
 |   |   |-- workspace-ai-governance.png
 |   |   |-- workspace-ai-governance-mobile.png
 |   |   `-- ...
