@@ -11,6 +11,7 @@ from app.services.document_security import (
     validate_document_access_token,
 )
 from app.services.security_audit import log_security_event, request_ip
+from app.services.tenant_access import apply_org_scope, ensure_org_access
 
 router = APIRouter(prefix="/api/documents", tags=["Secure Documents"])
 
@@ -35,7 +36,7 @@ def list_record_documents(
     current_user: User = Depends(require_permission("documents.read")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    documents = db.execute(
+    query = (
         select(SecureDocument)
         .where(
             SecureDocument.record_type == record_type,
@@ -43,7 +44,9 @@ def list_record_documents(
             SecureDocument.is_active.is_(True),
         )
         .order_by(SecureDocument.created_at.desc())
-    ).scalars()
+    )
+    query = apply_org_scope(query, SecureDocument, current_user)
+    documents = db.execute(query).scalars()
     log_security_event(
         db,
         event_type="DOCUMENT_LIST",
@@ -65,6 +68,7 @@ def create_signed_document_url(
     document = db.get(SecureDocument, document_id)
     if not document or not document.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    ensure_org_access(current_user, document, not_found_detail="Document not found")
     token = create_document_access_token(document.document_id, current_user.user_id)
     db.add(
         DocumentAccess(
@@ -140,4 +144,3 @@ def download_document(
         "status": "secure_download_authorized",
         "message": "Document bytes are stored in protected encrypted storage in production deployments.",
     }
-

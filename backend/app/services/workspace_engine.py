@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.services.ai_governance import governance_analytics, governance_kpis
 from app.services.functional_routes import route_path_for_record
+from app.services.tenant_access import apply_org_scope, is_external_user
 from app.services.workflow_orchestration import execute_workflow_transition
 
 
@@ -80,6 +81,14 @@ def _role_tasks(db: Session, role: Role, current_user: User, *, include_all: boo
                 WorkflowTask.assigned_to_user_id == current_user.user_id,
             ),
             WorkflowTask.status.not_in(["Completed", "Rejected"]),
+        )
+    query = apply_org_scope(query, WorkflowTask, current_user)
+    if is_external_user(current_user):
+        query = query.where(
+            or_(
+                WorkflowTask.assigned_to_user_id == current_user.user_id,
+                WorkflowTask.assigned_role_id == current_user.role_id,
+            )
         )
     return list(db.execute(query.order_by(WorkflowTask.due_date, desc(WorkflowTask.created_at)).limit(250)).scalars().all())
 
@@ -348,6 +357,16 @@ def _workspace_kpis(db: Session, role: Role, user: User) -> dict[str, Any]:
     if role.role_name == "Business Technology Analyst":
         return governance_kpis(db)
 
+    if role.role_name == "Supplier External User":
+        supplier_tasks = _role_tasks(db, role, user)
+        return {
+            "Open Supplier Tasks": counts["open"],
+            "Pending Documents": sum(1 for task in supplier_tasks if "Document" in task.task_type),
+            "Pending Approvals": sum(1 for task in supplier_tasks if "Approval" in task.task_type),
+            "SLA Response Risk": counts["near_sla"],
+            "Escalated Requests": counts["escalated"],
+        }
+
     active_users = db.execute(select(func.count(User.user_id)).where(User.is_active.is_(True))).scalar() or 0
     role_count = db.execute(select(func.count(Role.role_id))).scalar() or 0
     workspace_configs = db.execute(select(func.count(RoleWorkspaceConfig.config_id))).scalar() or 0
@@ -464,6 +483,18 @@ def _widget_data(db: Session, role: Role, user: User) -> dict[str, Any]:
             }
         )
         return analytics
+    if role.role_name == "Supplier External User":
+        return {
+            "supplier_task_queue": task_rows,
+            "requested_documents": [
+                row for row in task_rows if "Document" in row.get("task_type", "") or "Upload" in row.get("title", "")
+            ],
+            "pending_approvals": [
+                row for row in task_rows if "Approval" in row.get("task_type", "") or "Acknowledge" in row.get("title", "")
+            ],
+            "supplier_notifications": task_rows,
+            "role_tasks": task_rows,
+        }
     return {
         "workspace_matrix": _workspace_matrix(db),
         "role_governance": _workspace_matrix(db),

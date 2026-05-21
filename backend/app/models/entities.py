@@ -111,10 +111,41 @@ class Organization(Base):
     organization_name: Mapped[str] = mapped_column(String(180), nullable=False, unique=True)
     organization_type: Mapped[str] = mapped_column(String(80), nullable=False, default="internal")
     approval_status: Mapped[str] = mapped_column(String(40), nullable=False, default="Approved")
+    contact_email: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    mfa_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SupplierRelationship(Base):
+    __tablename__ = "dim_supplier_relationship"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    relationship_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    internal_organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    external_organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    relationship_type: Mapped[str] = mapped_column(String(80), nullable=False, default="Supplier")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="Pending Approval")
+    onboarding_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Invited")
+    risk_tier: Mapped[str] = mapped_column(String(40), nullable=False, default="Medium")
+    primary_contact_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class AccountType(Base):
@@ -1278,6 +1309,32 @@ class SecureDocument(Base):
     )
 
 
+class DocumentVersion(Base):
+    __tablename__ = "dim_document_version"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    version_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_secure_document.document_id"), nullable=False, index=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    document_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Submitted")
+    uploaded_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    storage_uri_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    checksum_sha256: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    approval_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Pending Review")
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    extra_metadata: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+
+
 class DocumentAccess(Base):
     __tablename__ = "fact_document_access"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}
@@ -1315,6 +1372,161 @@ class PasswordResetToken(Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ExternalInvitation(Base):
+    __tablename__ = "dim_external_invitation"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    invitation_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    email: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    invited_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    role_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_role.role_id"), nullable=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="Pending Acceptance")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    extra_metadata: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+
+
+class SignatureEvent(Base):
+    __tablename__ = "fact_signature_event"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    signature_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=False, index=True
+    )
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=True, index=True
+    )
+    record_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    record_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    signature_type: Mapped[str] = mapped_column(String(80), nullable=False, default="Workflow Approval")
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    meaning: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    signed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signature_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    prior_state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    new_state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_immutable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class BackgroundJob(Base):
+    __tablename__ = "fact_background_job"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    job_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="Queued", index=True)
+    priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Normal")
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RealtimeEvent(Base):
+    __tablename__ = "fact_realtime_event"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    event_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(100), nullable=False, default="operations")
+    audience_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True, index=True
+    )
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=True, index=True
+    )
+    record_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    record_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TrainingRecord(Base):
+    __tablename__ = "dim_training_record"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    training_record_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=False, index=True
+    )
+    sop_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_sop.sop_id"), nullable=True
+    )
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(60), nullable=False, default="Assigned")
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    competency_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Pending Validation")
+    validated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    validation_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ValidationEvidence(Base):
+    __tablename__ = "fact_validation_evidence"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    evidence_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    change_control_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_change_control.change_id"), nullable=True, index=True
+    )
+    evidence_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    status: Mapped[str] = mapped_column(String(60), nullable=False, default="Draft")
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class DataExportEvent(Base):

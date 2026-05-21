@@ -29,6 +29,7 @@ from views import (
     functional_routes,
     role_center,
     role_workspace,
+    supplier_portal,
     system_health,
 )
 
@@ -64,7 +65,10 @@ ADMIN_PAGE_RENDERERS = {
     "audit_administration": audit_logs.render,
     "responsibility_center": role_center.render,
     "system_health": system_health.render,
+    "supplier_admin": supplier_portal.render_admin,
 }
+
+SUPPLIER_PAGE_KEYS = {"supplier_portal", "supplier_documents", "supplier_approvals"}
 
 
 def _query_value(key: str) -> str | None:
@@ -187,7 +191,7 @@ def render_login() -> None:
 
         with st.expander("Demo Accounts", expanded=True):
             st.write("Default password: `ClinicalDemo!2026`")
-            st.write("`intake`  `clinical`  `qa`  `vendorops`  `opsmanager`  `analyst`  `sysadmin`")
+            st.write("`intake`  `clinical`  `qa`  `vendorops`  `opsmanager`  `analyst`  `supplier`  `sysadmin`")
 
         with st.expander("Reset Password", expanded=False):
             st.caption("Enter your account email and a single-use reset link will be sent if the account exists.")
@@ -221,6 +225,43 @@ def render_password_reset_confirm(reset_token: str) -> None:
                 st.success("Password updated. Sign in with your new password.")
                 _clear_query_value("reset_token")
                 st.rerun()
+
+
+def render_supplier_invitation_accept(invite_token: str) -> None:
+    preview = get_json(f"/api/suppliers/invitations/preview?token={quote(invite_token, safe='')}") or {}
+    st.markdown("<div style='height: 7vh'></div>", unsafe_allow_html=True)
+    left, center, right = st.columns([0.45, 1.1, 0.45])
+    with center:
+        st.title("Supplier Portal Invitation")
+        organization = preview.get("organization") or {}
+        st.caption(f"Create an organization-scoped supplier account for {organization.get('organization_name', 'your organization')}.")
+        with st.form("supplier_invitation_accept", border=True):
+            full_name = st.text_input("Full name")
+            username = st.text_input("Username", value=(preview.get("email") or "").split("@")[0])
+            password = st.text_input("Password", type="password")
+            confirm_password = st.text_input("Confirm password", type="password")
+            submitted = st.form_submit_button("Create Supplier Account", width="stretch")
+        if submitted:
+            if password != confirm_password:
+                st.error("Passwords do not match.")
+                return
+            result = post_json(
+                "/api/suppliers/invitations/accept",
+                {
+                    "token": invite_token,
+                    "username": username,
+                    "full_name": full_name,
+                    "password": password,
+                },
+            )
+            if result:
+                st.success("Account created. Access is pending internal approval.")
+                _clear_query_value("supplier_invite")
+                st.rerun()
+
+        if st.button("Return to Sign In", width="stretch"):
+            _clear_query_value("supplier_invite")
+            st.rerun()
 
 
 def render_notification_bell(workspace: dict) -> None:
@@ -265,6 +306,13 @@ def _render_quick_actions(active_role: str | None) -> None:
             ("Workflow Configuration", "/admin/workflow-engine"),
             ("Eligibility Rules", "/eligibility-rule"),
             ("Audit Logs", "/admin/audit-logs"),
+        ]
+    elif active_role == "Supplier External User":
+        actions = [
+            ("Supplier Portal", "/supplier"),
+            ("Submit Document", "/supplier-documents"),
+            ("Pending Approvals", "/supplier-approvals"),
+            ("Notifications", "/notification"),
         ]
     else:
         actions = [
@@ -376,7 +424,7 @@ def _sidebar_label(icon: str, label: str) -> str:
 
 
 def render_sidebar_toggle() -> None:
-    spacer, control = st.columns([0.82, 0.18])
+    spacer, control = st.columns([0.74, 0.26])
     with control:
         label = ">>" if st.session_state.sidebar_compact else "<<"
         if st.button(label, key="sidebar_inline_toggle", help="Toggle menu", width="stretch"):
@@ -406,6 +454,7 @@ def render_operational_navigation(navigation: dict) -> None:
         ("Escalations", ["/escalation"], "!"),
         ("SLA Risks", ["/sla", "/incident"], "SLA"),
         ("Recent Notifications", ["/notification"], "N"),
+        ("Supplier Portal", ["/supplier"], "S"),
         ("Dashboard", ["/dashboard"], "D"),
     ]:
         path = _preferred_route(routes, options)
@@ -419,6 +468,8 @@ def render_operational_navigation(navigation: dict) -> None:
         ("Processing Release", "/processing-release", "PR"),
         ("CAPAs", "/capa", "C"),
         ("Investigations", "/investigation", "I"),
+        ("Supplier Documents", "/supplier-documents", "SD"),
+        ("Supplier Approvals", "/supplier-approvals", "SA"),
         ("Notifications", "/notification", "N"),
     ]:
         if path in routes:
@@ -432,6 +483,7 @@ def render_operational_navigation(navigation: dict) -> None:
         ("System Health", "/admin/system-health", "H"),
         ("Eligibility Rules", "/eligibility-rule", "ER"),
         ("Audit Logs", "/admin/audit-logs", "A"),
+        ("Suppliers", "/admin/suppliers", "S"),
     ]:
         if path in routes:
             admin_items.append((label, path, icon))
@@ -671,6 +723,11 @@ def render_todays_operations(workspace: dict, context: dict) -> None:
         functional_routes.render_analytics_visuals(analytics)
 
 
+supplier_invite = _query_value("supplier_invite")
+if supplier_invite and "user" not in st.session_state:
+    render_supplier_invitation_accept(supplier_invite)
+    st.stop()
+
 reset_token = _query_value("reset_token")
 if reset_token and "user" not in st.session_state:
     render_password_reset_confirm(reset_token)
@@ -759,5 +816,7 @@ if context.get("kind") == "admin":
         role_workspace.render(workspace, page_key, context["label"])
 elif context.get("route_key") == "dashboard":
     render_todays_operations(workspace, context)
+elif page_key in SUPPLIER_PAGE_KEYS:
+    supplier_portal.render_dashboard()
 else:
     functional_routes.render(context)

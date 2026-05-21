@@ -80,6 +80,7 @@ class WorkflowTaskCreate(BaseModel):
     related_record_id: str
     related_record_type: str
     escalation_level: int = 0
+    organization_id: int | None = None
 
 
 class WorkflowTaskUpdate(BaseModel):
@@ -92,6 +93,7 @@ class WorkflowTaskUpdate(BaseModel):
     due_date: datetime | None = None
     completed_at: datetime | None = None
     escalation_level: int | None = None
+    organization_id: int | None = None
 
 
 class WorkflowTaskRead(WorkflowTaskCreate):

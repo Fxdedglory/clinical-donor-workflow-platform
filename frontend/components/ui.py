@@ -264,6 +264,17 @@ def apply_theme(compact_sidebar: bool = False) -> None:
             padding-bottom: 0;
             position: relative;
             z-index: 30;
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            overflow-wrap: normal !important;
+        }
+
+        div.stButton > button p,
+        div[data-testid="stPopover"] > button p,
+        div[data-testid="stFormSubmitButton"] > button p {
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            overflow-wrap: normal !important;
         }
 
         div[data-testid="stTextInput"] input {

@@ -17,18 +17,21 @@ from app.models import (
     AIRiskRule,
     AuditLog,
     AuthIdentity,
+    BackgroundJob,
     ChangeControl,
     DataExportEvent,
     DeploymentEnvironment,
     Deviation,
     Disposition,
     DocumentAccess,
+    DocumentVersion,
     Donor,
     DonorReview,
     DonorScreening,
     EligibilityDecision,
     EligibilityRule,
     EscalationEvent,
+    ExternalInvitation,
     InfectiousDiseaseResult,
     InfectiousDiseaseTest,
     MedicalSocialHistory,
@@ -37,6 +40,7 @@ from app.models import (
     Organization,
     PasswordResetToken,
     ProcessingRelease,
+    RealtimeEvent,
     RecoverySuitability,
     ReferralSource,
     RiskCategory,
@@ -50,14 +54,18 @@ from app.models import (
     SecurityAudit,
     SecurityIncident,
     SidebarState,
+    SignatureEvent,
     SOPTrainingAssignment,
+    SupplierRelationship,
     SystemHealth,
     TissueType,
     TrainingCompletion,
+    TrainingRecord,
     User,
     UserApprovalStatus,
     UserPreference,
     UserSessionRecord,
+    ValidationEvidence,
     Vendor,
     VendorIncident,
     WorkflowAssignmentRule,
@@ -371,9 +379,14 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
             organization_name="Internal Operations",
             organization_type="internal",
             approval_status="Approved",
+            contact_email="operations@teemails.com",
+            mfa_required=True,
         )
         db.add(internal_org)
         db.flush()
+    else:
+        internal_org.contact_email = internal_org.contact_email or "operations@teemails.com"
+        internal_org.mfa_required = True
 
     now = datetime.now(UTC)
     for role_name, user in users_by_role.items():
@@ -507,6 +520,398 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
                 details={"source": "seed", "control": "account_lockout_monitoring"},
             )
         )
+    db.flush()
+
+
+def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
+    supplier_role = roles.get("Supplier External User")
+    admin_user = db.execute(select(User).where(User.username == "sysadmin")).scalar_one_or_none()
+    internal_org = db.execute(
+        select(Organization).where(Organization.organization_name == "Internal Operations")
+    ).scalar_one_or_none()
+    if not supplier_role or not internal_org or not admin_user:
+        return
+
+    password_hash = get_password_hash(DEFAULT_PASSWORD)
+    now = datetime.now(UTC)
+    supplier_specs = [
+        {
+            "organization_name": "NorthStar Labs",
+            "organization_type": "Supplier",
+            "contact_email": "supplier@northstarlabs.example",
+            "username": "supplier",
+            "full_name": "Sam Rivera",
+            "email": "sam.rivera@northstarlabs.example",
+            "risk_tier": "Medium",
+        },
+        {
+            "organization_name": "Recovery Partners Southeast",
+            "organization_type": "Recovery Organization",
+            "contact_email": "coordination@recoverypartners.example",
+            "username": "recoverypartner",
+            "full_name": "Dana Ellis",
+            "email": "dana.ellis@recoverypartners.example",
+            "risk_tier": "High",
+        },
+        {
+            "organization_name": "BioMatrix Packaging",
+            "organization_type": "Supplier",
+            "contact_email": "quality@biomatrixpackaging.example",
+            "username": "biomatrix",
+            "full_name": "Priya Nair",
+            "email": "priya.nair@biomatrixpackaging.example",
+            "risk_tier": "Low",
+        },
+    ]
+
+    for spec in supplier_specs:
+        org = db.execute(
+            select(Organization).where(Organization.organization_name == spec["organization_name"])
+        ).scalar_one_or_none()
+        if not org:
+            org = Organization(
+                organization_name=spec["organization_name"],
+                organization_type=spec["organization_type"],
+                approval_status="Approved",
+                contact_email=spec["contact_email"],
+                mfa_required=True,
+            )
+            db.add(org)
+            db.flush()
+        else:
+            org.organization_type = spec["organization_type"]
+            org.approval_status = "Approved"
+            org.contact_email = spec["contact_email"]
+            org.mfa_required = True
+            org.is_active = True
+
+        relationship = db.execute(
+            select(SupplierRelationship).where(
+                SupplierRelationship.internal_organization_id == internal_org.organization_id,
+                SupplierRelationship.external_organization_id == org.organization_id,
+            )
+        ).scalar_one_or_none()
+        if not relationship:
+            relationship = SupplierRelationship(
+                internal_organization_id=internal_org.organization_id,
+                external_organization_id=org.organization_id,
+                relationship_type=spec["organization_type"],
+                status="Approved",
+                onboarding_status="Active",
+                risk_tier=spec["risk_tier"],
+                approved_by=admin_user.user_id,
+                approved_at=now,
+                details={
+                    "scope": "document_exchange_supplier_tasks",
+                    "access_model": "organization_scoped",
+                },
+            )
+            db.add(relationship)
+        else:
+            relationship.status = "Approved"
+            relationship.onboarding_status = "Active"
+            relationship.risk_tier = spec["risk_tier"]
+            relationship.approved_by = admin_user.user_id
+            relationship.approved_at = relationship.approved_at or now
+
+        user = db.execute(select(User).where(User.username == spec["username"])).scalar_one_or_none()
+        if not user:
+            user = db.execute(select(User).where(User.email == spec["email"])).scalar_one_or_none()
+        if not user:
+            user = User(
+                username=spec["username"],
+                full_name=spec["full_name"],
+                display_name=spec["full_name"],
+                email=spec["email"],
+                hashed_password=password_hash,
+                role_id=supplier_role.role_id,
+                role=supplier_role.role_name,
+                department="Supplier Portal",
+                is_active=True,
+            )
+            db.add(user)
+            db.flush()
+        user.username = spec["username"]
+        user.full_name = spec["full_name"]
+        user.display_name = user.display_name or spec["full_name"]
+        user.email = spec["email"]
+        user.hashed_password = user.hashed_password or password_hash
+        user.role_id = supplier_role.role_id
+        user.role = supplier_role.role_name
+        user.department = "Supplier Portal"
+        user.account_type = "supplier"
+        user.user_type = "supplier"
+        user.organization_id = org.organization_id
+        user.is_internal = False
+        user.is_external = True
+        user.external_user_flag = True
+        user.approval_status = "Approved"
+        user.identity_provider = "Platform Native"
+        user.mfa_enabled = True
+        user.is_active = True
+        user.password_changed_at = user.password_changed_at or now
+        user.password_expires_at = user.password_expires_at or (now + timedelta(days=180))
+        relationship.primary_contact_user_id = user.user_id
+
+        identity = db.execute(
+            select(AuthIdentity).where(
+                AuthIdentity.user_id == user.user_id,
+                AuthIdentity.identity_provider == "Platform Native",
+            )
+        ).scalar_one_or_none()
+        if not identity:
+            db.add(
+                AuthIdentity(
+                    user_id=user.user_id,
+                    identity_provider="Platform Native",
+                    provider_subject=user.username,
+                    user_type="supplier",
+                    mfa_required=True,
+                    external_user_flag=True,
+                )
+            )
+        else:
+            identity.provider_subject = user.username
+            identity.user_type = "supplier"
+            identity.mfa_required = True
+            identity.external_user_flag = True
+
+        mfa = db.execute(select(MFAConfiguration).where(MFAConfiguration.user_id == user.user_id)).scalar_one_or_none()
+        if not mfa:
+            db.add(
+                MFAConfiguration(
+                    user_id=user.user_id,
+                    method="TOTP",
+                    is_enabled=True,
+                    required_by_policy=True,
+                    secret_encrypted=encrypt_text(f"demo-totp-secret-{user.username}"),
+                    recovery_codes_encrypted=encrypt_text("demo-recovery-code"),
+                    verified_at=now,
+                )
+            )
+        else:
+            mfa.is_enabled = True
+            mfa.required_by_policy = True
+
+        sidebar = db.execute(select(SidebarState).where(SidebarState.user_id == user.user_id)).scalar_one_or_none()
+        if not sidebar:
+            db.add(SidebarState(user_id=user.user_id, sidebar_collapsed=False, last_route="/supplier"))
+        else:
+            sidebar.last_route = sidebar.last_route or "/supplier"
+
+        pref = db.execute(
+            select(UserPreference).where(
+                UserPreference.user_id == user.user_id,
+                UserPreference.preference_key == "notification_preferences",
+            )
+        ).scalar_one_or_none()
+        if not pref:
+            db.add(
+                UserPreference(
+                    user_id=user.user_id,
+                    preference_key="notification_preferences",
+                    preference_value={
+                        "supplier_notifications": True,
+                        "document_requests": True,
+                        "approval_requests": True,
+                    },
+                )
+            )
+
+        task_specs = [
+            ("Document Request", f"Upload NAT result packet for {org.organization_name}", "Requested Documents", "Awaiting External Review", "High"),
+            ("External CAPA Response", f"Respond to CAPA evidence request for {org.organization_name}", "Supplier CAPA Response", "Awaiting External Review", "Critical"),
+            ("Supplier Approval", f"Acknowledge supplier qualification review for {org.organization_name}", "Supplier Approvals", "Awaiting Signatures", "High"),
+            ("Supplier Review", f"Confirm annual certification status for {org.organization_name}", "Supplier Collaboration Queue", "Supplier Review", "Standard"),
+        ]
+        existing_task_count = db.execute(
+            select(WorkflowTask.task_id).where(WorkflowTask.organization_id == org.organization_id).limit(1)
+        ).first()
+        if not existing_task_count:
+            for index, (task_type, title, queue_name, workflow_state, priority) in enumerate(task_specs, start=1):
+                task = WorkflowTask(
+                    task_type=task_type,
+                    title=title,
+                    description="Organization-scoped supplier collaboration task.",
+                    assigned_to_user_id=user.user_id,
+                    assigned_role_id=supplier_role.role_id,
+                    priority=priority,
+                    status="Escalated" if priority == "Critical" else random.choice(["Assigned", "In Progress"]),
+                    workflow_state=workflow_state,
+                    queue_name=queue_name,
+                    due_date=now + timedelta(hours=12 * index),
+                    related_record_id=f"SUP-{org.organization_id:03d}-{index:03d}",
+                    related_record_type=task_type.replace(" ", ""),
+                    escalation_level=1 if priority == "Critical" else 0,
+                    organization_id=org.organization_id,
+                )
+                db.add(task)
+                db.flush()
+                notification = Notification(
+                    user_id=user.user_id,
+                    title=f"[{priority}] {title}",
+                    message=f"{queue_name} requires supplier action for {org.organization_name}.",
+                    notification_type=task_type,
+                    priority=priority,
+                    workflow_task_id=task.task_id,
+                    related_record_type="WorkflowTask",
+                    related_record_id=str(task.task_id),
+                    action_route="/supplier",
+                    workflow_context={
+                        "task_id": task.task_id,
+                        "workflow_state": workflow_state,
+                        "queue_name": queue_name,
+                        "route_path": "/supplier",
+                    },
+                    organization_id=org.organization_id,
+                )
+                db.add(notification)
+
+        existing_docs = db.execute(
+            select(SecureDocument.document_id).where(SecureDocument.organization_id == org.organization_id).limit(1)
+        ).first()
+        if not existing_docs:
+            for version, document_type in enumerate(["Supplier Certification", "Qualification Doc"], start=1):
+                doc = SecureDocument(
+                    record_type="SupplierQualification",
+                    record_id=f"SUP-QUAL-{org.organization_id:03d}",
+                    document_name=f"{org.organization_name} {document_type}.pdf",
+                    document_type=document_type,
+                    storage_uri_encrypted=encrypt_text(f"supplier://{org.organization_id}/{document_type.lower().replace(' ', '-')}.pdf"),
+                    checksum_sha256=f"seed-checksum-{org.organization_id}-{version}",
+                    uploaded_by=user.user_id,
+                    access_classification="Supplier Submitted",
+                    organization_id=org.organization_id,
+                )
+                db.add(doc)
+                db.flush()
+                db.add(
+                    DocumentVersion(
+                        document_id=doc.document_id,
+                        version_number=1,
+                        document_status="Submitted",
+                        uploaded_by=user.user_id,
+                        storage_uri_encrypted=doc.storage_uri_encrypted,
+                        checksum_sha256=doc.checksum_sha256,
+                        approval_status="Pending Review",
+                        extra_metadata={"source": "seed", "organization": org.organization_name},
+                    )
+                )
+                db.add(
+                    DocumentAccess(
+                        document_id=doc.document_id,
+                        user_id=user.user_id,
+                        action_type="SUPPLIER_UPLOAD_SEEDED",
+                        details={"document_type": document_type},
+                    )
+                )
+
+        signature_exists = db.execute(
+            select(SignatureEvent.signature_id).where(SignatureEvent.organization_id == org.organization_id).limit(1)
+        ).first()
+        if not signature_exists:
+            db.add(
+                SignatureEvent(
+                    user_id=user.user_id,
+                    organization_id=org.organization_id,
+                    record_type="SupplierQualification",
+                    record_id=f"SUP-QUAL-{org.organization_id:03d}",
+                    signature_type="Supplier Approval",
+                    reason="Seeded supplier qualification acknowledgement.",
+                    meaning="Supplier representative attests the qualification packet is accurate.",
+                    signed_at=now,
+                    signature_hash=f"seed-signature-{org.organization_id}-{user.user_id}",
+                    prior_state="Pending Supplier Approval",
+                    new_state="Supplier Approved",
+                )
+            )
+
+        training = db.execute(
+            select(TrainingRecord).where(TrainingRecord.user_id == user.user_id).limit(1)
+        ).first()
+        if not training:
+            db.add(
+                TrainingRecord(
+                    user_id=user.user_id,
+                    organization_id=org.organization_id,
+                    status="Assigned",
+                    expires_at=now + timedelta(days=365),
+                    competency_status="Pending Validation",
+                    validation_notes="Supplier portal controlled-record handling training assigned.",
+                )
+            )
+
+        event_exists = db.execute(
+            select(RealtimeEvent.event_id).where(
+                RealtimeEvent.organization_id == org.organization_id,
+                RealtimeEvent.event_type == "Supplier Workspace Refreshed",
+            )
+        ).first()
+        if not event_exists:
+            db.add(
+                RealtimeEvent(
+                    event_type="Supplier Workspace Refreshed",
+                    channel="supplier-portal",
+                    audience_user_id=user.user_id,
+                    organization_id=org.organization_id,
+                    record_type="Organization",
+                    record_id=str(org.organization_id),
+                    payload={"organization_name": org.organization_name, "relationship_status": relationship.status},
+                )
+            )
+        job_exists = db.execute(
+            select(BackgroundJob.job_id).where(
+                BackgroundJob.organization_id == org.organization_id,
+                BackgroundJob.job_type == "Supplier SLA Monitor",
+            )
+        ).first()
+        if not job_exists:
+            db.add(
+                BackgroundJob(
+                    job_type="Supplier SLA Monitor",
+                    status="Queued",
+                    priority="High" if spec["risk_tier"] == "High" else "Normal",
+                    scheduled_for=now + timedelta(hours=1),
+                    payload={"organization_id": org.organization_id, "monitor": "supplier_response_sla"},
+                    organization_id=org.organization_id,
+                )
+            )
+
+    invite_exists = db.execute(
+        select(ExternalInvitation.invitation_id).where(ExternalInvitation.email == "pending.supplier@northstarlabs.example")
+    ).first()
+    northstar = db.execute(select(Organization).where(Organization.organization_name == "NorthStar Labs")).scalar_one_or_none()
+    if not invite_exists and northstar:
+        db.add(
+            ExternalInvitation(
+                organization_id=northstar.organization_id,
+                email="pending.supplier@northstarlabs.example",
+                invited_by=admin_user.user_id,
+                role_id=supplier_role.role_id,
+                token_hash=f"seed-invitation-{northstar.organization_id}",
+                status="Pending Acceptance",
+                expires_at=now + timedelta(days=7),
+                extra_metadata={"source": "seed", "organization_name": northstar.organization_name},
+            )
+        )
+
+    validation_exists = db.execute(select(ValidationEvidence.evidence_id).limit(1)).first()
+    if not validation_exists:
+        db.add(
+            ValidationEvidence(
+                evidence_type="Supplier Portal Validation",
+                title="Supplier organization scoping validation evidence",
+                status="Approved",
+                owner_user_id=admin_user.user_id,
+                approved_by=admin_user.user_id,
+                approved_at=now,
+                details={
+                    "control": "organization_scoped_rbac",
+                    "evidence": "supplier users can only query records linked to their organization_id",
+                },
+            )
+        )
+
     db.flush()
 
 
@@ -1150,6 +1555,7 @@ def ensure_enterprise_data(db) -> None:
     ensure_workspace_definitions(db, roles)
     _ensure_donor_eligibility_data(db, roles, users_by_role)
     _protect_sensitive_demo_data(db, users_by_role)
+    _ensure_supplier_portal_data(db, roles)
     ensure_ai_decisions_for_existing_donors(db)
 
     existing_task = db.execute(select(WorkflowTask.task_id).limit(1)).first()
@@ -1397,8 +1803,16 @@ def seed_database(records: int, force: bool = False) -> None:
         if force:
             for model in [
                 DataExportEvent,
+                ExternalInvitation,
+                ValidationEvidence,
+                TrainingRecord,
+                SignatureEvent,
+                RealtimeEvent,
+                BackgroundJob,
+                SupplierRelationship,
                 PasswordResetToken,
                 DocumentAccess,
+                DocumentVersion,
                 SecureDocument,
                 SecurityIncident,
                 SecurityAudit,
@@ -1465,6 +1879,7 @@ def seed_database(records: int, force: bool = False) -> None:
         users_by_role = _ensure_users(db, roles)
         _ensure_security_foundations(db, users_by_role)
         ensure_ai_governance_data(db, users_by_role)
+        _ensure_supplier_portal_data(db, roles)
         users = list(users_by_role.values())
 
         vendors = [

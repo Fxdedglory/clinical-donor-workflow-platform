@@ -23,6 +23,10 @@ ROLE_DEFINITIONS = {
             "mfa.manage",
             "documents.read",
             "documents.manage",
+            "suppliers.manage",
+            "suppliers.read",
+            "signatures.sign",
+            "background_jobs.read",
         ],
         "job_description": "Enterprise platform owner for regulated healthcare operations and administrative controls.",
         "responsibilities": [
@@ -93,6 +97,8 @@ ROLE_DEFINITIONS = {
             "dashboard.view",
             "documents.read",
             "documents.manage",
+            "suppliers.read",
+            "signatures.sign",
         ],
         "job_description": "Quality systems owner for compliance review, deviations, CAPA, and SOP training follow-up.",
         "responsibilities": [
@@ -114,6 +120,7 @@ ROLE_DEFINITIONS = {
             "notifications.read",
             "dashboard.view",
             "documents.read",
+            "suppliers.read",
         ],
         "job_description": "Operational owner for vendor-supported healthcare systems and SLA incident response.",
         "responsibilities": [
@@ -139,6 +146,9 @@ ROLE_DEFINITIONS = {
             "eligibility.read",
             "release.manage",
             "documents.read",
+            "suppliers.manage",
+            "suppliers.read",
+            "signatures.sign",
         ],
         "job_description": "Cross-functional operations leader for workload, bottleneck, and escalation management.",
         "responsibilities": [
@@ -162,6 +172,8 @@ ROLE_DEFINITIONS = {
             "audit.review",
             "notifications.read",
             "security.audit",
+            "suppliers.read",
+            "background_jobs.read",
         ],
         "job_description": "Enterprise workflow intelligence owner for governed AI-assisted clinical operations.",
         "responsibilities": [
@@ -184,6 +196,27 @@ ROLE_DEFINITIONS = {
             "Queue bottlenecks",
             "SLA prediction accuracy",
         ],
+    },
+    "Supplier External User": {
+        "description": "External supplier collaborator with organization-scoped tasks, documents, and approvals.",
+        "permissions": [
+            "supplier.portal",
+            "tasks.read",
+            "tasks.update",
+            "notifications.read",
+            "documents.read",
+            "documents.manage",
+            "signatures.sign",
+        ],
+        "job_description": "Approved external partner user for scoped supplier collaboration workflows.",
+        "responsibilities": [
+            "Review assigned supplier tasks",
+            "Upload requested qualification or workflow evidence",
+            "Acknowledge supplier approvals and response requests",
+            "Track organization-scoped workflow status without viewing internal records",
+        ],
+        "workflows": ["Supplier Review", "Document Request", "External CAPA Response", "Supplier Qualification"],
+        "kpis": ["Open supplier tasks", "Requested documents", "Pending approvals", "SLA response risk"],
     },
 }
 

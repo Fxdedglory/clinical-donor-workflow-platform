@@ -46,9 +46,18 @@ backend/app/routes/ai_governance.py
   Analyst-owned AI governance API for dashboards, governed rules,
   AI decisions, override events, explainability traces, and simulations
 
+backend/app/routes/suppliers.py
+  Supplier portal API for supplier organizations, signed invitations,
+  approval states, supplier dashboard payloads, supplier document
+  submission, task responses, electronic signatures, and background jobs
+
 backend/app/services/ai_governance.py
   Database-governed rule orchestration, decision recording, override
   tracking, timeline events, workflow intelligence, and sandbox analysis
+
+backend/app/services/tenant_access.py
+  Organization-scoped access helpers used by task, document, route,
+  supplier, workspace, and search flows to protect external tenant data
 
 backend/app/auth
   Argon2id/bcrypt password verification, JWT creation/validation,
@@ -94,6 +103,9 @@ Workflow operation routes
   /incident/{id}
   /task/{id}
   /notification/{id}
+  /supplier
+  /supplier-documents/{id}
+  /supplier-approvals/{id}
 
 Analytics and intelligence routes
   /dashboard
@@ -109,6 +121,7 @@ Administration routes
   /admin/workflow-engine
   /admin/permissions
   /admin/responsibility-center
+  /admin/suppliers
 ```
 
 The same route can render different views by role. For example, `/capa/84` gives QA users corrective action and compliance context, operations managers escalation and staffing context, and Business Technology Analysts workflow-intelligence context.
@@ -152,7 +165,7 @@ This project models security controls expected in regulated healthcare operation
 - Security audit events for authentication, failed access, sensitive record access, user changes, workflow transitions, document actions, MFA, password reset, and session revocation.
 - Part 11 concept support through attributable workflow transitions, electronic signature metadata, before/after audit logging, timestamped transition history, and role-validated approvals.
 - Secure document handling through access-controlled document APIs, signed download links, token expiration, and document access logs.
-- Supplier portal foundations through native account types, organization scoping, approval status, external-user flags, and MFA fields on users.
+- Supplier portal support through native account types, organization-scoped RBAC, supplier relationship records, invitation approval states, external-user flags, MFA policy, supplier task queues, document exchange, and electronic signature events.
 - Production deployment scaffolding for `teemails.com` through Cloudflare Tunnel, optional Nginx reverse proxy config, HTTPS/HSTS/CSP headers, secure-cookie flags, Certbot renewal support, encrypted backups, and SysAdmin system health monitoring.
 
 ## Decision Engine
@@ -213,6 +226,31 @@ Function route requested
   -> role lens selects widgets, actions, and context
   -> contextual action ribbon is rendered
   -> timeline and related records preserve operational continuity
+```
+
+## Supplier Collaboration Flow
+
+```text
+Internal user creates supplier organization
+  -> POST /api/suppliers/organizations
+  -> supplier relationship is created against Internal Operations
+
+Internal user sends invitation
+  -> POST /api/suppliers/invitations
+  -> signed single-use invitation token is generated
+  -> email delivery/background job/security audit events are recorded
+
+Supplier accepts invitation
+  -> /?supplier_invite=...
+  -> supplier account is created with Supplier External User role
+  -> account remains Pending Approval until internal approval
+
+Supplier works scoped queue
+  -> /supplier
+  -> tasks, documents, notifications, signatures, search, and route context
+     are filtered by organization_id
+  -> supplier can submit documents, respond to tasks, and apply
+     re-authenticated electronic signatures
 ```
 
 ## Workflow Transition Flow

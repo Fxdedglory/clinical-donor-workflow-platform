@@ -23,11 +23,14 @@ from app.models import (
     InfectiousDiseaseTest,
     MedicalSocialHistory,
     Notification,
+    Organization,
     ProcessingRelease,
     RecoverySuitability,
     Role,
     RolePermission,
     RoleWorkspaceConfig,
+    SecureDocument,
+    SignatureEvent,
     TissueType,
     User,
     Vendor,
@@ -38,6 +41,12 @@ from app.models import (
     WorkflowTransitionRule,
 )
 from app.services.eligibility_engine import eligibility_analytics, eligibility_record_bundle
+from app.services.tenant_access import (
+    apply_org_scope,
+    ensure_external_self_or_org,
+    ensure_org_access,
+    is_external_user,
+)
 
 ACTIVE_TASK_STATUSES = ["Pending", "Assigned", "In Progress", "Blocked", "Escalated"]
 ACTIVE_DONOR_STATES = [
@@ -90,6 +99,9 @@ ROUTE_DEFINITIONS = [
             {"route_path": "/incident", "label": "Incident", "permissions": ["vendors.read", "vendors.manage"]},
             {"route_path": "/task", "label": "Task", "permissions": ["tasks.read", "tasks.manage"]},
             {"route_path": "/notification", "label": "Notification", "permissions": ["notifications.read", "notifications.manage"]},
+            {"route_path": "/supplier", "label": "Supplier Portal", "permissions": ["supplier.portal"]},
+            {"route_path": "/supplier-documents", "label": "Supplier Documents", "permissions": ["supplier.portal", "suppliers.read"]},
+            {"route_path": "/supplier-approvals", "label": "Supplier Approvals", "permissions": ["supplier.portal", "suppliers.read"]},
         ],
     },
     {
@@ -110,6 +122,7 @@ ROUTE_DEFINITIONS = [
             {"route_path": "/admin/workspaces", "label": "Workspaces", "permissions": ["workflow.configure"]},
             {"route_path": "/admin/permissions", "label": "Permissions", "permissions": ["roles.manage"]},
             {"route_path": "/admin/audit-logs", "label": "Audit Logs", "permissions": ["audit.review"]},
+            {"route_path": "/admin/suppliers", "label": "Suppliers", "permissions": ["suppliers.manage"]},
             {"route_path": "/admin/responsibility-center", "label": "Responsibility Center", "permissions": ["system.admin"]},
             {"route_path": "/admin/system-health", "label": "System Health", "permissions": ["system.admin"]},
         ],
@@ -187,6 +200,7 @@ def default_route_for_role(role_name: str, groups: list[dict[str, Any]] | None =
         "Vendor Operations Analyst": "/dashboard",
         "Operations Manager": "/dashboard",
         "Business Technology Analyst": "/dashboard",
+        "Supplier External User": "/supplier",
     }
     default = defaults.get(role_name)
     if default:
@@ -262,6 +276,10 @@ def route_path_for_record(
         return f"/ai-rule/{record_id}"
     if record_type == "EscalationEvent":
         return f"/escalation/{record_id}"
+    if record_type == "SecureDocument":
+        return f"/supplier-documents/{record_id}"
+    if record_type == "Organization":
+        return f"/admin/suppliers/{record_id}"
     if task_id:
         return f"/task/{task_id}"
     return f"/workflow/{record_id}"
@@ -325,6 +343,9 @@ def _route_group(route_key: str) -> str:
         "incident",
         "task",
         "notification",
+        "supplier",
+        "supplier-documents",
+        "supplier-approvals",
     }:
         return "My Work"
     return "Dashboard"
@@ -356,6 +377,9 @@ def _route_label(route_key: str) -> str:
         "incident": "Incident",
         "task": "Task",
         "notification": "Notification",
+        "supplier": "Supplier Portal",
+        "supplier-documents": "Supplier Documents",
+        "supplier-approvals": "Supplier Approvals",
         "dashboard": "Dashboard",
         "operations": "Dashboard",
         "workload": "Dashboard",
@@ -368,20 +392,112 @@ def _route_label(route_key: str) -> str:
         "admin/workspaces": "Workspace Configuration",
         "admin/permissions": "Permissions",
         "admin/audit-logs": "Audit Logs",
+        "admin/suppliers": "Supplier Administration",
         "admin/responsibility-center": "Responsibility Center",
         "admin/system-health": "System Health",
     }
     return labels.get(route_key, route_key.replace("-", " ").replace("/", " / ").title())
 
 
-def _task_query_for_role(db: Session, role: Role) -> list[WorkflowTask]:
+def _task_query_for_role(db: Session, role: Role, current_user: User | None = None) -> list[WorkflowTask]:
     query = select(WorkflowTask).where(WorkflowTask.status.in_(ACTIVE_TASK_STATUSES))
     if role.role_name not in {"Operations Manager", "System Administrator", "Business Technology Analyst"}:
         query = query.where(WorkflowTask.assigned_role_id == role.role_id)
+    if current_user:
+        query = apply_org_scope(query, WorkflowTask, current_user)
+        if is_external_user(current_user):
+            query = query.where(
+                or_(
+                    WorkflowTask.assigned_to_user_id == current_user.user_id,
+                    WorkflowTask.assigned_role_id == current_user.role_id,
+                )
+            )
     return list(db.execute(query.order_by(WorkflowTask.due_date, desc(WorkflowTask.created_at)).limit(250)).scalars().all())
 
 
 def _collection_rows(db: Session, route_key: str, role: Role, current_user: User) -> list[dict[str, Any]]:
+    if route_key == "supplier":
+        return [
+            _model_dict(
+                task,
+                [
+                    "task_id",
+                    "task_type",
+                    "title",
+                    "priority",
+                    "status",
+                    "workflow_state",
+                    "queue_name",
+                    "due_date",
+                    "related_record_type",
+                    "related_record_id",
+                ],
+            )
+            | {"route_path": f"/task/{task.task_id}"}
+            for task in _task_query_for_role(db, role, current_user)
+        ]
+    if route_key == "supplier-documents":
+        query = select(SecureDocument).where(SecureDocument.is_active.is_(True)).order_by(desc(SecureDocument.created_at)).limit(200)
+        query = apply_org_scope(query, SecureDocument, current_user)
+        return [
+            _model_dict(
+                document,
+                [
+                    "document_id",
+                    "record_type",
+                    "record_id",
+                    "document_name",
+                    "document_type",
+                    "access_classification",
+                    "created_at",
+                ],
+            )
+            | {"route_path": f"/supplier-documents/{document.document_id}"}
+            for document in db.execute(query).scalars().all()
+        ]
+    if route_key == "supplier-approvals":
+        query = select(SignatureEvent).order_by(desc(SignatureEvent.signed_at)).limit(200)
+        query = apply_org_scope(query, SignatureEvent, current_user)
+        return [
+            _model_dict(
+                signature,
+                [
+                    "signature_id",
+                    "record_type",
+                    "record_id",
+                    "signature_type",
+                    "reason",
+                    "signed_at",
+                    "prior_state",
+                    "new_state",
+                ],
+            )
+            for signature in db.execute(query).scalars().all()
+        ]
+    if route_key == "admin/suppliers":
+        organizations = db.execute(
+            select(Organization)
+            .where(Organization.organization_type.in_(["Supplier", "supplier", "Partner", "partner", "Recovery Organization"]))
+            .order_by(Organization.organization_name)
+            .limit(250)
+        ).scalars().all()
+        return [
+            _model_dict(
+                org,
+                [
+                    "organization_id",
+                    "organization_name",
+                    "organization_type",
+                    "approval_status",
+                    "contact_email",
+                    "mfa_required",
+                    "is_active",
+                    "created_at",
+                ],
+            )
+            | {"route_path": f"/admin/suppliers/{org.organization_id}"}
+            for org in organizations
+        ]
     if route_key == "donor":
         donors = db.execute(select(Donor).order_by(desc(Donor.created_at)).limit(200)).scalars().all()
         return [
@@ -480,7 +596,7 @@ def _collection_rows(db: Session, route_key: str, role: Role, current_user: User
         return [
             _model_dict(task, ["task_id", "task_type", "title", "priority", "status", "workflow_state", "queue_name", "due_date", "related_record_type", "related_record_id"])
             | {"route_path": f"/task/{task.task_id}"}
-            for task in _task_query_for_role(db, role)
+            for task in _task_query_for_role(db, role, current_user)
         ]
     if route_key in {"vendor", "sla"}:
         vendors = db.execute(select(Vendor).order_by(Vendor.vendor_name).limit(150)).scalars().all()
@@ -595,6 +711,12 @@ def _load_entity(db: Session, route_key: str, record_id: str) -> tuple[Any | Non
         return db.get(EscalationEvent, int(record_id)), "EscalationEvent", record_id
     if route_key == "notification" and record_id.isdigit():
         return db.get(Notification, int(record_id)), "Notification", record_id
+    if route_key == "supplier-documents" and record_id.isdigit():
+        return db.get(SecureDocument, int(record_id)), "SecureDocument", record_id
+    if route_key == "supplier-approvals" and record_id.isdigit():
+        return db.get(SignatureEvent, int(record_id)), "SignatureEvent", record_id
+    if route_key == "admin/suppliers" and record_id.isdigit():
+        return db.get(Organization, int(record_id)), "Organization", record_id
     return None, None, None
 
 
@@ -620,6 +742,9 @@ def _entity_payload(entity: Any, entity_type: str) -> dict[str, Any]:
         "AIRiskRule": ["rule_id", "rule_name", "risk_category", "condition_type", "condition_operator", "condition_value", "risk_score_delta", "severity", "auto_escalate", "is_active", "created_by", "approved_by", "created_at"],
         "EscalationEvent": ["escalation_id", "related_task_id", "escalation_type", "trigger_reason", "created_at", "resolved_at", "status"],
         "Notification": ["notification_id", "title", "message", "notification_type", "priority", "workflow_task_id", "related_record_type", "related_record_id", "action_route", "workflow_context", "is_read", "created_at"],
+        "SecureDocument": ["document_id", "record_type", "record_id", "document_name", "document_type", "access_classification", "created_at", "organization_id"],
+        "SignatureEvent": ["signature_id", "user_id", "organization_id", "record_type", "record_id", "signature_type", "reason", "meaning", "signed_at", "prior_state", "new_state"],
+        "Organization": ["organization_id", "organization_name", "organization_type", "approval_status", "contact_email", "mfa_required", "is_active", "created_at"],
     }
     return _model_dict(entity, field_map[entity_type])
 
@@ -652,6 +777,12 @@ def _workflow_target(entity: Any, entity_type: str) -> tuple[str | None, str | N
         return "EscalationEvent", str(entity.escalation_id), None, "Operations Escalation"
     if entity_type == "Notification":
         return entity.related_record_type, entity.related_record_id, entity.workflow_task_id, None
+    if entity_type == "SecureDocument":
+        return entity.record_type, entity.record_id, None, "Document Submitted"
+    if entity_type == "SignatureEvent":
+        return entity.record_type, entity.record_id, None, entity.new_state or "Signed"
+    if entity_type == "Organization":
+        return "Organization", str(entity.organization_id), None, entity.approval_status
     return None, None, None, None
 
 
@@ -918,6 +1049,7 @@ def _role_lens(db: Session, role: Role, route_key: str, workflow_state: str | No
         "Operations Manager": "Cross-functional backlog, staffing load, SLA exposure, and escalation resolution.",
         "Business Technology Analyst": "AI governance, workflow intelligence, explainability, and optimization.",
         "System Administrator": "Platform governance, configuration, permissions, and system health.",
+        "Supplier External User": "Scoped collaboration, document exchange, response tasks, and attributable approvals.",
     }
     return {
         "role": role.role_name,
@@ -929,8 +1061,8 @@ def _role_lens(db: Session, role: Role, route_key: str, workflow_state: str | No
     }
 
 
-def _analytics_context(db: Session, route_key: str, role: Role) -> dict[str, Any]:
-    tasks = _task_query_for_role(db, role)
+def _analytics_context(db: Session, route_key: str, role: Role, current_user: User) -> dict[str, Any]:
+    tasks = _task_query_for_role(db, role, current_user)
     task_rows = [
         {
             "queue": task.queue_name,
@@ -942,6 +1074,17 @@ def _analytics_context(db: Session, route_key: str, role: Role) -> dict[str, Any
         }
         for task in tasks
     ]
+    if is_external_user(current_user):
+        return {
+            "task_heatmap": task_rows,
+            "workflow_sankey": [
+                {"source": task.task_type, "target": task.workflow_state, "value": 1}
+                for task in tasks[:120]
+            ],
+            "supplier_queue": [{"status": task.status, "priority": task.priority, "volume": 1} for task in tasks],
+            "route_key": route_key,
+        }
+
     state_counts = db.execute(
         select(DonorReview.intake_status, func.count(DonorReview.review_id))
         .group_by(DonorReview.intake_status)
@@ -1002,6 +1145,10 @@ def resolve_route_context(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Functional route record not found")
         if entity_type == "Notification" and entity.user_id != current_user.user_id and "system.admin" not in permissions:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+        if entity_type == "User":
+            ensure_external_self_or_org(current_user, entity)
+        else:
+            ensure_org_access(current_user, entity, not_found_detail="Functional route record not found")
         entity_payload = _entity_payload(entity, entity_type)
         record_type, workflow_record_id, task_id, workflow_state = _workflow_target(entity, entity_type)
         if entity_type == "WorkflowTask":
@@ -1056,7 +1203,7 @@ def resolve_route_context(
         "related_records": _related_records(db, entity, entity_type) if entity and entity_type else {},
         "role_lens": _role_lens(db, role, route_key, workflow_state),
         "breadcrumbs": breadcrumbs,
-        "analytics": _analytics_context(db, route_key, role),
+        "analytics": _analytics_context(db, route_key, role, current_user),
         "navigation": nav,
         "page_key": page_key_for_route(route_key, role.role_name),
     }
@@ -1070,12 +1217,16 @@ def page_key_for_route(route_key: str, role_name: str) -> str:
         "sla": "vendor_dashboard",
         "workflow-intelligence": "workflow_intelligence",
         "drift-analysis": "operational_trends",
+        "supplier": "supplier_portal",
+        "supplier-documents": "supplier_documents",
+        "supplier-approvals": "supplier_approvals",
         "admin/users": "admin_users",
         "admin/roles": "admin_roles",
         "admin/workflow-engine": "workflow_configuration",
         "admin/workspaces": "workspace_configuration",
         "admin/permissions": "admin_roles",
         "admin/audit-logs": "audit_administration",
+        "admin/suppliers": "supplier_admin",
         "admin/responsibility-center": "responsibility_center",
         "admin/system-health": "system_health",
     }
@@ -1208,9 +1359,41 @@ def enterprise_search(db: Session, *, current_user: User, query: str, preview_ro
         ).scalars().all()
         results.extend(_search_result(user.full_name, f"{user.username} | {user.role}", f"/user/{user.user_id}", "User") for user in users)
     if _has_any(permissions, ["tasks.read", "tasks.manage"]):
-        tasks = db.execute(select(WorkflowTask).where(WorkflowTask.title.ilike(like)).limit(8)).scalars().all()
+        task_query = select(WorkflowTask).where(WorkflowTask.title.ilike(like)).limit(8)
+        task_query = apply_org_scope(task_query, WorkflowTask, current_user)
+        if is_external_user(current_user):
+            task_query = task_query.where(
+                or_(
+                    WorkflowTask.assigned_to_user_id == current_user.user_id,
+                    WorkflowTask.assigned_role_id == current_user.role_id,
+                )
+            )
+        tasks = db.execute(task_query).scalars().all()
         results.extend(
             _search_result(task.title, f"{task.workflow_state} | {task.queue_name}", f"/task/{task.task_id}", "Task")
             for task in tasks
+        )
+    if _has_any(permissions, ["supplier.portal", "suppliers.read"]):
+        document_query = (
+            select(SecureDocument)
+            .where(
+                or_(
+                    SecureDocument.document_name.ilike(like),
+                    SecureDocument.record_id.ilike(like),
+                    SecureDocument.document_type.ilike(like),
+                )
+            )
+            .limit(8)
+        )
+        document_query = apply_org_scope(document_query, SecureDocument, current_user)
+        documents = db.execute(document_query).scalars().all()
+        results.extend(
+            _search_result(
+                document.document_name,
+                f"{document.document_type} | {document.record_type} {document.record_id}",
+                f"/supplier-documents/{document.document_id}",
+                "Document",
+            )
+            for document in documents
         )
     return results[:25]

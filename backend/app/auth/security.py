@@ -56,7 +56,7 @@ def validate_password_policy(
 def create_token(
     *,
     subject: str,
-    token_type: Literal["access", "refresh", "mfa", "password_reset", "document"],
+    token_type: Literal["access", "refresh", "mfa", "password_reset", "document", "invitation"],
     expires_delta: timedelta,
     role: str | None = None,
     permissions: list[str] | None = None,
@@ -118,6 +118,15 @@ def create_password_reset_token(subject: str, reset_id: int) -> str:
         token_type="password_reset",
         expires_delta=timedelta(minutes=30),
         extra_claims={"reset_id": reset_id},
+    )
+
+
+def create_invitation_token(email: str, invitation_id: int) -> str:
+    return create_token(
+        subject=email,
+        token_type="invitation",
+        expires_delta=timedelta(days=7),
+        extra_claims={"invitation_id": invitation_id},
     )
 
 

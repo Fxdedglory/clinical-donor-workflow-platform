@@ -9,6 +9,7 @@ clinical-donor-workflow-platform/
 |   |   |   |-- documents.py
 |   |   |   |-- eligibility.py
 |   |   |   |-- functional_routes.py
+|   |   |   |-- suppliers.py
 |   |   |   |-- workspaces.py
 |   |   |   |-- workflow_tasks.py
 |   |   |   |-- auth.py
@@ -23,6 +24,7 @@ clinical-donor-workflow-platform/
 |   |   |   |-- functional_routes.py
 |   |   |   |-- security_audit.py
 |   |   |   |-- system_health.py
+|   |   |   |-- tenant_access.py
 |   |   |   |-- workflow_orchestration.py
 |   |   |   |-- workspace_config.py
 |   |   |   |-- workspace_engine.py
@@ -36,6 +38,7 @@ clinical-donor-workflow-platform/
 |   |-- views/
 |   |   |-- functional_routes.py
 |   |   |-- role_workspace.py
+|   |   |-- supplier_portal.py
 |   |   |-- system_health.py
 |   |   |-- admin_portal.py
 |   |   `-- ...
@@ -45,6 +48,7 @@ clinical-donor-workflow-platform/
 |   |-- migrations/
 |   |   |-- versions/
 |   |   |   |-- 202605210001_production_external_identity.py
+|   |   |   |-- 202605210002_supplier_portal_multi_tenant.py
 |   |   |   |-- 202605200003_security_compliance_hardening.py
 |   |   |   |-- 202605200002_donor_eligibility_qms.py
 |   |   |   |-- 202605200001_workflow_orchestration.py
