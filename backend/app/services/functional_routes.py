@@ -978,6 +978,13 @@ def resolve_route_context(
     permissions = _role_permissions(db, role)
     route_path = normalize_route(route, role_name=role.role_name, groups=nav["groups"])
     route_key, record_id = _route_parts(route_path)
+    visible_route_keys = {
+        _route_parts(item["route_path"])[0]
+        for group in nav["groups"]
+        for item in group["items"]
+    }
+    if route_key not in visible_route_keys:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Route is not available for this role")
     route_group = _route_group(route_key)
     label = _route_label(route_key)
 

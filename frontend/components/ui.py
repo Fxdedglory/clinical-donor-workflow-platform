@@ -214,6 +214,44 @@ def apply_theme(compact_sidebar: bool = False) -> None:
             padding: 10px 12px;
             margin-bottom: 12px;
             box-shadow: 0 1px 2px rgba(36,49,65,0.04);
+            position: relative;
+            z-index: 20;
+            overflow: visible;
+        }
+
+        div[data-testid="stHorizontalBlock"] {
+            overflow: visible;
+        }
+
+        .app-topbar div[data-testid="stVerticalBlock"],
+        .app-topbar div[data-testid="column"] {
+            overflow: visible;
+            align-items: stretch;
+        }
+
+        div.stButton > button,
+        div[data-testid="stPopover"] > button,
+        div[data-testid="stFormSubmitButton"] > button {
+            min-height: 42px;
+            height: 42px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding-top: 0;
+            padding-bottom: 0;
+            position: relative;
+            z-index: 30;
+        }
+
+        div[data-testid="stTextInput"] input {
+            min-height: 42px;
+            line-height: 42px;
+        }
+
+        div[data-testid="stPopover"] {
+            position: relative;
+            z-index: 40;
         }
 
         .system-notice {

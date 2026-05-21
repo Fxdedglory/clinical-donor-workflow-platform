@@ -4,7 +4,18 @@ from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
-from components.api import get_json, login, logout, patch_json, post_json
+from components.api import (
+    get_json,
+    login,
+    logout,
+    patch_json,
+    persist_auth_cookies,
+    persist_sidebar_state,
+    post_json,
+    restore_session_from_cookies,
+    restored_sidebar_compact,
+    verify_mfa,
+)
 from components.ui import (
     apply_theme,
     dataframe,
@@ -22,7 +33,7 @@ st.set_page_config(
 )
 
 if "sidebar_compact" not in st.session_state:
-    st.session_state.sidebar_compact = False
+    st.session_state.sidebar_compact = restored_sidebar_compact()
 if "pinned_records" not in st.session_state:
     st.session_state.pinned_records = []
 if "recently_viewed" not in st.session_state:
@@ -36,6 +47,7 @@ if "profile_preferences" not in st.session_state:
     }
 
 apply_theme(compact_sidebar=st.session_state.sidebar_compact)
+persist_sidebar_state()
 
 
 ADMIN_PAGE_RENDERERS = {
@@ -118,13 +130,30 @@ def render_login() -> None:
         st.caption(
             "Donor eligibility, recovery suitability, processing release, and QMS workflow operations"
         )
-        with st.form("login_form", border=True):
-            username = st.text_input("Username", value="sysadmin")
-            password = st.text_input("Password", value="ClinicalDemo!2026", type="password")
-            submitted = st.form_submit_button("Sign In", width="stretch")
-        if submitted and login(username, password):
-            set_route("/")
-            st.rerun()
+        pending_mfa = st.session_state.get("pending_mfa")
+        if pending_mfa:
+            st.info(f"MFA verification required for {st.session_state.get('pending_mfa_username', 'this user')}.")
+            with st.form("mfa_form", border=True):
+                code = st.text_input("Verification code", value="000000", type="password")
+                verified = st.form_submit_button("Verify & Sign In", width="stretch")
+            if verified and verify_mfa(code):
+                set_route("/")
+                st.rerun()
+            if st.button("Use different account", width="stretch"):
+                st.session_state.pop("pending_mfa", None)
+                st.session_state.pop("pending_mfa_username", None)
+                st.rerun()
+        else:
+            with st.form("login_form", border=True):
+                username = st.text_input("Username", value="sysadmin")
+                password = st.text_input("Password", value="ClinicalDemo!2026", type="password")
+                submitted = st.form_submit_button("Sign In", width="stretch")
+            if submitted:
+                if login(username, password):
+                    set_route("/")
+                    st.rerun()
+                if st.session_state.get("pending_mfa"):
+                    st.rerun()
 
         with st.expander("Demo Accounts", expanded=True):
             st.write("Default password: `ClinicalDemo!2026`")
@@ -249,9 +278,26 @@ def _render_system_notice() -> None:
     )
 
 
-def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:
+def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:  # noqa: F811
     left, search, quick, notices, profile = st.columns([0.06, 0.47, 0.10, 0.14, 0.23])
     if left.button("☰", key="toggle_sidebar", width="stretch"):
+        st.session_state.sidebar_compact = not st.session_state.sidebar_compact
+        st.rerun()
+    with search:
+        _render_global_search(preview_role_id)
+    with quick:
+        _render_quick_actions(workspace.get("active_role"))
+    with notices:
+        render_notification_bell(workspace)
+    with profile:
+        _render_user_menu(user)
+    _render_system_notice()
+    _render_search_results(preview_role_id)
+
+
+def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:  # noqa: F811
+    left, search, quick, notices, profile = st.columns([0.06, 0.47, 0.10, 0.14, 0.23])
+    if left.button("Menu", key="toggle_sidebar_v2", width="stretch"):
         st.session_state.sidebar_compact = not st.session_state.sidebar_compact
         st.rerun()
     with search:
@@ -287,7 +333,7 @@ def _nav_item(label: str, route_path: str, icon: str, current_route: str, key_pr
     )
 
 
-def render_operational_navigation(navigation: dict) -> None:
+def render_operational_navigation(navigation: dict) -> None:  # noqa: F811
     routes = _all_available_routes(navigation)
     current_route = _current_route(navigation)
     admin_only = navigation.get("active_role") == "System Administrator"
@@ -347,6 +393,68 @@ def render_operational_navigation(navigation: dict) -> None:
             st.markdown("**Administration**")
         for label, path, icon in admin_items:
             _nav_item(label, path, icon, current_route, "admin")
+
+
+def render_operational_navigation(navigation: dict) -> None:  # noqa: F811
+    routes = _all_available_routes(navigation)
+    current_route = _current_route(navigation)
+    admin_only = navigation.get("active_role") == "System Administrator"
+
+    work_items: list[tuple[str, str, str]] = []
+    for label, options, icon in [
+        ("Assigned Tasks", ["/task"], "T"),
+        ("Pending Reviews", ["/medical-review", "/qa-review", "/referral", "/screening"], "R"),
+        ("Escalations", ["/escalation"], "!"),
+        ("SLA Risks", ["/sla", "/incident"], "SLA"),
+        ("Recent Notifications", ["/notification"], "N"),
+        ("Dashboard", ["/dashboard"], "D"),
+    ]:
+        path = _preferred_route(routes, options)
+        if path:
+            work_items.append((label, path, icon))
+
+    record_items: list[tuple[str, str, str]] = []
+    for label, path, icon in [
+        ("Donors", "/donor", "D"),
+        ("Reviews", "/medical-review", "R"),
+        ("Processing Release", "/processing-release", "PR"),
+        ("CAPAs", "/capa", "C"),
+        ("Investigations", "/investigation", "I"),
+        ("Notifications", "/notification", "N"),
+    ]:
+        if path in routes:
+            record_items.append((label, path, icon))
+
+    admin_items: list[tuple[str, str, str]] = []
+    for label, path, icon in [
+        ("Users", "/admin/users", "U"),
+        ("Roles", "/admin/roles", "R"),
+        ("Workflow Configuration", "/admin/workflow-engine", "W"),
+        ("System Health", "/admin/system-health", "H"),
+        ("Eligibility Rules", "/eligibility-rule", "ER"),
+        ("Audit Logs", "/admin/audit-logs", "A"),
+    ]:
+        if path in routes:
+            admin_items.append((label, path, icon))
+
+    if not admin_only:
+        st.markdown("**My Work**")
+        for label, path, icon in work_items:
+            _nav_item(label, path, icon, current_route, "work_v2")
+
+        st.divider()
+        if not st.session_state.sidebar_compact:
+            st.markdown("**Operations**")
+        for label, path, icon in record_items:
+            _nav_item(label, path, icon, current_route, "records_v2")
+
+    if admin_items:
+        if not admin_only:
+            st.divider()
+        if not st.session_state.sidebar_compact:
+            st.markdown("**Administration**")
+        for label, path, icon in admin_items:
+            _nav_item(label, path, icon, current_route, "admin_v2")
 
 
 def _record_title(context: dict) -> str:
@@ -557,10 +665,14 @@ def render_todays_operations(workspace: dict, context: dict) -> None:
 
 
 if "user" not in st.session_state:
+    restore_session_from_cookies()
+
+if "user" not in st.session_state:
     render_login()
     st.stop()
 
 user = st.session_state.user
+persist_auth_cookies()
 permissions = set(user.get("permissions", []))
 preview_role_id = None
 

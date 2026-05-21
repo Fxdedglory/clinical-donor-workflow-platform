@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_permission
 from app.database import get_db
-from app.models import ChangeControl
+from app.models import ChangeControl, User
 from app.schemas import ChangeControlCreate, ChangeControlRead, ChangeControlUpdate
 from app.services.audit import log_audit, serialize_model
 from app.services.workflows import create_task
@@ -30,6 +31,7 @@ AUDIT_FIELDS = [
 def list_change_requests(
     approval_status: str | None = None,
     limit: int = Query(default=100, le=500),
+    _: User = Depends(require_permission("qms.manage")),
     db: Session = Depends(get_db),
 ) -> list[ChangeControl]:
     query = select(ChangeControl)
@@ -41,7 +43,9 @@ def list_change_requests(
 
 @router.post("", response_model=ChangeControlRead, status_code=status.HTTP_201_CREATED)
 def create_change_request(
-    payload: ChangeControlCreate, db: Session = Depends(get_db)
+    payload: ChangeControlCreate,
+    current_user: User = Depends(require_permission("qms.manage")),
+    db: Session = Depends(get_db),
 ) -> ChangeControl:
     request = ChangeControl(**payload.model_dump())
     db.add(request)
@@ -61,7 +65,7 @@ def create_change_request(
     )
     log_audit(
         db,
-        user_id=request.requested_by_id,
+        user_id=current_user.user_id,
         action_type="CREATE_CHANGE_REQUEST",
         table_name="fact_change_control",
         record_id=str(request.change_id),
@@ -75,7 +79,10 @@ def create_change_request(
 
 @router.patch("/{change_id}", response_model=ChangeControlRead)
 def update_change_request(
-    change_id: int, payload: ChangeControlUpdate, db: Session = Depends(get_db)
+    change_id: int,
+    payload: ChangeControlUpdate,
+    current_user: User = Depends(require_permission("qms.manage")),
+    db: Session = Depends(get_db),
 ) -> ChangeControl:
     request = db.get(ChangeControl, change_id)
     if not request:
@@ -92,7 +99,7 @@ def update_change_request(
     db.flush()
     log_audit(
         db,
-        user_id=request.requested_by_id,
+        user_id=current_user.user_id,
         action_type="UPDATE_CHANGE_REQUEST",
         table_name="fact_change_control",
         record_id=str(request.change_id),

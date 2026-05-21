@@ -6,6 +6,7 @@ clinical-donor-workflow-platform/
 |   |   |-- models/
 |   |   |-- routes/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- documents.py
 |   |   |   |-- eligibility.py
 |   |   |   |-- functional_routes.py
 |   |   |   |-- workspaces.py
@@ -15,8 +16,11 @@ clinical-donor-workflow-platform/
 |   |   |-- schemas/
 |   |   |-- services/
 |   |   |   |-- ai_governance.py
+|   |   |   |-- document_security.py
 |   |   |   |-- eligibility_engine.py
+|   |   |   |-- encryption.py
 |   |   |   |-- functional_routes.py
+|   |   |   |-- security_audit.py
 |   |   |   |-- workflow_orchestration.py
 |   |   |   |-- workspace_config.py
 |   |   |   |-- workspace_engine.py
@@ -37,12 +41,14 @@ clinical-donor-workflow-platform/
 |   |-- ddl/
 |   |-- migrations/
 |   |   |-- versions/
+|   |   |   |-- 202605200003_security_compliance_hardening.py
 |   |   |   |-- 202605200002_donor_eligibility_qms.py
 |   |   |   |-- 202605200001_workflow_orchestration.py
 |   |   |   |-- 202605190004_ai_governance.py
 |   |   |   `-- ...
 |   `-- seeds/
 |-- docker/
+|   `-- nginx.conf
 |-- docs/
 |   |-- architecture.md
 |   |-- data-contract.md
@@ -60,6 +66,7 @@ clinical-donor-workflow-platform/
 |-- .env.example
 |-- alembic.ini
 |-- docker-compose.yml
+|-- docker-compose.prod.yml
 |-- pyproject.toml
 |-- README.md
 |-- requirements.txt

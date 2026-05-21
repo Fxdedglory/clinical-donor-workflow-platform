@@ -1,10 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_permission
 from app.database import get_db
 from app.models import DonorReview, User
 from app.schemas import DonorDecision, DonorReviewCreate, DonorReviewRead, DonorReviewUpdate
@@ -13,6 +13,8 @@ from app.services.ai_governance import (
     record_ai_decision,
 )
 from app.services.audit import log_audit, serialize_model
+from app.services.encryption import protect_donor_review
+from app.services.security_audit import log_security_event, request_ip
 from app.services.workflow_orchestration import execute_workflow_transition
 from app.services.workflows import create_task
 
@@ -68,10 +70,12 @@ def apply_risk_analysis(db: Session, donor: DonorReview) -> None:
 
 @router.get("", response_model=list[DonorReviewRead])
 def list_donors(
+    request: Request,
     intake_status: str | None = Query(default=None),
     risk_level: str | None = Query(default=None),
     limit: int = Query(default=100, le=500),
     offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(require_permission("donors.read")),
     db: Session = Depends(get_db),
 ) -> list[DonorReview]:
     query = select(DonorReview)
@@ -80,25 +84,53 @@ def list_donors(
     if risk_level:
         query = query.where(DonorReview.risk_level == risk_level)
     query = query.order_by(desc(DonorReview.risk_score), DonorReview.created_at).limit(limit).offset(offset)
-    return list(db.execute(query).scalars().all())
+    donors = list(db.execute(query).scalars().all())
+    log_security_event(
+        db,
+        event_type="DONOR_LIST_ACCESS",
+        user_id=current_user.user_id,
+        request=request,
+        details={"limit": limit, "offset": offset, "intake_status": intake_status, "risk_level": risk_level},
+    )
+    db.commit()
+    return donors
 
 
 @router.get("/{review_id}", response_model=DonorReviewRead)
-def get_donor(review_id: int, db: Session = Depends(get_db)) -> DonorReview:
+def get_donor(
+    review_id: int,
+    request: Request,
+    current_user: User = Depends(require_permission("donors.read")),
+    db: Session = Depends(get_db),
+) -> DonorReview:
     donor = db.get(DonorReview, review_id)
     if not donor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Donor review not found")
+    log_security_event(
+        db,
+        event_type="SENSITIVE_RECORD_ACCESS",
+        user_id=current_user.user_id,
+        request=request,
+        details={"record_type": "DonorReview", "record_id": review_id},
+    )
+    db.commit()
     return donor
 
 
 @router.post("", response_model=DonorReviewRead, status_code=status.HTTP_201_CREATED)
-def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> DonorReview:
+def create_donor(
+    payload: DonorReviewCreate,
+    request: Request,
+    current_user: User = Depends(require_permission("donors.create")),
+    db: Session = Depends(get_db),
+) -> DonorReview:
     donor = DonorReview(**payload.model_dump())
     donor.intake_status = "Draft Intake"
     apply_risk_analysis(db, donor)
+    protect_donor_review(donor)
     db.add(donor)
     db.flush()
-    record_ai_decision(db, donor, workflow_stage="Draft Intake", reviewed_by=payload.reviewer_id)
+    record_ai_decision(db, donor, workflow_stage="Draft Intake", reviewed_by=current_user.user_id)
     create_task(
         db,
         task_type="Intake Packet Validation",
@@ -107,7 +139,7 @@ def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> D
         related_record_id=str(donor.review_id),
         related_record_type="DonorReview",
         assigned_role_name="Donor Intake Coordinator",
-        assigned_to_user_id=payload.reviewer_id,
+        assigned_to_user_id=payload.reviewer_id or current_user.user_id,
         priority=donor.review_priority,
         workflow_state="Draft Intake",
         queue_name="My Intake Workbench",
@@ -115,12 +147,20 @@ def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> D
     )
     log_audit(
         db,
-        user_id=payload.reviewer_id,
+        user_id=current_user.user_id,
         action_type="CREATE_DONOR_INTAKE",
         table_name="fact_donor_review",
         record_id=str(donor.review_id),
         old_value=None,
         new_value=serialize_model(donor, AUDIT_FIELDS),
+        ip_address=request_ip(request),
+    )
+    log_security_event(
+        db,
+        event_type="DONOR_CREATE",
+        user_id=current_user.user_id,
+        request=request,
+        details={"record_id": donor.review_id, "donor_id": donor.donor_id},
     )
     db.commit()
     db.refresh(donor)
@@ -129,7 +169,11 @@ def create_donor(payload: DonorReviewCreate, db: Session = Depends(get_db)) -> D
 
 @router.patch("/{review_id}", response_model=DonorReviewRead)
 def update_donor(
-    review_id: int, payload: DonorReviewUpdate, db: Session = Depends(get_db)
+    review_id: int,
+    payload: DonorReviewUpdate,
+    request: Request,
+    current_user: User = Depends(require_permission("donors.review")),
+    db: Session = Depends(get_db),
 ) -> DonorReview:
     donor = db.get(DonorReview, review_id)
     if not donor:
@@ -139,11 +183,12 @@ def update_donor(
     updates = payload.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(donor, field, value)
+    protect_donor_review(donor)
 
     if RISK_FIELDS.intersection(updates):
         apply_risk_analysis(db, donor)
         db.flush()
-        record_ai_decision(db, donor, workflow_stage=donor.intake_status, reviewed_by=donor.reviewer_id)
+        record_ai_decision(db, donor, workflow_stage=donor.intake_status, reviewed_by=current_user.user_id)
 
     if updates.get("intake_status") in {"Approved", "Rejected", "Deferred"}:
         donor.reviewed_at = datetime.now(UTC)
@@ -151,12 +196,20 @@ def update_donor(
     db.flush()
     log_audit(
         db,
-        user_id=donor.reviewer_id,
+        user_id=current_user.user_id,
         action_type="UPDATE_DONOR_REVIEW",
         table_name="fact_donor_review",
         record_id=str(donor.review_id),
         old_value=old_value,
         new_value=serialize_model(donor, AUDIT_FIELDS),
+        ip_address=request_ip(request),
+    )
+    log_security_event(
+        db,
+        event_type="DONOR_UPDATE",
+        user_id=current_user.user_id,
+        request=request,
+        details={"record_id": donor.review_id, "fields": sorted(updates.keys())},
     )
     db.commit()
     db.refresh(donor)
@@ -167,7 +220,8 @@ def update_donor(
 def record_decision(
     review_id: int,
     payload: DonorDecision,
-    current_user: User = Depends(get_current_user),
+    request: Request,
+    current_user: User = Depends(require_permission("donors.review")),
     db: Session = Depends(get_db),
 ) -> DonorReview:
     donor = db.get(DonorReview, review_id)
@@ -200,6 +254,18 @@ def record_decision(
             "override_reason": payload.ai_override_reason,
         },
     )
+    log_security_event(
+        db,
+        event_type="DONOR_DECISION",
+        user_id=current_user.user_id,
+        request=request,
+        details={
+            "record_id": review_id,
+            "decision": payload.intake_status,
+            "ai_override": payload.ai_override,
+        },
+    )
+    db.commit()
     refreshed = db.get(DonorReview, review_id)
     if not refreshed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Donor review not found")

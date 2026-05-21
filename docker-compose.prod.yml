@@ -1,0 +1,83 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - clinical_donor_pgdata:/var/lib/postgresql/data
+      - clinical_donor_backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: prod
+      COOKIE_SECURE: "true"
+      PYTHONPATH: /app/backend
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.cli seed --records $${SEED_RECORDS:-1200} &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      API_URL: https://teemails.com
+    depends_on:
+      - backend
+
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - frontend
+      - backend
+
+  backup:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - clinical_donor_backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: >
+      sh -c 'while true; do
+      PGPASSWORD="$$POSTGRES_PASSWORD" pg_dump -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" |
+      gzip > /backups/clinical_donor_$$(date +%Y%m%d_%H%M%S).sql.gz;
+      find /backups -type f -mtime +14 -delete;
+      sleep 86400;
+      done'
+
+volumes:
+  clinical_donor_pgdata:
+  clinical_donor_backups:
+  letsencrypt:
+  certbot_www:

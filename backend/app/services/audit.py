@@ -3,6 +3,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog
+from app.services.encryption import mask_sensitive_payload
 
 
 def _public_value(value: Any) -> Any:
@@ -12,7 +13,7 @@ def _public_value(value: Any) -> Any:
 
 
 def serialize_model(model: Any, fields: list[str]) -> dict[str, Any]:
-    return {field: _public_value(getattr(model, field)) for field in fields}
+    return mask_sensitive_payload({field: _public_value(getattr(model, field)) for field in fields})
 
 
 def log_audit(
@@ -35,8 +36,8 @@ def log_audit(
         record_id=record_id,
         entity_type=entity_type or table_name,
         entity_id=entity_id or record_id,
-        old_value=old_value,
-        new_value=new_value,
+        old_value=mask_sensitive_payload(old_value),
+        new_value=mask_sensitive_payload(new_value),
         ip_address=ip_address,
     )
     db.add(entry)

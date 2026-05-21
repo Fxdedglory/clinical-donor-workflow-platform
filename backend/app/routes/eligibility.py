@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_permission
 from app.database import get_db
 from app.models import Donor, User
 from app.services.eligibility_engine import (
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/eligibility", tags=["Donor Eligibility Decision 
 
 @router.get("/analytics")
 def analytics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("eligibility.read")),
     db: Session = Depends(get_db),
 ) -> dict:
     return eligibility_analytics(db)
@@ -24,7 +24,7 @@ def analytics(
 @router.get("/donors/{donor_pk}/bundle")
 def donor_bundle(
     donor_pk: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("eligibility.read")),
     db: Session = Depends(get_db),
 ) -> dict:
     donor = db.get(Donor, donor_pk)
@@ -37,7 +37,7 @@ def donor_bundle(
 def evaluate_donor(
     donor_pk: int,
     category: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("eligibility.review")),
     db: Session = Depends(get_db),
 ) -> dict:
     donor = db.get(Donor, donor_pk)

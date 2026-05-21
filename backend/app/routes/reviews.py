@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_permission
 from app.database import get_db
-from app.models import DonorReview
+from app.models import DonorReview, User
 from app.schemas import DonorReviewRead
 
 router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
@@ -26,6 +27,7 @@ ACTIVE_DONOR_STATES = [
 def list_reviews(
     queue: str = Query(default="active", pattern="^(active|closed|all)$"),
     limit: int = Query(default=100, le=500),
+    _: User = Depends(require_permission("donors.read")),
     db: Session = Depends(get_db),
 ) -> list[DonorReview]:
     query = select(DonorReview)

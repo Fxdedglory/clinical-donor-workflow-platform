@@ -28,6 +28,12 @@ class UserUpdate(BaseModel):
     role_id: int | None = None
     department: str | None = None
     is_active: bool | None = None
+    user_type: str | None = None
+    organization_id: int | None = None
+    external_user_flag: bool | None = None
+    approval_status: str | None = None
+    identity_provider: str | None = None
+    mfa_enabled: bool | None = None
 
 
 class UserRead(BaseModel):
@@ -41,6 +47,12 @@ class UserRead(BaseModel):
     role: str
     department: str
     is_active: bool
+    user_type: str = "Internal"
+    organization_id: int | None = None
+    external_user_flag: bool = False
+    approval_status: str = "Approved"
+    identity_provider: str = "Local"
+    mfa_enabled: bool = False
     last_login: datetime | None
     created_at: datetime
 

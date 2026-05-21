@@ -17,6 +17,12 @@ ROLE_DEFINITIONS = {
             "tasks.manage",
             "notifications.manage",
             "training.manage",
+            "vendors.read",
+            "security.audit",
+            "sessions.manage",
+            "mfa.manage",
+            "documents.read",
+            "documents.manage",
         ],
         "job_description": "Enterprise platform owner for regulated healthcare operations and administrative controls.",
         "responsibilities": [
@@ -38,6 +44,7 @@ ROLE_DEFINITIONS = {
             "tasks.update",
             "notifications.read",
             "dashboard.view",
+            "documents.read",
         ],
         "job_description": "Coordinates donor referral readiness and routes complete packets to eligibility reviewers.",
         "responsibilities": [
@@ -60,6 +67,7 @@ ROLE_DEFINITIONS = {
             "tasks.update",
             "notifications.read",
             "dashboard.view",
+            "documents.read",
         ],
         "job_description": "Clinical decision owner for donor eligibility review and exception documentation.",
         "responsibilities": [
@@ -83,6 +91,8 @@ ROLE_DEFINITIONS = {
             "tasks.update",
             "notifications.read",
             "dashboard.view",
+            "documents.read",
+            "documents.manage",
         ],
         "job_description": "Quality systems owner for compliance review, deviations, CAPA, and SOP training follow-up.",
         "responsibilities": [
@@ -96,7 +106,15 @@ ROLE_DEFINITIONS = {
     },
     "Vendor Operations Analyst": {
         "description": "Monitors vendor systems, manages SLA incidents, and coordinates escalation response.",
-        "permissions": ["vendors.manage", "tasks.read", "tasks.update", "notifications.read", "dashboard.view"],
+        "permissions": [
+            "vendors.manage",
+            "vendors.read",
+            "tasks.read",
+            "tasks.update",
+            "notifications.read",
+            "dashboard.view",
+            "documents.read",
+        ],
         "job_description": "Operational owner for vendor-supported healthcare systems and SLA incident response.",
         "responsibilities": [
             "Monitor vendor uptime and incidents",
@@ -120,6 +138,7 @@ ROLE_DEFINITIONS = {
             "vendors.read",
             "eligibility.read",
             "release.manage",
+            "documents.read",
         ],
         "job_description": "Cross-functional operations leader for workload, bottleneck, and escalation management.",
         "responsibilities": [
@@ -142,6 +161,7 @@ ROLE_DEFINITIONS = {
             "workflow.analytics",
             "audit.review",
             "notifications.read",
+            "security.audit",
         ],
         "job_description": "Enterprise workflow intelligence owner for governed AI-assisted clinical operations.",
         "responsibilities": [

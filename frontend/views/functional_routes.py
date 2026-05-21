@@ -80,6 +80,11 @@ def _action_dialog(action: dict[str, Any]) -> None:
             metadata["escalation_reason"] = st.text_area("Escalation reason", height=100)
             metadata["severity_acknowledged"] = st.checkbox("SLA/quality impact acknowledged")
 
+        if any(token in action_name for token in ["approve", "reject", "release", "override"]):
+            metadata["electronic_signature_reason"] = st.text_input("Approval reason")
+            metadata["reviewer_signature"] = st.text_input("Electronic signature", key=f"sig_{action_name}")
+            metadata["signature_statement"] = "I certify this action is attributable to my authenticated session."
+
         cols = st.columns([1, 1])
         if cols[0].button("Complete Action", key=f"confirm_{action_name}"):
             result = post_json(

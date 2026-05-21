@@ -3,15 +3,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_permission
-from app.auth.security import get_password_hash
+from app.auth.security import get_password_hash, validate_password_policy
 from app.database import get_db
 from app.models import Role, RoleResponsibility, User
 from app.schemas import RoleRead, RoleResponsibilityRead, UserCreate, UserRead, UserUpdate
 from app.services.audit import log_audit, serialize_model
+from app.services.security_audit import log_security_event
 
 router = APIRouter(prefix="/api/admin", tags=["System Administration"])
 
-USER_FIELDS = ["username", "full_name", "email", "role_id", "role", "department", "is_active"]
+USER_FIELDS = [
+    "username",
+    "full_name",
+    "email",
+    "role_id",
+    "role",
+    "department",
+    "is_active",
+    "user_type",
+    "organization_id",
+    "external_user_flag",
+    "approval_status",
+    "identity_provider",
+    "mfa_enabled",
+]
 
 
 @router.get("/roles", response_model=list[RoleRead])
@@ -64,6 +79,9 @@ def create_user(
     existing = db.execute(select(User).where(User.username == payload.username)).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+    password_issues = validate_password_policy(payload.password, username=payload.username, email=payload.email)
+    if password_issues:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=password_issues)
 
     user = User(
         username=payload.username,
@@ -86,6 +104,12 @@ def create_user(
         old_value=None,
         new_value=serialize_model(user, USER_FIELDS),
     )
+    log_security_event(
+        db,
+        event_type="USER_CREATED",
+        user_id=current_user.user_id,
+        details={"target_user_id": user.user_id, "role": user.role},
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -104,7 +128,12 @@ def update_user(
     old_value = serialize_model(user, USER_FIELDS)
     updates = payload.model_dump(exclude_unset=True)
     if "password" in updates:
-        user.hashed_password = get_password_hash(updates.pop("password"))
+        new_password = updates.pop("password")
+        password_issues = validate_password_policy(new_password, username=user.username, email=user.email)
+        if password_issues:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=password_issues)
+        user.password_history = [user.hashed_password, *(user.password_history or [])][:5] if user.hashed_password else []
+        user.hashed_password = get_password_hash(new_password)
     if "role_id" in updates and updates["role_id"] is not None:
         role = db.get(Role, updates["role_id"])
         if not role:
@@ -121,6 +150,12 @@ def update_user(
         record_id=str(user.user_id),
         old_value=old_value,
         new_value=serialize_model(user, USER_FIELDS),
+    )
+    log_security_event(
+        db,
+        event_type="USER_MODIFIED",
+        user_id=current_user.user_id,
+        details={"target_user_id": user.user_id, "fields": sorted(updates.keys())},
     )
     db.commit()
     db.refresh(user)

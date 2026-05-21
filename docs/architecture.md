@@ -51,13 +51,16 @@ backend/app/services/ai_governance.py
   tracking, timeline events, workflow intelligence, and sandbox analysis
 
 backend/app/auth
-  Password hashing, JWT creation/validation, current user lookup,
-  permission dependencies
+  Argon2id/bcrypt password verification, JWT creation/validation,
+  persistent session records, refresh-token rotation, MFA challenge
+  flow, password reset tokens, current user lookup, permission dependencies
 
 backend/app/models
   SQLAlchemy operational tables for donors, QMS, vendors, users,
   tasks, notifications, escalations, workspaces, workflow rules,
-  AI governance rules, AI decisions, overrides, and timeline events
+  AI governance rules, AI decisions, overrides, timeline events,
+  security audit, secure documents, sessions, MFA config, and
+  external identity foundations
 
 database/migrations
   Alembic-managed schemas, tables, indexes, and mart views
@@ -138,6 +141,19 @@ Final disposition values:
 - Rejected / Deferred
 
 The donor master record persists beyond workflow execution. Workflow tasks, eligibility decisions, infectious disease results, medical/social history reviews, recovery suitability checks, processing release records, deviations, CAPAs, notifications, and audit events link back to `operational.dim_donor`.
+
+## Security And Compliance Foundations
+
+This project models security controls expected in regulated healthcare operations software. It is not a certified HIPAA or FDA 21 CFR Part 11 system, but it demonstrates the implementation concepts:
+
+- Persistent authentication with access tokens, refresh-token rotation, HTTPOnly API cookies, Streamlit browser-session restoration, and session revocation.
+- MFA foundation for higher-risk roles, currently using a demo verification code with TOTP/email-OTP-ready tables.
+- Application-layer AES-256-GCM encryption helpers for sensitive donor identifiers, donor names, clinical notes, medical/social history notes, infectious disease result values, and protected document storage URIs.
+- Security audit events for authentication, failed access, sensitive record access, user changes, workflow transitions, document actions, MFA, password reset, and session revocation.
+- Part 11 concept support through attributable workflow transitions, electronic signature metadata, before/after audit logging, timestamped transition history, and role-validated approvals.
+- Secure document handling through access-controlled document APIs, signed download links, token expiration, and document access logs.
+- Supplier portal foundations through external organization, approval status, identity provider, external user flag, and MFA fields on users.
+- Production deployment scaffolding for `teemails.com` through Nginx reverse proxy config, HTTPS/HSTS headers, secure-cookie flags, and backup container.
 
 ## Decision Engine
 

@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from app.core.config import settings
 from app.routes import (
@@ -9,6 +12,7 @@ from app.routes import (
     auth,
     change_control,
     dashboard,
+    documents,
     donors,
     eligibility,
     enterprise_dashboard,
@@ -22,6 +26,21 @@ from app.routes import (
     workflow_tasks,
     workspaces,
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+        )
+        if settings.cookie_secure:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
 
 app = FastAPI(
     title=settings.app_name,
@@ -39,6 +58,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(donors.router)
 app.include_router(reviews.router)
@@ -47,6 +67,7 @@ app.include_router(audit_logs.router)
 app.include_router(change_control.router)
 app.include_router(vendors.router)
 app.include_router(dashboard.router)
+app.include_router(documents.router)
 app.include_router(eligibility.router)
 app.include_router(auth.router)
 app.include_router(ai_governance.router)

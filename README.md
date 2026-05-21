@@ -8,7 +8,7 @@ Repository: `github.com/Fxdedglory/clinical-donor-workflow-platform`
 
 This project simulates internal donor-services and regulated tissue-processing software rather than a portfolio CRUD app. Donor referrals enter operational queues, eligibility rules evaluate administrative exclusions, medical/social history, infectious disease results, tissue-specific suitability, recovery windows, QMS release checks, and final disposition outcomes. Workflow tasks are routed through a state machine, escalations are created for overdue work, notifications link users back to exact records, and regulated activities are traceable through audit logs.
 
-The latest upgrade adds a donor eligibility decision engine and QMS workflow expansion. Routes now represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
+The latest upgrade adds security, compliance, and production-hardening foundations on top of the donor eligibility decision engine and QMS workflow expansion. Routes represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
 
 Resume themes demonstrated:
 
@@ -17,6 +17,8 @@ Resume themes demonstrated:
 - Role-centered operational workspace architecture
 - Regulated operational workflow design
 - RBAC security architecture with JWT authentication
+- Persistent sessions, MFA foundations, security audit logging, and secure document access
+- HIPAA-oriented sensitive-field encryption and FDA 21 CFR Part 11 electronic-record concepts
 - Governed AI-assisted clinical decision support concepts
 - Explainability, human override tracking, and AI audit review
 - Workflow intelligence, bottleneck analysis, and operational optimization
@@ -104,6 +106,15 @@ Core enterprise tables:
 - `operational.fact_processing_release`
 - `operational.fact_deviation`
 - `operational.fact_capa`
+- `operational.fact_security_audit`
+- `operational.dim_user_session`
+- `operational.dim_auth_identity`
+- `operational.dim_mfa_configuration`
+- `operational.dim_secure_document`
+- `operational.fact_document_access`
+- `operational.dim_external_organization`
+- `operational.dim_user_approval_status`
+- `operational.fact_password_reset_token`
 
 Legacy compatibility, QMS, and vendor tables:
 
@@ -116,7 +127,15 @@ Legacy compatibility, QMS, and vendor tables:
 
 ## Features
 
-- JWT login, logout, token refresh, session expiration, password hashing, and protected routes
+- JWT login, logout, refresh-token rotation, persistent browser session restoration, session revocation, password hashing with Argon2id support, and protected routes
+- MFA foundation for sysadmin, analyst, operations manager, and QA roles with TOTP/email-OTP-ready verification flow
+- Password policy enforcement, failed-login lockout, password reset token flow, password history foundations, and account approval-state controls
+- HIPAA-oriented application-layer encryption for sensitive donor identifiers, donor names, clinical notes, medical/social history notes, infectious disease results, and protected document storage URIs
+- Security audit log for login, logout, failed login, MFA verification, password reset, sensitive record access, route denial, document access, workflow transitions, user changes, and session revocation
+- Secure document handling with access-controlled document listing, signed document links, token expiration, and download audit logging
+- FDA 21 CFR Part 11 concept modeling through authenticated workflow actions, electronic signature metadata, attributable timestamps, immutable-style transition history, and before/after audit trails
+- Supplier portal identity foundations with internal/external user type, organization linkage, approval status, identity provider, MFA enablement, and future external organization scoping
+- Production deployment scaffolding with Nginx reverse proxy, HTTPS/HSTS headers, teemails.com routing, and daily PostgreSQL backup container
 - Seven enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst
 - Role-permission bridge for route-level authorization
 - Function-first enterprise routing for master data, workflow operations, analytics, and administration routes
@@ -165,6 +184,12 @@ Default password for all demo users:
 
 ```text
 ClinicalDemo!2026
+```
+
+Demo MFA code for roles that require MFA:
+
+```text
+000000
 ```
 
 Demo users:

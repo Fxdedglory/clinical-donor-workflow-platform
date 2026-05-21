@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_permission
 from app.database import get_db
-from app.models import Vendor, VendorIncident
+from app.models import User, Vendor, VendorIncident
 from app.schemas import VendorIncidentCreate, VendorIncidentRead, VendorIncidentUpdate, VendorRead
 from app.services.audit import log_audit, serialize_model
 from app.services.workflows import create_task
@@ -27,7 +28,9 @@ INCIDENT_AUDIT_FIELDS = [
 
 
 @router.get("", response_model=list[VendorRead])
-def list_vendors(db: Session = Depends(get_db)) -> list[Vendor]:
+def list_vendors(
+    _: User = Depends(require_permission("vendors.read")), db: Session = Depends(get_db)
+) -> list[Vendor]:
     return list(db.execute(select(Vendor).order_by(Vendor.vendor_name)).scalars().all())
 
 
@@ -35,6 +38,7 @@ def list_vendors(db: Session = Depends(get_db)) -> list[Vendor]:
 def list_vendor_incidents(
     status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, le=500),
+    _: User = Depends(require_permission("vendors.read")),
     db: Session = Depends(get_db),
 ) -> list[VendorIncident]:
     query = select(VendorIncident)
@@ -46,7 +50,9 @@ def list_vendor_incidents(
 
 @router.post("/incidents", response_model=VendorIncidentRead, status_code=status.HTTP_201_CREATED)
 def create_vendor_incident(
-    payload: VendorIncidentCreate, db: Session = Depends(get_db)
+    payload: VendorIncidentCreate,
+    current_user: User = Depends(require_permission("vendors.manage")),
+    db: Session = Depends(get_db),
 ) -> VendorIncident:
     incident = VendorIncident(**payload.model_dump())
     db.add(incident)
@@ -67,7 +73,7 @@ def create_vendor_incident(
         )
     log_audit(
         db,
-        user_id=None,
+        user_id=current_user.user_id,
         action_type="CREATE_VENDOR_INCIDENT",
         table_name="fact_vendor_incident",
         record_id=str(incident.incident_id),
@@ -81,7 +87,10 @@ def create_vendor_incident(
 
 @router.patch("/incidents/{incident_id}", response_model=VendorIncidentRead)
 def update_vendor_incident(
-    incident_id: int, payload: VendorIncidentUpdate, db: Session = Depends(get_db)
+    incident_id: int,
+    payload: VendorIncidentUpdate,
+    current_user: User = Depends(require_permission("vendors.manage")),
+    db: Session = Depends(get_db),
 ) -> VendorIncident:
     incident = db.get(VendorIncident, incident_id)
     if not incident:
@@ -94,7 +103,7 @@ def update_vendor_incident(
     db.flush()
     log_audit(
         db,
-        user_id=None,
+        user_id=current_user.user_id,
         action_type="UPDATE_VENDOR_INCIDENT",
         table_name="fact_vendor_incident",
         record_id=str(incident.incident_id),

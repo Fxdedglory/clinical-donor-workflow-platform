@@ -15,19 +15,24 @@ from app.models import (
     AIOverrideEvent,
     AIRiskRule,
     AuditLog,
+    AuthIdentity,
     ChangeControl,
     Deviation,
     Disposition,
+    DocumentAccess,
     Donor,
     DonorReview,
     DonorScreening,
     EligibilityDecision,
     EligibilityRule,
     EscalationEvent,
+    ExternalOrganization,
     InfectiousDiseaseResult,
     InfectiousDiseaseTest,
     MedicalSocialHistory,
+    MFAConfiguration,
     Notification,
+    PasswordResetToken,
     ProcessingRelease,
     RecoverySuitability,
     ReferralSource,
@@ -38,10 +43,14 @@ from app.models import (
     RolePermission,
     RoleResponsibility,
     RoleWorkspaceConfig,
+    SecureDocument,
+    SecurityAudit,
     SOPTrainingAssignment,
     TissueType,
     TrainingCompletion,
     User,
+    UserApprovalStatus,
+    UserSessionRecord,
     Vendor,
     VendorIncident,
     WorkflowAssignmentRule,
@@ -62,6 +71,7 @@ from app.services.ai_governance import (
 )
 from app.services.audit import log_audit, serialize_model
 from app.services.eligibility_engine import evaluate_donor_eligibility
+from app.services.encryption import encrypt_text, protect_donor_master, protect_donor_review
 from app.services.escalations import evaluate_overdue_tasks
 from app.services.functional_routes import route_path_for_record
 from app.services.notifications import create_notification
@@ -188,6 +198,13 @@ DEMO_USERS = [
     ("analyst", "Taylor Brooks", "taylor.brooks@example.org", "Business Technology Analyst", "Workflow Intelligence"),
 ]
 
+MFA_REQUIRED_ROLES = {
+    "System Administrator",
+    "Business Technology Analyst",
+    "Operations Manager",
+    "Quality Assurance Specialist",
+}
+
 
 def _random_datetime(days_back: int = 30) -> datetime:
     return datetime.now(UTC) - timedelta(
@@ -299,6 +316,154 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
             user.role = role.role_name
     db.flush()
     return users_by_role
+
+
+def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
+    for status_name, description in [
+        ("Pending Approval", "External or newly provisioned user awaiting approval."),
+        ("Approved", "User is authorized for assigned operational access."),
+        ("Rejected", "Access request was rejected."),
+        ("Suspended", "Access is temporarily suspended."),
+        ("Revoked", "Access was revoked and should not be restored without review."),
+    ]:
+        row = db.execute(
+            select(UserApprovalStatus).where(UserApprovalStatus.status_name == status_name)
+        ).scalar_one_or_none()
+        if not row:
+            db.add(UserApprovalStatus(status_name=status_name, description=description))
+
+    internal_org = db.execute(
+        select(ExternalOrganization).where(ExternalOrganization.organization_name == "Internal Operations")
+    ).scalar_one_or_none()
+    if not internal_org:
+        internal_org = ExternalOrganization(
+            organization_name="Internal Operations",
+            organization_type="Internal",
+            approval_status="Approved",
+            identity_provider="Local",
+        )
+        db.add(internal_org)
+        db.flush()
+
+    now = datetime.now(UTC)
+    for role_name, user in users_by_role.items():
+        user.user_type = "Internal"
+        user.organization_id = internal_org.organization_id
+        user.external_user_flag = False
+        user.approval_status = "Approved"
+        user.identity_provider = "Local"
+        user.mfa_enabled = role_name in MFA_REQUIRED_ROLES
+        user.password_changed_at = user.password_changed_at or now
+        user.password_expires_at = user.password_expires_at or (now + timedelta(days=180))
+        user.password_history = user.password_history or []
+
+        identity = db.execute(
+            select(AuthIdentity).where(
+                AuthIdentity.user_id == user.user_id,
+                AuthIdentity.identity_provider == "Local",
+            )
+        ).scalar_one_or_none()
+        if not identity:
+            db.add(
+                AuthIdentity(
+                    user_id=user.user_id,
+                    identity_provider="Local",
+                    provider_subject=user.username or user.email,
+                    user_type=user.user_type,
+                    mfa_required=role_name in MFA_REQUIRED_ROLES,
+                    external_user_flag=False,
+                )
+            )
+        else:
+            identity.provider_subject = user.username or user.email
+            identity.mfa_required = role_name in MFA_REQUIRED_ROLES
+
+        mfa = db.execute(select(MFAConfiguration).where(MFAConfiguration.user_id == user.user_id)).scalar_one_or_none()
+        if not mfa:
+            db.add(
+                MFAConfiguration(
+                    user_id=user.user_id,
+                    method="TOTP",
+                    is_enabled=role_name in MFA_REQUIRED_ROLES,
+                    required_by_policy=role_name in MFA_REQUIRED_ROLES,
+                    secret_encrypted=encrypt_text(f"demo-totp-secret-{user.username}"),
+                    recovery_codes_encrypted=encrypt_text("demo-recovery-code"),
+                    verified_at=now if role_name in MFA_REQUIRED_ROLES else None,
+                )
+            )
+        else:
+            mfa.required_by_policy = role_name in MFA_REQUIRED_ROLES
+            mfa.is_enabled = mfa.is_enabled or role_name in MFA_REQUIRED_ROLES
+
+    event_exists = db.execute(select(SecurityAudit.event_id).limit(1)).first()
+    if not event_exists:
+        db.add(
+            SecurityAudit(
+                user_id=users_by_role["System Administrator"].user_id,
+                event_type="SECURITY_BASELINE_SEEDED",
+                route="/admin/system-health",
+                success=True,
+                details={
+                    "controls": [
+                        "persistent_sessions",
+                        "mfa_foundation",
+                        "security_audit",
+                        "secure_documents",
+                        "external_identity_foundation",
+                    ]
+                },
+            )
+        )
+    db.flush()
+
+
+def _protect_sensitive_demo_data(db, users_by_role: dict[str, User]) -> None:
+    for donor in db.execute(select(DonorReview)).scalars():
+        protect_donor_review(donor)
+    for donor in db.execute(select(Donor)).scalars():
+        protect_donor_master(donor)
+    for result in db.execute(select(InfectiousDiseaseResult)).scalars():
+        result.result_value_encrypted = encrypt_text(result.result_value)
+    for history in db.execute(select(MedicalSocialHistory)).scalars():
+        history.review_notes_encrypted = encrypt_text(history.review_notes)
+
+    qa_user = users_by_role.get("Quality Assurance Specialist")
+    if not qa_user:
+        db.flush()
+        return
+
+    existing_docs = db.execute(select(SecureDocument.document_id).limit(1)).first()
+    if existing_docs:
+        db.flush()
+        return
+    donor_rows = db.execute(select(Donor).order_by(Donor.created_at.desc()).limit(24)).scalars().all()
+    for index, donor in enumerate(donor_rows):
+        document_type = ["Consent Form", "Lab Report", "Medical Social History", "Chain of Custody"][index % 4]
+        db.add(
+            SecureDocument(
+                record_type="Donor",
+                record_id=str(donor.donor_pk),
+                document_name=f"{document_type} - {donor.donor_identifier}",
+                document_type=document_type,
+                storage_uri_encrypted=encrypt_text(f"s3://protected-demo/donors/{donor.donor_identifier}/{index}.pdf") or "",
+                uploaded_by=qa_user.user_id,
+                access_classification="Protected Health Information",
+            )
+        )
+    releases = db.execute(select(ProcessingRelease).limit(12)).scalars().all()
+    for release in releases:
+        db.add(
+            SecureDocument(
+                record_type="ProcessingRelease",
+                record_id=str(release.release_id),
+                document_name=f"Release packet {release.release_identifier}",
+                document_type="Release Documentation",
+                storage_uri_encrypted=encrypt_text(f"s3://protected-demo/releases/{release.release_identifier}.pdf") or "",
+                uploaded_by=qa_user.user_id,
+                access_classification="Controlled QMS Record",
+            )
+        )
+    db.flush()
 
 
 def _ensure_notification_density(db, roles: dict[str, Role], users_by_role: dict[str, User]) -> None:
@@ -875,9 +1040,11 @@ def _ensure_eligibility_tasks_notifications_audits(db, donors: list[Donor], role
 def ensure_enterprise_data(db) -> None:
     roles = _ensure_roles(db)
     users_by_role = _ensure_users(db, roles)
+    _ensure_security_foundations(db, users_by_role)
     ensure_ai_governance_data(db, users_by_role)
     ensure_workspace_definitions(db, roles)
     _ensure_donor_eligibility_data(db, roles, users_by_role)
+    _protect_sensitive_demo_data(db, users_by_role)
     ensure_ai_decisions_for_existing_donors(db)
 
     existing_task = db.execute(select(WorkflowTask.task_id).limit(1)).first()
@@ -1124,6 +1291,13 @@ def seed_database(records: int, force: bool = False) -> None:
 
         if force:
             for model in [
+                PasswordResetToken,
+                DocumentAccess,
+                SecureDocument,
+                SecurityAudit,
+                MFAConfiguration,
+                UserSessionRecord,
+                AuthIdentity,
                 AuditLog,
                 WorkflowTimelineEvent,
                 WorkflowTransitionEvent,
@@ -1168,6 +1342,8 @@ def seed_database(records: int, force: bool = False) -> None:
                 SOP,
                 Vendor,
                 User,
+                UserApprovalStatus,
+                ExternalOrganization,
                 Role,
             ]:
                 db.execute(delete(model))
@@ -1175,6 +1351,7 @@ def seed_database(records: int, force: bool = False) -> None:
 
         roles = _ensure_roles(db)
         users_by_role = _ensure_users(db, roles)
+        _ensure_security_foundations(db, users_by_role)
         ensure_ai_governance_data(db, users_by_role)
         users = list(users_by_role.values())
 
@@ -1226,7 +1403,29 @@ def seed_database(records: int, force: bool = False) -> None:
             missing = random.random() < 0.07
             status_choice = random.choices(
                 STATUSES,
-                weights=[22, 24, 12, 10, 9, 17, 6],
+                weights=[
+                    28,
+                    24,
+                    20,
+                    18,
+                    18,
+                    16,
+                    14,
+                    12,
+                    10,
+                    8,
+                    8,
+                    8,
+                    8,
+                    10,
+                    8,
+                    10,
+                    8,
+                    8,
+                    7,
+                    12,
+                    4,
+                ],
                 k=1,
             )[0]
             created_at = _random_datetime(45)

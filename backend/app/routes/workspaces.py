@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from app.schemas import (
     WorkspaceResponse,
 )
 from app.services.audit import log_audit, serialize_model
+from app.services.security_audit import log_security_event
 from app.services.workflow_orchestration import recent_transition_events
 from app.services.workspace_engine import execute_transition, workspace_payload
 
@@ -56,10 +57,11 @@ def my_workspace(
 @router.post("/transition")
 def transition(
     payload: WorkflowTransitionRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    return execute_transition(
+    result = execute_transition(
         db,
         current_user=current_user,
         action_name=payload.action_name,
@@ -69,6 +71,22 @@ def transition(
         note=payload.note,
         metadata=payload.metadata,
     )
+    log_security_event(
+        db,
+        event_type="WORKFLOW_TRANSITION",
+        user_id=current_user.user_id,
+        request=request,
+        details={
+            "action_name": payload.action_name,
+            "record_type": payload.related_record_type,
+            "record_id": payload.related_record_id,
+            "from_state": result.get("from_state"),
+            "to_state": result.get("to_state"),
+            "electronic_signature": bool(payload.metadata.get("reviewer_signature") if payload.metadata else False),
+        },
+    )
+    db.commit()
+    return result
 
 
 @router.get("/configs", response_model=list[RoleWorkspaceConfigRead])
