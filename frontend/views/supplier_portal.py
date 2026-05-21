@@ -80,6 +80,48 @@ def _document_uploader() -> None:
             st.rerun()
 
 
+def _document_review(documents: list[dict]) -> None:
+    st.markdown("<div class='section-title'>Supplier Document Review</div>", unsafe_allow_html=True)
+    if not documents:
+        empty_state("No supplier documents are awaiting review.")
+        return
+    dataframe(
+        documents,
+        columns=[
+            "document_id",
+            "organization_name",
+            "document_name",
+            "document_type",
+            "approval_status",
+            "review_note",
+            "uploaded_by",
+            "created_at",
+        ],
+        height=260,
+    )
+    options = [
+        f"{document['document_id']} | {document.get('organization_name', '')} | {document['document_name']}"
+        for document in documents
+    ]
+    with st.form("review_supplier_document", border=True):
+        selected = st.selectbox("Document", options)
+        approval_status = st.selectbox("Review outcome", ["Approved", "Needs Rework", "Hold", "Rejected"])
+        review_note = st.text_area(
+            "Review note",
+            value="Document reviewed for supplier qualification and workflow evidence completeness.",
+        )
+        reviewed = st.form_submit_button("Record Review", width="stretch")
+    if reviewed:
+        document_id = int(selected.split(" | ")[0])
+        result = post_json(
+            f"/api/suppliers/documents/{document_id}/review",
+            {"approval_status": approval_status, "review_note": review_note},
+        )
+        if result:
+            st.success("Supplier document review recorded.")
+            st.rerun()
+
+
 def _signature_form(tasks: list[dict]) -> None:
     with st.form("supplier_signature", border=True):
         st.write("Electronic Signature")
@@ -151,7 +193,18 @@ def render_dashboard() -> None:
     lower_left, lower_right = st.columns(2)
     with lower_left:
         st.markdown("<div class='section-title'>Submitted Documents</div>", unsafe_allow_html=True)
-        dataframe(payload.get("documents", []), height=260)
+        dataframe(
+            payload.get("documents", []),
+            columns=[
+                "document_id",
+                "document_name",
+                "document_type",
+                "approval_status",
+                "review_note",
+                "created_at",
+            ],
+            height=260,
+        )
     with lower_right:
         st.markdown("<div class='section-title'>Activity Feed</div>", unsafe_allow_html=True)
         activity = payload.get("activity", [])
@@ -221,6 +274,9 @@ def render_admin() -> None:
     if summary:
         st.dataframe(pd.DataFrame(summary), width="stretch", height=160, hide_index=True)
     dataframe(jobs.get("recent", []), height=260)
+
+    documents = get_json("/api/suppliers/documents") or []
+    _document_review(documents)
 
     invitations = get_json("/api/suppliers/invitations") or []
     st.markdown("<div class='section-title'>Supplier Invitations</div>", unsafe_allow_html=True)

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 
 from fastapi import Depends, HTTPException, Request, status
@@ -113,6 +113,35 @@ def require_permission(permission_name: str) -> Callable:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission required: {permission_name}",
+            )
+        return current_user
+
+    return dependency
+
+
+def require_any_permission(permission_names: Iterable[str]) -> Callable:
+    required = set(permission_names)
+
+    def dependency(
+        request: Request,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        permissions = set(get_user_permissions(db, current_user))
+        if permissions.isdisjoint(required) and "system.admin" not in permissions:
+            log_security_event(
+                db,
+                event_type="ACCESS_DENIED",
+                user_id=current_user.user_id,
+                request=request,
+                route=str(request.url.path),
+                success=False,
+                details={"permissions": sorted(required)},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"One of these permissions is required: {', '.join(sorted(required))}",
             )
         return current_user
 

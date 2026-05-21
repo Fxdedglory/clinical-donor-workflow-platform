@@ -65,6 +65,9 @@ STATUS_COLORS = {
     "Archived": "#64748b",
     "Inactive": "#64748b",
     "Open": "#c05621",
+    "Supplier Submitted": "#b7791f",
+    "Pending Review": "#b7791f",
+    "Needs Rework": "#c05621",
 }
 
 

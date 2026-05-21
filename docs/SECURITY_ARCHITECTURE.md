@@ -80,6 +80,8 @@ External supplier users are assigned the `Supplier External User` role and an `o
 
 Supplier onboarding supports signed invitation links, pending approval, internal approval/rejection/suspension/revocation, MFA-enabled account creation, and security audit events.
 
+Supplier document review is internal-only. Supplier users can submit organization-scoped documents and view their own review status, but review outcomes require internal `suppliers.manage` or `documents.manage` authority plus an internal account. Reviews create document access records, security audit events, operational audit entries, realtime activity events, background notification jobs, and supplier-visible notifications.
+
 ## Encryption Model
 
 Sensitive donor and clinical fields are encrypted before persistence where supported by the data model:

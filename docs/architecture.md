@@ -49,7 +49,8 @@ backend/app/routes/ai_governance.py
 backend/app/routes/suppliers.py
   Supplier portal API for supplier organizations, signed invitations,
   approval states, supplier dashboard payloads, supplier document
-  submission, task responses, electronic signatures, and background jobs
+  submission, internal document reviews, review notifications, task
+  responses, electronic signatures, and background jobs
 
 backend/app/services/ai_governance.py
   Database-governed rule orchestration, decision recording, override
@@ -251,6 +252,12 @@ Supplier works scoped queue
      are filtered by organization_id
   -> supplier can submit documents, respond to tasks, and apply
      re-authenticated electronic signatures
+
+Internal reviewer resolves supplier evidence
+  -> POST /api/suppliers/documents/{document_id}/review
+  -> review status is written to document version history
+  -> document access, security audit, operational audit, realtime event,
+     background job, and supplier notification records are created
 ```
 
 ## Workflow Transition Flow

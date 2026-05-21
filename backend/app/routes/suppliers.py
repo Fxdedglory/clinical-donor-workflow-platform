@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_permission
+from app.auth.dependencies import require_any_permission, require_permission
 from app.auth.security import (
     create_invitation_token,
     decode_token,
@@ -36,6 +36,7 @@ from app.models import (
     UserPreference,
     WorkflowTask,
 )
+from app.services.audit import log_audit
 from app.services.email import EmailMessage, EmailType, send_email
 from app.services.encryption import encrypt_text
 from app.services.security_audit import hash_token, log_security_event, request_ip
@@ -82,6 +83,11 @@ class SupplierDocumentUpload(BaseModel):
     document_type: str
     storage_reference: str = "supplier-portal-upload-placeholder"
     checksum_sha256: str | None = None
+
+
+class SupplierDocumentReview(BaseModel):
+    approval_status: str
+    review_note: str = ""
 
 
 class SupplierTaskAction(BaseModel):
@@ -140,6 +146,40 @@ def _task_payload(task: WorkflowTask) -> dict:
         "related_record_type": task.related_record_type,
         "related_record_id": task.related_record_id,
         "organization_id": task.organization_id,
+    }
+
+
+def _latest_document_version(db: Session, document_id: int) -> DocumentVersion | None:
+    return db.execute(
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == document_id)
+        .order_by(desc(DocumentVersion.version_number))
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _document_payload(document: SecureDocument, db: Session) -> dict:
+    org = db.get(Organization, document.organization_id) if document.organization_id else None
+    uploader = db.get(User, document.uploaded_by) if document.uploaded_by else None
+    version = _latest_document_version(db, document.document_id)
+    metadata = version.extra_metadata if version and isinstance(version.extra_metadata, dict) else {}
+    return {
+        "document_id": document.document_id,
+        "organization_id": document.organization_id,
+        "organization_name": org.organization_name if org else "",
+        "record_type": document.record_type,
+        "record_id": document.record_id,
+        "document_name": document.document_name,
+        "document_type": document.document_type,
+        "access_classification": document.access_classification,
+        "approval_status": version.approval_status if version else document.access_classification,
+        "document_status": version.document_status if version else "",
+        "version_number": version.version_number if version else None,
+        "uploaded_by": uploader.username if uploader else "",
+        "approved_by": version.approved_by if version else None,
+        "approved_at": version.approved_at if version else None,
+        "review_note": metadata.get("review_note", ""),
+        "created_at": document.created_at,
     }
 
 
@@ -283,14 +323,18 @@ def list_supplier_invitations(
 ) -> list[dict]:
     query = select(ExternalInvitation).order_by(desc(ExternalInvitation.created_at)).limit(200)
     rows = db.execute(query).scalars().all()
-    return [
-        _invitation_payload(invitation)
-        | {
-            "organization_name": (db.get(Organization, invitation.organization_id).organization_name if db.get(Organization, invitation.organization_id) else ""),
-            "created_user": (db.get(User, invitation.created_user_id).username if invitation.created_user_id and db.get(User, invitation.created_user_id) else ""),
-        }
-        for invitation in rows
-    ]
+    payloads = []
+    for invitation in rows:
+        org = db.get(Organization, invitation.organization_id)
+        created_user = db.get(User, invitation.created_user_id) if invitation.created_user_id else None
+        payloads.append(
+            _invitation_payload(invitation)
+            | {
+                "organization_name": org.organization_name if org else "",
+                "created_user": created_user.username if created_user else "",
+            }
+        )
+    return payloads
 
 
 @router.get("/invitations/preview")
@@ -500,15 +544,7 @@ def supplier_dashboard(
         },
         "tasks": [_task_payload(task) for task in tasks],
         "documents": [
-            {
-                "document_id": doc.document_id,
-                "record_type": doc.record_type,
-                "record_id": doc.record_id,
-                "document_name": doc.document_name,
-                "document_type": doc.document_type,
-                "access_classification": doc.access_classification,
-                "created_at": doc.created_at,
-            }
+            _document_payload(doc, db)
             for doc in documents
         ],
         "notifications": [
@@ -593,6 +629,216 @@ def upload_supplier_document(
     db.commit()
     db.refresh(document)
     return {"document_id": document.document_id, "status": "submitted"}
+
+
+@router.get("/documents")
+def list_supplier_documents(
+    current_user: User = Depends(require_any_permission(["suppliers.read", "documents.manage"])),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    query = (
+        select(SecureDocument)
+        .where(SecureDocument.is_active.is_(True), SecureDocument.organization_id.is_not(None))
+        .order_by(desc(SecureDocument.created_at))
+        .limit(250)
+    )
+    query = apply_org_scope(query, SecureDocument, current_user)
+    return [_document_payload(document, db) for document in db.execute(query).scalars().all()]
+
+
+@router.get("/documents/{document_id}/versions")
+def list_supplier_document_versions(
+    document_id: int,
+    request: Request,
+    current_user: User = Depends(require_permission("documents.read")),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    document = db.get(SecureDocument, document_id)
+    if not document or not document.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    ensure_org_access(current_user, document, not_found_detail="Document not found")
+    db.add(
+        DocumentAccess(
+            document_id=document.document_id,
+            user_id=current_user.user_id,
+            action_type="VERSION_HISTORY_VIEWED",
+            ip_address=request_ip(request),
+            route=str(request.url.path),
+            details={"document_name": document.document_name},
+        )
+    )
+    log_security_event(
+        db,
+        event_type="SUPPLIER_DOCUMENT_VERSION_VIEW",
+        user_id=current_user.user_id,
+        request=request,
+        details={"document_id": document.document_id},
+    )
+    rows = db.execute(
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == document_id)
+        .order_by(desc(DocumentVersion.version_number))
+    ).scalars().all()
+    db.commit()
+    return [
+        {
+            "version_id": version.version_id,
+            "document_id": version.document_id,
+            "version_number": version.version_number,
+            "document_status": version.document_status,
+            "approval_status": version.approval_status,
+            "approved_by": version.approved_by,
+            "approved_at": version.approved_at,
+            "created_at": version.created_at,
+            "review_note": (version.extra_metadata or {}).get("review_note", ""),
+        }
+        for version in rows
+    ]
+
+
+@router.post("/documents/{document_id}/review")
+def review_supplier_document(
+    document_id: int,
+    payload: SupplierDocumentReview,
+    request: Request,
+    current_user: User = Depends(require_any_permission(["suppliers.manage", "documents.manage"])),
+    db: Session = Depends(get_db),
+) -> dict:
+    if is_external_user(current_user):
+        log_security_event(
+            db,
+            event_type="SUPPLIER_DOCUMENT_REVIEW_DENIED",
+            user_id=current_user.user_id,
+            request=request,
+            success=False,
+            details={"document_id": document_id},
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Internal reviewer required")
+    allowed_statuses = {"Approved", "Rejected", "Needs Rework", "Hold"}
+    if payload.approval_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Approval status must be one of: {', '.join(sorted(allowed_statuses))}",
+        )
+    document = db.get(SecureDocument, document_id)
+    if not document or not document.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    ensure_org_access(current_user, document, not_found_detail="Document not found")
+
+    version = _latest_document_version(db, document.document_id)
+    old_value = {
+        "access_classification": document.access_classification,
+        "approval_status": version.approval_status if version else None,
+        "document_status": version.document_status if version else None,
+    }
+    document.access_classification = payload.approval_status
+    if version:
+        metadata = dict(version.extra_metadata or {})
+        metadata["review_note"] = payload.review_note
+        metadata["reviewed_by"] = current_user.username
+        version.document_status = payload.approval_status
+        version.approval_status = payload.approval_status
+        version.approved_by = current_user.user_id
+        version.approved_at = datetime.now(UTC)
+        version.extra_metadata = metadata
+
+    db.add(
+        DocumentAccess(
+            document_id=document.document_id,
+            user_id=current_user.user_id,
+            action_type=f"DOCUMENT_{payload.approval_status.upper().replace(' ', '_')}",
+            ip_address=request_ip(request),
+            route=str(request.url.path),
+            details={
+                "document_name": document.document_name,
+                "approval_status": payload.approval_status,
+                "review_note": payload.review_note,
+            },
+        )
+    )
+    supplier_users = db.execute(
+        select(User).where(
+            User.organization_id == document.organization_id,
+            User.is_external.is_(True),
+            User.is_active.is_(True),
+        )
+    ).scalars().all()
+    notify_user_ids = {user.user_id for user in supplier_users}
+    if document.uploaded_by:
+        notify_user_ids.add(document.uploaded_by)
+    priority = "High" if payload.approval_status in {"Rejected", "Needs Rework", "Hold"} else "Normal"
+    for user_id in notify_user_ids:
+        db.add(
+            Notification(
+                user_id=user_id,
+                title=f"[Document {payload.approval_status}] {document.document_name}",
+                message=payload.review_note or f"{document.document_name} was reviewed by the operations team.",
+                notification_type="Supplier Document Review",
+                priority=priority,
+                related_record_type="SecureDocument",
+                related_record_id=str(document.document_id),
+                action_route="/supplier",
+                workflow_context={
+                    "document_id": document.document_id,
+                    "record_type": document.record_type,
+                    "record_id": document.record_id,
+                    "route_path": "/supplier",
+                    "approval_status": payload.approval_status,
+                },
+                organization_id=document.organization_id,
+            )
+        )
+    db.add(
+        RealtimeEvent(
+            event_type="Supplier Document Reviewed",
+            channel="supplier-documents",
+            audience_user_id=document.uploaded_by,
+            organization_id=document.organization_id,
+            record_type="SecureDocument",
+            record_id=str(document.document_id),
+            payload={
+                "approval_status": payload.approval_status,
+                "document_name": document.document_name,
+                "review_note": payload.review_note,
+            },
+        )
+    )
+    db.add(
+        BackgroundJob(
+            job_type="Supplier Document Review Notification",
+            status="Queued",
+            priority=priority,
+            organization_id=document.organization_id,
+            payload={"document_id": document.document_id, "approval_status": payload.approval_status},
+        )
+    )
+    log_audit(
+        db,
+        user_id=current_user.user_id,
+        action_type="SUPPLIER_DOCUMENT_REVIEWED",
+        table_name="dim_secure_document",
+        record_id=str(document.document_id),
+        old_value=old_value,
+        new_value={
+            "access_classification": document.access_classification,
+            "approval_status": payload.approval_status,
+            "review_note": payload.review_note,
+        },
+        entity_type="SecureDocument",
+        entity_id=str(document.document_id),
+        ip_address=request_ip(request),
+    )
+    log_security_event(
+        db,
+        event_type="SUPPLIER_DOCUMENT_REVIEWED",
+        user_id=current_user.user_id,
+        request=request,
+        details={"document_id": document.document_id, "approval_status": payload.approval_status},
+    )
+    db.commit()
+    db.refresh(document)
+    return _document_payload(document, db)
 
 
 @router.post("/tasks/{task_id}/respond")

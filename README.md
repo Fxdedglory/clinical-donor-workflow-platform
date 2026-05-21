@@ -155,7 +155,7 @@ Legacy compatibility, QMS, and vendor tables:
 - Supplier portal with organization-scoped external login, MFA, supplier task queue, document requests, supplier approvals, and activity feed
 - Supplier invitation and approval workflow with signed onboarding links, approval states, platform-native external accounts, and security audit logging
 - Multi-tenant organization isolation for supplier users across workflow tasks, documents, notifications, route resolution, and search
-- Organization-scoped document exchange with document version records, document access logs, supplier-submitted classification, and review status
+- Organization-scoped document exchange with document version records, document access logs, supplier-submitted classification, internal review outcomes, supplier notifications, and review status
 - Electronic signature events with re-authentication, signature reason, signature meaning, timestamp, user attribution, and immutable-style signature hash
 - Background job and realtime event foundation for SLA monitoring, supplier notifications, document workflows, and future live activity streams
 - Persistent user preferences for sidebar collapse state, last route, recently viewed records, pinned records, and notification preferences
