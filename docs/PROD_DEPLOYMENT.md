@@ -84,8 +84,47 @@ COOKIE_SECURE=true
 COOKIE_SAMESITE=strict
 EMAIL_PROVIDER=console
 EMAIL_FROM=no-reply@teemails.com
+EMAIL_FROM_NAME=Clinical Donor Workflow
 CLOUDFLARE_TUNNEL_TOKEN=<cloudflare-tunnel-token-if-using-tunnel>
 ```
+
+## Production Email
+
+Cloudflare Email Routing can receive and forward `@teemails.com` mail, but it does not provide a standard outbound SMTP server for app-generated password reset or account setup emails. Configure a transactional sender for `no-reply@teemails.com` before relying on password reset in production.
+
+Supported app providers:
+
+```bash
+# Generic SMTP provider
+EMAIL_PROVIDER=smtp
+EMAIL_FROM=no-reply@teemails.com
+EMAIL_FROM_NAME=Clinical Donor Workflow
+SMTP_HOST=<smtp-host>
+SMTP_PORT=587
+SMTP_USERNAME=<smtp-username>
+SMTP_PASSWORD=<smtp-password>
+SMTP_USE_TLS=true
+SMTP_USE_SSL=false
+```
+
+```bash
+# SendGrid API provider
+EMAIL_PROVIDER=sendgrid
+EMAIL_FROM=no-reply@teemails.com
+EMAIL_FROM_NAME=Clinical Donor Workflow
+SENDGRID_API_KEY=<sendgrid-api-key>
+```
+
+```bash
+# Mailgun API provider
+EMAIL_PROVIDER=mailgun
+EMAIL_FROM=no-reply@teemails.com
+EMAIL_FROM_NAME=Clinical Donor Workflow
+MAILGUN_API_KEY=<mailgun-api-key>
+MAILGUN_DOMAIN=teemails.com
+```
+
+Add the sender provider's SPF/DKIM records in Cloudflare DNS, then keep the existing Cloudflare Email Routing MX records if you still want inbound forwarding. Do not remove MX, DKIM, DMARC, or SPF records unless the email provider instructs you to replace or extend them.
 
 ## First Direct-Nginx Deploy
 

@@ -38,6 +38,7 @@ def render() -> None:
             role_name = st.selectbox("Role", list(role_options.keys()) if role_options else [""])
             department = st.text_input("Department", "Clinical Operations")
             password = st.text_input("Temporary password", value="ClinicalDemo!2026", type="password")
+            send_setup_email = st.checkbox("Send account setup email", value=True)
             submitted = st.form_submit_button("Create")
         if submitted and role_options:
             result = post_json(
@@ -49,6 +50,7 @@ def render() -> None:
                     "password": password,
                     "role_id": role_options[role_name],
                     "department": department,
+                    "send_setup_email": send_setup_email,
                 },
             )
             if result:
@@ -62,11 +64,17 @@ def render() -> None:
             user_id = int(selected.split(" | ")[0])
             new_role = st.selectbox("New role", list(role_options.keys()), key="new_role")
             active = st.checkbox("Active", value=True)
-            if st.button("Apply User Update"):
+            action_left, action_right = st.columns(2)
+            if action_left.button("Apply User Update"):
                 result = patch_json(
                     f"/api/admin/users/{user_id}",
                     {"role_id": role_options[new_role], "is_active": active},
                 )
                 if result:
                     st.success("User updated.")
+                    st.rerun()
+            if action_right.button("Send Setup Link"):
+                result = post_json(f"/api/admin/users/{user_id}/send-setup-link", {})
+                if result:
+                    st.success("Setup link sent.")
                     st.rerun()

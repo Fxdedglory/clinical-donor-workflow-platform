@@ -91,6 +91,21 @@ Workflow approvals include authenticated user identity, timestamps, reasons, tra
 
 Documents are not served from public directories. Document APIs require authorization, issue signed links, expire tokens, and log access events.
 
+## Account Recovery And Setup
+
+User administration can create platform-native accounts and send single-use setup links to the user's email address. The login screen exposes password-reset requests, and reset links open the app with a `reset_token` query parameter so the user can set a new password without an administrator seeing it.
+
+Password reset and account setup links are:
+
+- signed JWTs
+- tied to `fact_password_reset_token`
+- single use
+- short lived
+- audit logged
+- followed by session revocation after password reset
+
+Production email delivery requires an outbound sender such as SMTP, SendGrid, or Mailgun. Cloudflare Email Routing may remain in place for inbound forwarding, but reset/setup emails must be sent by a transactional provider authenticated for `@teemails.com`.
+
 ## External-Ready Foundations
 
 Future supplier access must enforce:

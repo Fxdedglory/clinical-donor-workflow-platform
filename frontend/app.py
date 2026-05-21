@@ -189,6 +189,39 @@ def render_login() -> None:
             st.write("Default password: `ClinicalDemo!2026`")
             st.write("`intake`  `clinical`  `qa`  `vendorops`  `opsmanager`  `analyst`  `sysadmin`")
 
+        with st.expander("Reset Password", expanded=False):
+            st.caption("Enter your account email and a single-use reset link will be sent if the account exists.")
+            with st.form("password_reset_request", border=False):
+                reset_email = st.text_input("Account email")
+                requested = st.form_submit_button("Send Reset Link", width="stretch")
+            if requested:
+                post_json("/api/auth/password-reset/request", {"email": reset_email})
+                st.success("If the account exists, a reset link has been sent.")
+
+
+def render_password_reset_confirm(reset_token: str) -> None:
+    st.markdown("<div style='height: 7vh'></div>", unsafe_allow_html=True)
+    left, center, right = st.columns([0.55, 1.05, 0.55])
+    with center:
+        st.title("Set Your Password")
+        st.caption("Use the secure link from your account setup or password reset email.")
+        with st.form("password_reset_confirm", border=True):
+            new_password = st.text_input("New password", type="password")
+            confirm_password = st.text_input("Confirm password", type="password")
+            submitted = st.form_submit_button("Update Password", width="stretch")
+        if submitted:
+            if new_password != confirm_password:
+                st.error("Passwords do not match.")
+                return
+            result = post_json(
+                "/api/auth/password-reset/confirm",
+                {"token": reset_token, "new_password": new_password},
+            )
+            if result:
+                st.success("Password updated. Sign in with your new password.")
+                _clear_query_value("reset_token")
+                st.rerun()
+
 
 def render_notification_bell(workspace: dict) -> None:
     notifications = workspace.get("notifications", [])
@@ -637,6 +670,11 @@ def render_todays_operations(workspace: dict, context: dict) -> None:
         st.markdown("<div class='section-title'>Workflow Analytics</div>", unsafe_allow_html=True)
         functional_routes.render_analytics_visuals(analytics)
 
+
+reset_token = _query_value("reset_token")
+if reset_token and "user" not in st.session_state:
+    render_password_reset_confirm(reset_token)
+    st.stop()
 
 if "user" not in st.session_state:
     restore_session_from_cookies()

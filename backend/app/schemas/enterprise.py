@@ -19,6 +19,7 @@ class UserCreate(BaseModel):
     role_id: int
     department: str = "Clinical Operations"
     is_active: bool = True
+    send_setup_email: bool = True
 
 
 class UserUpdate(BaseModel):

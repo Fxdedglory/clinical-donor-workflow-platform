@@ -1,14 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_permission
-from app.auth.security import get_password_hash, validate_password_policy
+from app.auth.security import (
+    create_password_reset_token,
+    get_password_hash,
+    validate_password_policy,
+)
+from app.core.config import settings
 from app.database import get_db
-from app.models import Role, RoleResponsibility, User
+from app.models import PasswordResetToken, Role, RoleResponsibility, User
 from app.schemas import RoleRead, RoleResponsibilityRead, UserCreate, UserRead, UserUpdate
 from app.services.audit import log_audit, serialize_model
-from app.services.security_audit import log_security_event
+from app.services.email import EmailMessage, EmailType, send_email
+from app.services.security_audit import hash_token, log_security_event, request_ip
 from app.services.system_health import collect_system_health
 
 router = APIRouter(prefix="/api/admin", tags=["System Administration"])
@@ -32,6 +41,42 @@ USER_FIELDS = [
     "identity_provider",
     "mfa_enabled",
 ]
+
+
+def _send_account_setup_email(
+    db: Session,
+    *,
+    target_user: User,
+    current_user: User,
+    request: Request,
+) -> None:
+    reset = PasswordResetToken(
+        user_id=target_user.user_id,
+        token_hash=f"pending_{uuid4().hex}",
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        ip_address=request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.add(reset)
+    db.flush()
+    setup_token = create_password_reset_token(subject=target_user.username or "", reset_id=reset.reset_id)
+    reset.token_hash = hash_token(setup_token)
+    setup_url = f"{settings.app_base_url.rstrip('/')}/?reset_token={setup_token}"
+    send_email(
+        db,
+        EmailMessage(
+            to_email=target_user.email,
+            subject="Set up your Clinical Donor Workflow account",
+            body=(
+                f"An account was created for {target_user.full_name} in the Clinical Donor Workflow Platform. "
+                f"Use this single-use setup link within 30 minutes to set your password: {setup_url}"
+            ),
+            email_type=EmailType.ACCOUNT_SETUP,
+            metadata={"reset_id": reset.reset_id, "target_user_id": target_user.user_id},
+        ),
+        user_id=current_user.user_id,
+        request=request,
+    )
 
 
 @router.get("/roles", response_model=list[RoleRead])
@@ -85,6 +130,7 @@ def list_users(
 @router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
+    request: Request,
     current_user: User = Depends(require_permission("users.manage")),
     db: Session = Depends(get_db),
 ) -> User:
@@ -125,9 +171,35 @@ def create_user(
         user_id=current_user.user_id,
         details={"target_user_id": user.user_id, "role": user.role},
     )
+    if payload.send_setup_email:
+        _send_account_setup_email(db, target_user=user, current_user=current_user, request=request)
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.post("/users/{user_id}/send-setup-link")
+def send_user_setup_link(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(require_permission("users.manage")),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="User is not active")
+    _send_account_setup_email(db, target_user=user, current_user=current_user, request=request)
+    log_security_event(
+        db,
+        event_type="USER_SETUP_EMAIL_REQUESTED",
+        user_id=current_user.user_id,
+        request=request,
+        details={"target_user_id": user.user_id},
+    )
+    db.commit()
+    return {"status": "setup_link_sent"}
 
 
 @router.patch("/users/{user_id}", response_model=UserRead)

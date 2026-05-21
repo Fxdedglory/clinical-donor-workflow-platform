@@ -27,10 +27,17 @@ class Settings(BaseSettings):
     app_base_url: str = Field(default="http://localhost:8501", alias="APP_BASE_URL")
     email_provider: str = Field(default="console", alias="EMAIL_PROVIDER")
     email_from: str = Field(default="no-reply@teemails.com", alias="EMAIL_FROM")
+    email_from_name: str = Field(default="Clinical Donor Workflow", alias="EMAIL_FROM_NAME")
     sendgrid_api_key: str | None = Field(default=None, alias="SENDGRID_API_KEY")
     ses_region: str | None = Field(default=None, alias="SES_REGION")
     mailgun_api_key: str | None = Field(default=None, alias="MAILGUN_API_KEY")
     mailgun_domain: str | None = Field(default=None, alias="MAILGUN_DOMAIN")
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_use_ssl: bool = Field(default=False, alias="SMTP_USE_SSL")
     backup_encryption_key: str | None = Field(default=None, alias="BACKUP_ENCRYPTION_KEY")
     database_url: str = Field(
         default="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow",

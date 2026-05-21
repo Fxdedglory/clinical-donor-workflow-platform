@@ -139,6 +139,7 @@ Legacy compatibility, QMS, and vendor tables:
 - JWT login, logout, refresh-token rotation, persistent browser session restoration, session revocation, password hashing with Argon2id support, and protected routes
 - MFA foundation for sysadmin, analyst, operations manager, and QA roles with TOTP/email-OTP-ready verification flow
 - Password policy enforcement, failed-login lockout, password reset token flow, password history foundations, and account approval-state controls
+- Account setup and password reset email-link flow for platform-native users
 - HIPAA-oriented application-layer encryption for sensitive donor identifiers, donor names, clinical notes, medical/social history notes, infectious disease results, and protected document storage URIs
 - Security audit log for login, logout, failed login, MFA verification, password reset, sensitive record access, route denial, document access, workflow transitions, user changes, and session revocation
 - Secure document handling with access-controlled document listing, signed document links, token expiration, and download audit logging
