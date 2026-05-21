@@ -58,7 +58,12 @@ def get_current_user(
         raise credentials_exception
 
     user = db.execute(select(User).where(User.username == subject)).scalar_one_or_none()
-    if user is None or not user.is_active or user.approval_status not in {"Approved", "Active"}:
+    if (
+        user is None
+        or not user.is_active
+        or user.is_archived
+        or user.approval_status not in {"Approved", "Active"}
+    ):
         raise credentials_exception
 
     session_id = payload.get("sid")

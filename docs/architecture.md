@@ -152,8 +152,8 @@ This project models security controls expected in regulated healthcare operation
 - Security audit events for authentication, failed access, sensitive record access, user changes, workflow transitions, document actions, MFA, password reset, and session revocation.
 - Part 11 concept support through attributable workflow transitions, electronic signature metadata, before/after audit logging, timestamped transition history, and role-validated approvals.
 - Secure document handling through access-controlled document APIs, signed download links, token expiration, and document access logs.
-- Supplier portal foundations through external organization, approval status, identity provider, external user flag, and MFA fields on users.
-- Production deployment scaffolding for `teemails.com` through Nginx reverse proxy config, HTTPS/HSTS headers, secure-cookie flags, and backup container.
+- Supplier portal foundations through native account types, organization scoping, approval status, external-user flags, and MFA fields on users.
+- Production deployment scaffolding for `teemails.com` through Nginx reverse proxy config, HTTPS/HSTS/CSP headers, secure-cookie flags, Certbot renewal support, encrypted backups, and SysAdmin system health monitoring.
 
 ## Decision Engine
 

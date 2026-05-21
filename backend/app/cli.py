@@ -10,6 +10,7 @@ from app.database import SessionLocal
 from app.models import (
     CAPA,
     SOP,
+    AccountType,
     AIDecision,
     AIModelVersion,
     AIOverrideEvent,
@@ -17,6 +18,8 @@ from app.models import (
     AuditLog,
     AuthIdentity,
     ChangeControl,
+    DataExportEvent,
+    DeploymentEnvironment,
     Deviation,
     Disposition,
     DocumentAccess,
@@ -26,12 +29,12 @@ from app.models import (
     EligibilityDecision,
     EligibilityRule,
     EscalationEvent,
-    ExternalOrganization,
     InfectiousDiseaseResult,
     InfectiousDiseaseTest,
     MedicalSocialHistory,
     MFAConfiguration,
     Notification,
+    Organization,
     PasswordResetToken,
     ProcessingRelease,
     RecoverySuitability,
@@ -45,11 +48,15 @@ from app.models import (
     RoleWorkspaceConfig,
     SecureDocument,
     SecurityAudit,
+    SecurityIncident,
+    SidebarState,
     SOPTrainingAssignment,
+    SystemHealth,
     TissueType,
     TrainingCompletion,
     User,
     UserApprovalStatus,
+    UserPreference,
     UserSessionRecord,
     Vendor,
     VendorIncident,
@@ -285,6 +292,7 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
                 username=username,
                 full_name=full_name,
                 email=email,
+                display_name=full_name,
                 hashed_password=password_hash,
                 role_id=role.role_id,
                 role=role.role_name,
@@ -295,6 +303,7 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
         else:
             user.username = username
             user.full_name = full_name
+            user.display_name = user.display_name or full_name
             user.email = email
             user.hashed_password = user.hashed_password or password_hash
             user.role_id = role.role_id
@@ -310,6 +319,8 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
             user.username = f"user{user.user_id}"
         if not user.hashed_password:
             user.hashed_password = password_hash
+        if not user.display_name:
+            user.display_name = user.full_name
         if not user.role_id:
             role = fallback_roles[index % len(fallback_roles)]
             user.role_id = role.role_id
@@ -319,6 +330,26 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
 
 
 def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
+    for account_type, description, is_internal, is_external, requires_approval in [
+        ("internal", "Native platform account for internal operations.", True, False, False),
+        ("supplier", "Future supplier account scoped to an approved organization.", False, True, True),
+        ("partner", "Future partner account with organization-scoped access.", False, True, True),
+        ("external", "Future external auditor or contractor account.", False, True, True),
+    ]:
+        row = db.execute(
+            select(AccountType).where(AccountType.account_type_name == account_type)
+        ).scalar_one_or_none()
+        if not row:
+            db.add(
+                AccountType(
+                    account_type_name=account_type,
+                    description=description,
+                    is_internal=is_internal,
+                    is_external=is_external,
+                    requires_approval=requires_approval,
+                )
+            )
+
     for status_name, description in [
         ("Pending Approval", "External or newly provisioned user awaiting approval."),
         ("Approved", "User is authorized for assigned operational access."),
@@ -333,26 +364,29 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
             db.add(UserApprovalStatus(status_name=status_name, description=description))
 
     internal_org = db.execute(
-        select(ExternalOrganization).where(ExternalOrganization.organization_name == "Internal Operations")
+        select(Organization).where(Organization.organization_name == "Internal Operations")
     ).scalar_one_or_none()
     if not internal_org:
-        internal_org = ExternalOrganization(
+        internal_org = Organization(
             organization_name="Internal Operations",
-            organization_type="Internal",
+            organization_type="internal",
             approval_status="Approved",
-            identity_provider="Local",
         )
         db.add(internal_org)
         db.flush()
 
     now = datetime.now(UTC)
     for role_name, user in users_by_role.items():
-        user.user_type = "Internal"
+        user.account_type = "internal"
+        user.user_type = "internal"
         user.organization_id = internal_org.organization_id
+        user.is_internal = True
+        user.is_external = False
         user.external_user_flag = False
         user.approval_status = "Approved"
-        user.identity_provider = "Local"
+        user.identity_provider = "Platform Native"
         user.mfa_enabled = role_name in MFA_REQUIRED_ROLES
+        user.display_name = user.display_name or user.full_name
         user.password_changed_at = user.password_changed_at or now
         user.password_expires_at = user.password_expires_at or (now + timedelta(days=180))
         user.password_history = user.password_history or []
@@ -360,14 +394,14 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
         identity = db.execute(
             select(AuthIdentity).where(
                 AuthIdentity.user_id == user.user_id,
-                AuthIdentity.identity_provider == "Local",
+                AuthIdentity.identity_provider == "Platform Native",
             )
         ).scalar_one_or_none()
         if not identity:
             db.add(
                 AuthIdentity(
                     user_id=user.user_id,
-                    identity_provider="Local",
+                    identity_provider="Platform Native",
                     provider_subject=user.username or user.email,
                     user_type=user.user_type,
                     mfa_required=role_name in MFA_REQUIRED_ROLES,
@@ -377,6 +411,7 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
         else:
             identity.provider_subject = user.username or user.email
             identity.mfa_required = role_name in MFA_REQUIRED_ROLES
+            identity.user_type = user.user_type
 
         mfa = db.execute(select(MFAConfiguration).where(MFAConfiguration.user_id == user.user_id)).scalar_one_or_none()
         if not mfa:
@@ -409,19 +444,87 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
                         "mfa_foundation",
                         "security_audit",
                         "secure_documents",
-                        "external_identity_foundation",
+                        "external_ready_identity_foundation",
                     ]
                 },
+            )
+        )
+
+    for name, base_url, is_active in [
+        ("DEV", "http://localhost:8501", True),
+        ("TEST", "https://test.teemails.com", False),
+        ("PROD", "https://teemails.com", False),
+    ]:
+        env = db.execute(
+            select(DeploymentEnvironment).where(DeploymentEnvironment.environment_name == name)
+        ).scalar_one_or_none()
+        if not env:
+            db.add(
+                DeploymentEnvironment(
+                    environment_name=name,
+                    base_url=base_url,
+                    database_url_masked="postgresql://***:***@db:5432/clinical_donor_workflow",
+                    is_active=is_active,
+                    deployed_version="0.1.0",
+                )
+            )
+
+    for user in users_by_role.values():
+        state = db.execute(select(SidebarState).where(SidebarState.user_id == user.user_id)).scalar_one_or_none()
+        if not state:
+            db.add(SidebarState(user_id=user.user_id, sidebar_collapsed=False, last_route="/dashboard"))
+        pref = db.execute(
+            select(UserPreference).where(
+                UserPreference.user_id == user.user_id,
+                UserPreference.preference_key == "notification_preferences",
+            )
+        ).scalar_one_or_none()
+        if not pref:
+            db.add(
+                UserPreference(
+                    user_id=user.user_id,
+                    preference_key="notification_preferences",
+                    preference_value={
+                        "digest": True,
+                        "sla_alerts": True,
+                        "qms_alerts": True,
+                        "ai_governance_alerts": True,
+                    },
+                )
+            )
+
+    incident_exists = db.execute(select(SecurityIncident.incident_id).limit(1)).first()
+    if not incident_exists:
+        db.add(
+            SecurityIncident(
+                incident_key="SEC-2026-0001",
+                severity="Medium",
+                status="Open",
+                event_type="Suspicious Activity Review",
+                summary="Repeated failed login monitoring enabled for production readiness.",
+                assigned_to_user_id=users_by_role["System Administrator"].user_id,
+                organization_id=internal_org.organization_id,
+                details={"source": "seed", "control": "account_lockout_monitoring"},
             )
         )
     db.flush()
 
 
 def _protect_sensitive_demo_data(db, users_by_role: dict[str, User]) -> None:
+    internal_org = db.execute(
+        select(Organization).where(Organization.organization_name == "Internal Operations")
+    ).scalar_one_or_none()
+    org_id = internal_org.organization_id if internal_org else None
     for donor in db.execute(select(DonorReview)).scalars():
+        donor.organization_id = donor.organization_id or org_id
         protect_donor_review(donor)
     for donor in db.execute(select(Donor)).scalars():
+        donor.organization_id = donor.organization_id or org_id
         protect_donor_master(donor)
+    for model in [ProcessingRelease, Deviation, CAPA, WorkflowTask, Notification, SecureDocument]:
+        for row in db.execute(select(model)).scalars():
+            if hasattr(row, "organization_id") and not row.organization_id:
+                row.organization_id = org_id
     for result in db.execute(select(InfectiousDiseaseResult)).scalars():
         result.result_value_encrypted = encrypt_text(result.result_value)
     for history in db.execute(select(MedicalSocialHistory)).scalars():
@@ -448,6 +551,7 @@ def _protect_sensitive_demo_data(db, users_by_role: dict[str, User]) -> None:
                 storage_uri_encrypted=encrypt_text(f"s3://protected-demo/donors/{donor.donor_identifier}/{index}.pdf") or "",
                 uploaded_by=qa_user.user_id,
                 access_classification="Protected Health Information",
+                organization_id=org_id,
             )
         )
     releases = db.execute(select(ProcessingRelease).limit(12)).scalars().all()
@@ -461,6 +565,7 @@ def _protect_sensitive_demo_data(db, users_by_role: dict[str, User]) -> None:
                 storage_uri_encrypted=encrypt_text(f"s3://protected-demo/releases/{release.release_identifier}.pdf") or "",
                 uploaded_by=qa_user.user_id,
                 access_classification="Controlled QMS Record",
+                organization_id=org_id,
             )
         )
     db.flush()
@@ -1291,13 +1396,18 @@ def seed_database(records: int, force: bool = False) -> None:
 
         if force:
             for model in [
+                DataExportEvent,
                 PasswordResetToken,
                 DocumentAccess,
                 SecureDocument,
+                SecurityIncident,
                 SecurityAudit,
+                SystemHealth,
                 MFAConfiguration,
                 UserSessionRecord,
                 AuthIdentity,
+                SidebarState,
+                UserPreference,
                 AuditLog,
                 WorkflowTimelineEvent,
                 WorkflowTransitionEvent,
@@ -1343,7 +1453,9 @@ def seed_database(records: int, force: bool = False) -> None:
                 Vendor,
                 User,
                 UserApprovalStatus,
-                ExternalOrganization,
+                AccountType,
+                DeploymentEnvironment,
+                Organization,
                 Role,
             ]:
                 db.execute(delete(model))

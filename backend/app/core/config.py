@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     encryption_key: str | None = Field(default=None, alias="ENCRYPTION_KEY")
     mfa_dev_bypass_code: str = Field(default="000000", alias="MFA_DEV_BYPASS_CODE")
     document_signed_url_minutes: int = Field(default=10, alias="DOCUMENT_SIGNED_URL_MINUTES")
+    app_base_url: str = Field(default="http://localhost:8501", alias="APP_BASE_URL")
+    email_provider: str = Field(default="console", alias="EMAIL_PROVIDER")
+    email_from: str = Field(default="no-reply@teemails.com", alias="EMAIL_FROM")
+    sendgrid_api_key: str | None = Field(default=None, alias="SENDGRID_API_KEY")
+    ses_region: str | None = Field(default=None, alias="SES_REGION")
+    mailgun_api_key: str | None = Field(default=None, alias="MAILGUN_API_KEY")
+    mailgun_domain: str | None = Field(default=None, alias="MAILGUN_DOMAIN")
+    backup_encryption_key: str | None = Field(default=None, alias="BACKUP_ENCRYPTION_KEY")
     database_url: str = Field(
         default="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow",
         alias="DATABASE_URL",

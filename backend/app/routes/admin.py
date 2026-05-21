@@ -9,19 +9,24 @@ from app.models import Role, RoleResponsibility, User
 from app.schemas import RoleRead, RoleResponsibilityRead, UserCreate, UserRead, UserUpdate
 from app.services.audit import log_audit, serialize_model
 from app.services.security_audit import log_security_event
+from app.services.system_health import collect_system_health
 
 router = APIRouter(prefix="/api/admin", tags=["System Administration"])
 
 USER_FIELDS = [
     "username",
     "full_name",
+    "display_name",
     "email",
     "role_id",
     "role",
     "department",
     "is_active",
+    "account_type",
     "user_type",
     "organization_id",
+    "is_internal",
+    "is_external",
     "external_user_flag",
     "approval_status",
     "identity_provider",
@@ -57,6 +62,16 @@ def role_responsibilities(
         )
         for role_name, item in rows
     ]
+
+
+@router.get("/system-health")
+def system_health(
+    _: User = Depends(require_permission("system.admin")),
+    db: Session = Depends(get_db),
+) -> dict:
+    payload = collect_system_health(db)
+    db.commit()
+    return payload
 
 
 @router.get("/users", response_model=list[UserRead])

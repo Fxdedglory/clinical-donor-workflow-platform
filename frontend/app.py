@@ -23,7 +23,14 @@ from components.ui import (
     last_updated,
     page_header,
 )
-from views import admin_portal, audit_logs, functional_routes, role_center, role_workspace
+from views import (
+    admin_portal,
+    audit_logs,
+    functional_routes,
+    role_center,
+    role_workspace,
+    system_health,
+)
 
 st.set_page_config(
     page_title="Clinical Donor Workflow",
@@ -32,6 +39,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+DEFAULT_PROFILE_PREFERENCES = {
+    "digest": True,
+    "sla_alerts": True,
+    "qms_alerts": True,
+    "ai_governance_alerts": True,
+}
+
 if "sidebar_compact" not in st.session_state:
     st.session_state.sidebar_compact = restored_sidebar_compact()
 if "pinned_records" not in st.session_state:
@@ -39,12 +53,7 @@ if "pinned_records" not in st.session_state:
 if "recently_viewed" not in st.session_state:
     st.session_state.recently_viewed = []
 if "profile_preferences" not in st.session_state:
-    st.session_state.profile_preferences = {
-        "digest": True,
-        "sla_alerts": True,
-        "qms_alerts": True,
-        "ai_governance_alerts": True,
-    }
+    st.session_state.profile_preferences = DEFAULT_PROFILE_PREFERENCES.copy()
 
 apply_theme(compact_sidebar=st.session_state.sidebar_compact)
 persist_sidebar_state()
@@ -54,6 +63,7 @@ ADMIN_PAGE_RENDERERS = {
     "admin_users": admin_portal.render,
     "audit_administration": audit_logs.render,
     "responsibility_center": role_center.render,
+    "system_health": system_health.render,
 }
 
 
@@ -68,8 +78,28 @@ def _preview_param(preview_role_id: int | None) -> str:
     return f"&preview_role_id={preview_role_id}" if preview_role_id else ""
 
 
+def _save_preferences(payload: dict) -> None:
+    if st.session_state.get("access_token"):
+        patch_json("/api/auth/me/preferences", payload)
+
+
+def _load_preferences() -> None:
+    if st.session_state.get("preferences_loaded"):
+        return
+    payload = get_json("/api/auth/me/preferences") or {}
+    st.session_state.sidebar_compact = bool(payload.get("sidebar_collapsed", st.session_state.sidebar_compact))
+    st.session_state.recently_viewed = payload.get("recently_viewed") or st.session_state.recently_viewed
+    st.session_state.pinned_records = payload.get("pinned_records") or st.session_state.pinned_records
+    st.session_state.profile_preferences = payload.get("notification_preferences") or DEFAULT_PROFILE_PREFERENCES.copy()
+    if not _query_value("route") and payload.get("last_route"):
+        st.query_params["route"] = payload["last_route"]
+    st.session_state.preferences_loaded = True
+    persist_sidebar_state()
+
+
 def set_route(route_path: str) -> None:
     st.query_params["route"] = route_path
+    _save_preferences({"last_route": route_path})
 
 
 def _clear_query_value(key: str) -> None:
@@ -217,7 +247,7 @@ def _render_quick_actions(active_role: str | None) -> None:
 
 
 def _render_user_menu(user: dict) -> None:
-    with st.popover(user["full_name"], width="stretch"):
+    with st.popover(user.get("display_name") or user["full_name"], width="stretch"):
         _route_button("Profile", "/profile", key="profile_link")
         if st.button("Preferences", key="preferences_link", width="stretch"):
             set_route("/profile")
@@ -278,27 +308,12 @@ def _render_system_notice() -> None:
     )
 
 
-def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:  # noqa: F811
-    left, search, quick, notices, profile = st.columns([0.06, 0.47, 0.10, 0.14, 0.23])
-    if left.button("☰", key="toggle_sidebar", width="stretch"):
-        st.session_state.sidebar_compact = not st.session_state.sidebar_compact
-        st.rerun()
-    with search:
-        _render_global_search(preview_role_id)
-    with quick:
-        _render_quick_actions(workspace.get("active_role"))
-    with notices:
-        render_notification_bell(workspace)
-    with profile:
-        _render_user_menu(user)
-    _render_system_notice()
-    _render_search_results(preview_role_id)
-
-
-def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:  # noqa: F811
+def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:
     left, search, quick, notices, profile = st.columns([0.06, 0.47, 0.10, 0.14, 0.23])
     if left.button("Menu", key="toggle_sidebar_v2", width="stretch"):
         st.session_state.sidebar_compact = not st.session_state.sidebar_compact
+        persist_sidebar_state()
+        _save_preferences({"sidebar_collapsed": st.session_state.sidebar_compact})
         st.rerun()
     with search:
         _render_global_search(preview_role_id)
@@ -333,69 +348,7 @@ def _nav_item(label: str, route_path: str, icon: str, current_route: str, key_pr
     )
 
 
-def render_operational_navigation(navigation: dict) -> None:  # noqa: F811
-    routes = _all_available_routes(navigation)
-    current_route = _current_route(navigation)
-    admin_only = navigation.get("active_role") == "System Administrator"
-
-    work_items: list[tuple[str, str, str]] = []
-    for label, options, icon in [
-        ("Assigned Tasks", ["/task"], "☑"),
-        ("Pending Reviews", ["/medical-review", "/qa-review", "/referral", "/screening"], "◇"),
-        ("Escalations", ["/escalation"], "!"),
-        ("SLA Risks", ["/sla", "/incident"], "⧖"),
-        ("Recent Notifications", ["/notification"], "•"),
-        ("Dashboard", ["/dashboard"], "▦"),
-    ]:
-        path = _preferred_route(routes, options)
-        if path:
-            work_items.append((label, path, icon))
-
-    record_items: list[tuple[str, str, str]] = []
-    for label, path, icon in [
-        ("Donors", "/donor", "○"),
-        ("Reviews", "/medical-review", "◇"),
-        ("Processing Release", "/processing-release", "▤"),
-        ("CAPAs", "/capa", "△"),
-        ("Investigations", "/investigation", "?"),
-        ("Notifications", "/notification", "•"),
-    ]:
-        if path in routes:
-            record_items.append((label, path, icon))
-
-    admin_items: list[tuple[str, str, str]] = []
-    for label, path, icon in [
-        ("Users", "/admin/users", "○"),
-        ("Roles", "/admin/roles", "◇"),
-        ("Workflow Configuration", "/admin/workflow-engine", "▦"),
-        ("System Health", "/admin/system-health", "+"),
-        ("Eligibility Rules", "/eligibility-rule", "✓"),
-        ("Audit Logs", "/admin/audit-logs", "▤"),
-    ]:
-        if path in routes:
-            admin_items.append((label, path, icon))
-
-    if not admin_only:
-        st.markdown("**My Work**")
-        for label, path, icon in work_items:
-            _nav_item(label, path, icon, current_route, "work")
-
-        st.divider()
-        if not st.session_state.sidebar_compact:
-            st.markdown("**Operations**")
-        for label, path, icon in record_items:
-            _nav_item(label, path, icon, current_route, "records")
-
-    if admin_items:
-        if not admin_only:
-            st.divider()
-        if not st.session_state.sidebar_compact:
-            st.markdown("**Administration**")
-        for label, path, icon in admin_items:
-            _nav_item(label, path, icon, current_route, "admin")
-
-
-def render_operational_navigation(navigation: dict) -> None:  # noqa: F811
+def render_operational_navigation(navigation: dict) -> None:
     routes = _all_available_routes(navigation)
     current_route = _current_route(navigation)
     admin_only = navigation.get("active_role") == "System Administrator"
@@ -483,7 +436,10 @@ def _remember_context(context: dict) -> None:
         return
     item = {"title": _record_title(context), "route_path": context["route_path"]}
     recent = [row for row in st.session_state.recently_viewed if row["route_path"] != item["route_path"]]
-    st.session_state.recently_viewed = [item, *recent][:8]
+    next_recent = [item, *recent][:8]
+    if next_recent != st.session_state.recently_viewed:
+        st.session_state.recently_viewed = next_recent
+        _save_preferences({"recently_viewed": st.session_state.recently_viewed, "last_route": context["route_path"]})
 
 
 def _render_record_shortcuts(context: dict | None = None) -> None:
@@ -498,6 +454,7 @@ def _render_record_shortcuts(context: dict | None = None) -> None:
                 ]
             else:
                 st.session_state.pinned_records = [item, *st.session_state.pinned_records][:10]
+            _save_preferences({"pinned_records": st.session_state.pinned_records})
             st.rerun()
 
     if st.session_state.pinned_records:
@@ -516,12 +473,15 @@ def render_profile(user: dict, permissions: set[str]) -> None:
     profile_tab, pref_tab, security_tab = st.tabs(["Profile", "Preferences", "Security"])
     with profile_tab:
         with st.form("profile_form"):
-            display_name = st.text_input("Display name", value=user["full_name"])
+            display_name = st.text_input("Display name", value=user.get("display_name") or user["full_name"])
             email = st.text_input("Email", value=user["email"])
             avatar = st.file_uploader("Avatar", type=["png", "jpg", "jpeg"])
             submitted = st.form_submit_button("Save Profile")
         if submitted:
-            updated = patch_json("/api/auth/me", {"full_name": display_name, "email": email})
+            updated = patch_json(
+                "/api/auth/me",
+                {"full_name": user["full_name"], "display_name": display_name, "email": email},
+            )
             if updated:
                 st.session_state.user = updated
                 st.success("Profile updated.")
@@ -553,7 +513,8 @@ def render_profile(user: dict, permissions: set[str]) -> None:
             saved = st.form_submit_button("Save Preferences")
         if saved:
             st.session_state.profile_preferences = prefs
-            st.success("Notification preferences updated for this session.")
+            _save_preferences({"notification_preferences": prefs})
+            st.success("Notification preferences updated.")
 
     with security_tab:
         with st.form("password_form"):
@@ -671,6 +632,8 @@ if "user" not in st.session_state:
     render_login()
     st.stop()
 
+_load_preferences()
+apply_theme(compact_sidebar=st.session_state.sidebar_compact)
 user = st.session_state.user
 persist_auth_cookies()
 permissions = set(user.get("permissions", []))

@@ -9,6 +9,7 @@ class UserSession(BaseModel):
     user_id: int
     username: str
     full_name: str
+    display_name: str | None = None
     email: str
     role_name: str
     permissions: list[str]

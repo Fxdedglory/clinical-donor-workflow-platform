@@ -19,8 +19,10 @@ clinical-donor-workflow-platform/
 |   |   |   |-- document_security.py
 |   |   |   |-- eligibility_engine.py
 |   |   |   |-- encryption.py
+|   |   |   |-- email.py
 |   |   |   |-- functional_routes.py
 |   |   |   |-- security_audit.py
+|   |   |   |-- system_health.py
 |   |   |   |-- workflow_orchestration.py
 |   |   |   |-- workspace_config.py
 |   |   |   |-- workspace_engine.py
@@ -34,6 +36,7 @@ clinical-donor-workflow-platform/
 |   |-- views/
 |   |   |-- functional_routes.py
 |   |   |-- role_workspace.py
+|   |   |-- system_health.py
 |   |   |-- admin_portal.py
 |   |   `-- ...
 |   `-- app.py
@@ -41,6 +44,7 @@ clinical-donor-workflow-platform/
 |   |-- ddl/
 |   |-- migrations/
 |   |   |-- versions/
+|   |   |   |-- 202605210001_production_external_identity.py
 |   |   |   |-- 202605200003_security_compliance_hardening.py
 |   |   |   |-- 202605200002_donor_eligibility_qms.py
 |   |   |   |-- 202605200001_workflow_orchestration.py
@@ -50,6 +54,9 @@ clinical-donor-workflow-platform/
 |-- docker/
 |   `-- nginx.conf
 |-- docs/
+|   |-- BACKUP_RECOVERY.md
+|   |-- PROD_DEPLOYMENT.md
+|   |-- SECURITY_ARCHITECTURE.md
 |   |-- architecture.md
 |   |-- data-contract.md
 |   |-- resume-positioning.md

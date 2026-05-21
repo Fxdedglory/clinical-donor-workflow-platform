@@ -10,6 +10,8 @@ This project simulates internal donor-services and regulated tissue-processing s
 
 The latest upgrade adds security, compliance, and production-hardening foundations on top of the donor eligibility decision engine and QMS workflow expansion. Routes represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
 
+The production deployment upgrade adds native platform identity, organization scoping foundations, persistent UX preferences, SysAdmin system health monitoring, encrypted backup support, Nginx/TLS deployment configuration for `teemails.com`, and supplier/partner account foundations without requiring external identity-provider dependencies.
+
 Resume themes demonstrated:
 
 - Enterprise healthcare workflow systems analysis
@@ -112,9 +114,16 @@ Core enterprise tables:
 - `operational.dim_mfa_configuration`
 - `operational.dim_secure_document`
 - `operational.fact_document_access`
-- `operational.dim_external_organization`
+- `operational.dim_organization`
+- `operational.dim_account_type`
+- `operational.dim_user_preference`
+- `operational.dim_sidebar_state`
+- `operational.dim_deployment_environment`
 - `operational.dim_user_approval_status`
 - `operational.fact_password_reset_token`
+- `operational.fact_system_health`
+- `operational.fact_security_incident`
+- `operational.fact_data_export`
 
 Legacy compatibility, QMS, and vendor tables:
 
@@ -134,8 +143,10 @@ Legacy compatibility, QMS, and vendor tables:
 - Security audit log for login, logout, failed login, MFA verification, password reset, sensitive record access, route denial, document access, workflow transitions, user changes, and session revocation
 - Secure document handling with access-controlled document listing, signed document links, token expiration, and download audit logging
 - FDA 21 CFR Part 11 concept modeling through authenticated workflow actions, electronic signature metadata, attributable timestamps, immutable-style transition history, and before/after audit trails
-- Supplier portal identity foundations with internal/external user type, organization linkage, approval status, identity provider, MFA enablement, and future external organization scoping
-- Production deployment scaffolding with Nginx reverse proxy, HTTPS/HSTS headers, teemails.com routing, and daily PostgreSQL backup container
+- Supplier portal identity foundations with native account types, organization linkage, approval status, MFA enablement, and future organization-scoped external access
+- Persistent user preferences for sidebar collapse state, last route, recently viewed records, pinned records, and notification preferences
+- SysAdmin System Health surface for DB, auth, email, document storage, backup posture, uptime, and active sessions
+- Production deployment scaffolding with Nginx reverse proxy, HTTPS/HSTS/CSP headers, teemails.com routing, Certbot renewal support, and encrypted daily PostgreSQL backup container
 - Seven enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst
 - Role-permission bridge for route-level authorization
 - Function-first enterprise routing for master data, workflow operations, analytics, and administration routes
@@ -245,6 +256,12 @@ Services:
 
 The backend container runs Alembic migrations and seeds demo data on startup.
 
+Production deployment and recovery runbooks:
+
+- `docs/PROD_DEPLOYMENT.md`
+- `docs/SECURITY_ARCHITECTURE.md`
+- `docs/BACKUP_RECOVERY.md`
+
 ### Run Locally with uv
 
 Start PostgreSQL first, then from the repository root:
@@ -330,6 +347,6 @@ uv run streamlit run frontend/app.py
 - Approval-chain designer for QMS and donor exceptions
 - Email, Teams, Slack, and SMS notification adapters
 - Power BI export or semantic model integration
-- Azure deployment path
+- Platform-native production deployment runbook for `teemails.com`
 - SharePoint document-control integration
 - Deeper non-conformance and CAPA lifecycle expansion

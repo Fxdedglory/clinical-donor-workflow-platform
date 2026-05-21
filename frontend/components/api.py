@@ -162,6 +162,7 @@ def login(username: str, password: str) -> bool:
     st.session_state.user = payload["user"]
     st.session_state.pop("pending_mfa", None)
     st.session_state.pop("pending_mfa_username", None)
+    st.session_state.pop("preferences_loaded", None)
     persist_auth_cookies()
     return True
 
@@ -188,6 +189,7 @@ def verify_mfa(code: str) -> bool:
     st.session_state.user = payload["user"]
     st.session_state.pop("pending_mfa", None)
     st.session_state.pop("pending_mfa_username", None)
+    st.session_state.pop("preferences_loaded", None)
     persist_auth_cookies()
     return True
 
@@ -199,5 +201,6 @@ def logout() -> None:
     st.session_state.pop("refresh_token", None)
     st.session_state.pop("user", None)
     st.session_state.pop("pending_mfa", None)
+    st.session_state.pop("preferences_loaded", None)
     clear_auth_cookies()
 

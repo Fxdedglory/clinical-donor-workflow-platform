@@ -23,13 +23,17 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: str | None = None
+    display_name: str | None = None
     email: str | None = None
     password: str | None = None
     role_id: int | None = None
     department: str | None = None
     is_active: bool | None = None
+    account_type: str | None = None
     user_type: str | None = None
     organization_id: int | None = None
+    is_internal: bool | None = None
+    is_external: bool | None = None
     external_user_flag: bool | None = None
     approval_status: str | None = None
     identity_provider: str | None = None
@@ -42,16 +46,20 @@ class UserRead(BaseModel):
     user_id: int
     username: str | None
     full_name: str
+    display_name: str | None = None
     email: str
     role_id: int | None
     role: str
     department: str
     is_active: bool
-    user_type: str = "Internal"
+    account_type: str = "internal"
+    user_type: str = "internal"
     organization_id: int | None = None
+    is_internal: bool = True
+    is_external: bool = False
     external_user_flag: bool = False
     approval_status: str = "Approved"
-    identity_provider: str = "Local"
+    identity_provider: str = "Platform Native"
     mfa_enabled: bool = False
     last_login: datetime | None
     created_at: datetime

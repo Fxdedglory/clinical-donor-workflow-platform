@@ -21,9 +21,17 @@ from app.auth.security import (
 )
 from app.core.config import settings
 from app.database import get_db
-from app.models import MFAConfiguration, PasswordResetToken, User, UserSessionRecord
+from app.models import (
+    MFAConfiguration,
+    PasswordResetToken,
+    SidebarState,
+    User,
+    UserPreference,
+    UserSessionRecord,
+)
 from app.schemas.auth import RefreshTokenRequest, TokenResponse, UserSession
 from app.services.audit import log_audit
+from app.services.email import EmailMessage, EmailType, send_email
 from app.services.security_audit import (
     hash_token,
     log_security_event,
@@ -47,6 +55,7 @@ REFRESH_COOKIE = "cdwp_refresh_token"
 
 class ProfileUpdate(BaseModel):
     full_name: str | None = None
+    display_name: str | None = None
     email: str | None = None
 
 
@@ -69,6 +78,15 @@ class PasswordResetConfirm(BaseModel):
     new_password: str
 
 
+class PreferenceUpdate(BaseModel):
+    sidebar_collapsed: bool | None = None
+    last_route: str | None = None
+    recently_viewed: list[dict] | None = None
+    pinned_records: list[dict] | None = None
+    notification_preferences: dict | None = None
+    theme_preferences: dict | None = None
+
+
 def _session_for_user(db: Session, user: User) -> UserSession:
     role_name = user.role_ref.role_name if user.role_ref else user.role
     permissions = get_user_permissions(db, user)
@@ -76,6 +94,7 @@ def _session_for_user(db: Session, user: User) -> UserSession:
         user_id=user.user_id,
         username=user.username or "",
         full_name=user.full_name,
+        display_name=user.display_name,
         email=user.email,
         role_name=role_name,
         permissions=permissions,
@@ -175,6 +194,55 @@ def _update_password_hash(user: User, password: str) -> None:
     user.password_expires_at = datetime.now(UTC) + timedelta(days=settings.password_expiration_days)
 
 
+def _sidebar_state_for(db: Session, user: User) -> SidebarState:
+    state = db.execute(select(SidebarState).where(SidebarState.user_id == user.user_id)).scalar_one_or_none()
+    if state:
+        return state
+    state = SidebarState(user_id=user.user_id)
+    db.add(state)
+    db.flush()
+    return state
+
+
+def _preference_for(db: Session, user: User, key: str) -> UserPreference:
+    preference = db.execute(
+        select(UserPreference).where(
+            UserPreference.user_id == user.user_id,
+            UserPreference.preference_key == key,
+        )
+    ).scalar_one_or_none()
+    if preference:
+        return preference
+    preference = UserPreference(user_id=user.user_id, preference_key=key, preference_value={})
+    db.add(preference)
+    db.flush()
+    return preference
+
+
+def _preference_payload(db: Session, user: User) -> dict:
+    state = _sidebar_state_for(db, user)
+    preferences = {
+        row.preference_key: row.preference_value
+        for row in db.execute(select(UserPreference).where(UserPreference.user_id == user.user_id)).scalars()
+    }
+    return {
+        "sidebar_collapsed": state.sidebar_collapsed,
+        "last_route": state.last_route,
+        "recently_viewed": state.recently_viewed,
+        "pinned_records": state.pinned_records,
+        "notification_preferences": preferences.get(
+            "notification_preferences",
+            {
+                "digest": True,
+                "sla_alerts": True,
+                "qms_alerts": True,
+                "ai_governance_alerts": True,
+            },
+        ),
+        "theme_preferences": preferences.get("theme_preferences", {"mode": "light"}),
+    }
+
+
 @router.post("/login", response_model=None)
 def login(
     request: Request,
@@ -196,7 +264,12 @@ def login(
         db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account temporarily locked")
 
-    if not user or not user.is_active or not verify_password(form_data.password, user.hashed_password):
+    if (
+        not user
+        or not user.is_active
+        or user.is_archived
+        or not verify_password(form_data.password, user.hashed_password)
+    ):
         if user:
             user.failed_login_count = (user.failed_login_count or 0) + 1
             if user.failed_login_count >= settings.max_failed_login_attempts:
@@ -243,6 +316,18 @@ def login(
             user_id=user.user_id,
             request=request,
             details={"method": "TOTP_OR_EMAIL_OTP"},
+        )
+        send_email(
+            db,
+            EmailMessage(
+                to_email=user.email,
+                subject="Clinical Donor Workflow MFA verification",
+                body="A sign-in attempt requires MFA verification. Use your authenticator or approved OTP method.",
+                email_type=EmailType.MFA_VERIFICATION,
+                metadata={"method": "TOTP_OR_EMAIL_OTP"},
+            ),
+            user_id=user.user_id,
+            request=request,
         )
         db.commit()
         return {
@@ -424,6 +509,51 @@ def me(current_user: User = Depends(get_current_user), db: Session = Depends(get
     return _session_for_user(db, current_user)
 
 
+@router.get("/me/preferences")
+def get_preferences(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    payload = _preference_payload(db, current_user)
+    db.commit()
+    return payload
+
+
+@router.patch("/me/preferences")
+def update_preferences(
+    payload: PreferenceUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    state = _sidebar_state_for(db, current_user)
+    updates = payload.model_dump(exclude_unset=True)
+    if "sidebar_collapsed" in updates:
+        state.sidebar_collapsed = bool(updates["sidebar_collapsed"])
+    if updates.get("last_route"):
+        state.last_route = updates["last_route"]
+    if "recently_viewed" in updates and updates["recently_viewed"] is not None:
+        state.recently_viewed = updates["recently_viewed"][:12]
+    if "pinned_records" in updates and updates["pinned_records"] is not None:
+        state.pinned_records = updates["pinned_records"][:20]
+    if "notification_preferences" in updates and updates["notification_preferences"] is not None:
+        preference = _preference_for(db, current_user, "notification_preferences")
+        preference.preference_value = updates["notification_preferences"]
+    if "theme_preferences" in updates and updates["theme_preferences"] is not None:
+        preference = _preference_for(db, current_user, "theme_preferences")
+        preference.preference_value = updates["theme_preferences"]
+
+    log_security_event(
+        db,
+        event_type="USER_PREFERENCE_UPDATE",
+        user_id=current_user.user_id,
+        request=request,
+        details={"fields": sorted(updates.keys())},
+    )
+    db.commit()
+    return _preference_payload(db, current_user)
+
+
 @router.patch("/me", response_model=UserSession)
 def update_profile(
     payload: ProfileUpdate,
@@ -431,7 +561,11 @@ def update_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UserSession:
-    old_value = {"full_name": current_user.full_name, "email": current_user.email}
+    old_value = {
+        "full_name": current_user.full_name,
+        "display_name": current_user.display_name,
+        "email": current_user.email,
+    }
     if payload.email and payload.email != current_user.email:
         existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
         if existing:
@@ -439,6 +573,8 @@ def update_profile(
         current_user.email = payload.email
     if payload.full_name:
         current_user.full_name = payload.full_name
+    if payload.display_name is not None:
+        current_user.display_name = payload.display_name or None
     log_audit(
         db,
         user_id=current_user.user_id,
@@ -446,7 +582,11 @@ def update_profile(
         table_name="dim_user",
         record_id=str(current_user.user_id),
         old_value=old_value,
-        new_value={"full_name": current_user.full_name, "email": current_user.email},
+        new_value={
+            "full_name": current_user.full_name,
+            "display_name": current_user.display_name,
+            "email": current_user.email,
+        },
         ip_address=request_ip(request),
     )
     log_security_event(db, event_type="PROFILE_UPDATE", user_id=current_user.user_id, request=request)
@@ -521,6 +661,22 @@ def request_password_reset(
             user_id=user.user_id,
             request=request,
             details={"reset_id": reset.reset_id},
+        )
+        reset_url = f"{settings.app_base_url.rstrip('/')}/?reset_token={demo_token}"
+        send_email(
+            db,
+            EmailMessage(
+                to_email=user.email,
+                subject="Clinical Donor Workflow password reset",
+                body=(
+                    "A password reset was requested for your Clinical Donor Workflow account. "
+                    f"Use this single-use link within 30 minutes: {reset_url}"
+                ),
+                email_type=EmailType.PASSWORD_RESET,
+                metadata={"reset_id": reset.reset_id},
+            ),
+            user_id=user.user_id,
+            request=request,
         )
     db.commit()
     response = {"status": "If the account exists, a reset link has been sent."}
