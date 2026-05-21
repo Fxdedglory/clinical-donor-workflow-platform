@@ -19,6 +19,7 @@ from app.routes import (
     escalations,
     functional_routes,
     notifications,
+    partners,
     reviews,
     risk_analysis,
     suppliers,
@@ -75,6 +76,7 @@ app.include_router(ai_governance.router)
 app.include_router(admin.router)
 app.include_router(workflow_tasks.router)
 app.include_router(notifications.router)
+app.include_router(partners.router)
 app.include_router(escalations.router)
 app.include_router(training.router)
 app.include_router(enterprise_dashboard.router)

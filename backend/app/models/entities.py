@@ -130,7 +130,7 @@ class SupplierRelationship(Base):
     external_organization_id: Mapped[int] = mapped_column(
         ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
     )
-    relationship_type: Mapped[str] = mapped_column(String(80), nullable=False, default="Supplier")
+    relationship_type: Mapped[str] = mapped_column(String(80), nullable=False, default="Partner")
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="Pending Approval")
     onboarding_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Invited")
     risk_tier: Mapped[str] = mapped_column(String(40), nullable=False, default="Medium")
@@ -146,6 +146,186 @@ class SupplierRelationship(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ExternalStatusMapping(Base):
+    __tablename__ = "dim_external_status_mapping"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    mapping_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    internal_state: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    external_status: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    external_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class PartnerSubmission(Base):
+    __tablename__ = "dim_partner_submission"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    submission_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    submission_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    submitted_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    submission_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    partner_visible_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Submitted", index=True)
+    internal_state: Mapped[str] = mapped_column(String(120), nullable=False, default="Pending Intake Validation")
+    priority: Mapped[str] = mapped_column(String(40), nullable=False, default="Standard")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    product_or_tissue: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    batch_or_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    estimated_completion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+
+class PartnerSubmissionStatus(Base):
+    __tablename__ = "fact_partner_submission_status"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    status_event_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    submission_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_partner_submission.submission_id"), nullable=False, index=True
+    )
+    from_status: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    internal_state: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    changed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    partner_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class PartnerMessage(Base):
+    __tablename__ = "fact_partner_message"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    message_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    submission_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_partner_submission.submission_id"), nullable=True, index=True
+    )
+    complaint_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_partner_complaint.complaint_id"), nullable=True, index=True
+    )
+    sender_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    audience: Mapped[str] = mapped_column(String(40), nullable=False, default="Partner")
+    subject: Mapped[str] = mapped_column(String(180), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    attachment_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_secure_document.document_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class PartnerComplaint(Base):
+    __tablename__ = "fact_partner_complaint"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    complaint_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    complaint_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    submitted_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    product_or_batch: Mapped[str] = mapped_column(String(160), nullable=False)
+    issue_category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False, default="Medium", index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    impact_assessment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    contact_email: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    partner_visible_status: Mapped[str] = mapped_column(String(80), nullable=False, default="Submitted", index=True)
+    internal_state: Mapped[str] = mapped_column(String(120), nullable=False, default="Pending QA Review")
+    investigation_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_deviation.deviation_id"), nullable=True
+    )
+    capa_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_capa.capa_id"), nullable=True
+    )
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class PartnerDocument(Base):
+    __tablename__ = "dim_partner_document"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    partner_document_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_secure_document.document_id"), nullable=False, unique=True, index=True
+    )
+    submission_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_partner_submission.submission_id"), nullable=True, index=True
+    )
+    complaint_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_partner_complaint.complaint_id"), nullable=True, index=True
+    )
+    document_category: Mapped[str] = mapped_column(String(80), nullable=False, default="Submission Evidence")
+    request_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Submitted")
+    partner_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
+class PartnerTaskResponse(Base):
+    __tablename__ = "fact_partner_task_response"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    response_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_workflow_task.task_id"), nullable=False, index=True
+    )
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_organization.organization_id"), nullable=False, index=True
+    )
+    responded_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    response_status: Mapped[str] = mapped_column(String(60), nullable=False, default="Submitted")
+    response_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    attachment_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_secure_document.document_id"), nullable=True
+    )
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
 
 
 class AccountType(Base):

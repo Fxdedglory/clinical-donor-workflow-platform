@@ -9,6 +9,7 @@ clinical-donor-workflow-platform/
 |   |   |   |-- documents.py
 |   |   |   |-- eligibility.py
 |   |   |   |-- functional_routes.py
+|   |   |   |-- partners.py
 |   |   |   |-- suppliers.py
 |   |   |   |-- workspaces.py
 |   |   |   |-- workflow_tasks.py
@@ -37,8 +38,8 @@ clinical-donor-workflow-platform/
 |   |-- pages/
 |   |-- views/
 |   |   |-- functional_routes.py
+|   |   |-- partner_portal.py
 |   |   |-- role_workspace.py
-|   |   |-- supplier_portal.py
 |   |   |-- system_health.py
 |   |   |-- admin_portal.py
 |   |   `-- ...
@@ -47,6 +48,7 @@ clinical-donor-workflow-platform/
 |   |-- ddl/
 |   |-- migrations/
 |   |   |-- versions/
+|   |   |   |-- 202605210003_partner_portal_lifecycle.py
 |   |   |   |-- 202605210001_production_external_identity.py
 |   |   |   |-- 202605210002_supplier_portal_multi_tenant.py
 |   |   |   |-- 202605200003_security_compliance_hardening.py

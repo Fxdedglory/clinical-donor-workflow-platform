@@ -10,7 +10,7 @@ This project simulates internal donor-services and regulated tissue-processing s
 
 The latest upgrade adds security, compliance, and production-hardening foundations on top of the donor eligibility decision engine and QMS workflow expansion. Routes represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
 
-The latest upgrade adds a supplier portal and multi-tenant collaboration foundation: supplier organizations, external supplier users, invitation and approval flows, organization-scoped task/document/signature access, supplier dashboards, background-event records, and supplier auditability without requiring Azure or external identity-provider dependencies.
+The latest upgrade replaces supplier-inside-the-platform access with a bounded Partner Portal: external partner organizations get a simplified submission lifecycle, quality complaint intake, document exchange, task responses, partner-visible status tracking, invitation/approval flows, and organization-scoped auditability without exposing internal donor operations or requiring Azure identity dependencies.
 
 Resume themes demonstrated:
 
@@ -132,6 +132,13 @@ Core enterprise tables:
 - `operational.fact_realtime_event`
 - `operational.dim_training_record`
 - `operational.fact_validation_evidence`
+- `operational.dim_external_status_mapping`
+- `operational.dim_partner_submission`
+- `operational.fact_partner_submission_status`
+- `operational.fact_partner_message`
+- `operational.fact_partner_complaint`
+- `operational.dim_partner_document`
+- `operational.fact_partner_task_response`
 
 Legacy compatibility, QMS, and vendor tables:
 
@@ -152,23 +159,23 @@ Legacy compatibility, QMS, and vendor tables:
 - Security audit log for login, logout, failed login, MFA verification, password reset, sensitive record access, route denial, document access, workflow transitions, user changes, and session revocation
 - Secure document handling with access-controlled document listing, signed document links, token expiration, and download audit logging
 - FDA 21 CFR Part 11 concept modeling through authenticated workflow actions, electronic signature metadata, attributable timestamps, immutable-style transition history, and before/after audit trails
-- Supplier portal with organization-scoped external login, MFA, supplier task queue, document requests, supplier approvals, and activity feed
-- Supplier invitation and approval workflow with signed onboarding links, approval states, platform-native external accounts, and security audit logging
-- Multi-tenant organization isolation for supplier users across workflow tasks, documents, notifications, route resolution, and search
-- Organization-scoped document exchange with document version records, document access logs, supplier-submitted classification, internal review outcomes, supplier notifications, and review status
+- Partner Portal with organization-scoped external login, MFA, submission lifecycle tracking, quality complaint intake, partner task responses, document requests, approvals, and partner-visible activity
+- Partner invitation and approval workflow with signed onboarding links, approval states, platform-native external accounts, and security audit logging
+- Multi-tenant organization isolation for partner users across workflow tasks, submissions, complaints, documents, notifications, route resolution, and search
+- Organization-scoped document exchange with document version records, document access logs, partner-submitted classification, internal review outcomes, partner notifications, and review status
 - Electronic signature events with re-authentication, signature reason, signature meaning, timestamp, user attribution, and immutable-style signature hash
-- Background job and realtime event foundation for SLA monitoring, supplier notifications, document workflows, and future live activity streams
+- Background job and realtime event foundation for SLA monitoring, partner notifications, document workflows, and future live activity streams
 - Persistent user preferences for sidebar collapse state, last route, recently viewed records, pinned records, and notification preferences
 - SysAdmin System Health surface for DB, auth, email, document storage, backup posture, uptime, and active sessions
 - Production deployment scaffolding with Cloudflare Tunnel, optional Nginx reverse proxy, HTTPS/HSTS/CSP headers, teemails.com routing, Certbot renewal support, and encrypted daily PostgreSQL backup container
-- Eight enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst, Supplier External User
+- Eight enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst, Partner External User
 - Role-permission bridge for route-level authorization
 - Function-first enterprise routing for master data, workflow operations, analytics, and administration routes
 - Route context resolver that parses URL query parameters, validates role visibility, loads master/workflow data, builds breadcrumbs, and returns authorized actions
 - Master data routes including `/donor`, `/eligibility-rule`, `/infectious-disease-test`, `/tissue-type`, `/release`, `/deviation`, `/capa`, `/investigation`, `/vendor`, `/sop`, `/user`, and `/ai-rule`
 - Workflow routes including `/referral`, `/screening`, `/medical-review`, `/qa-review`, `/recovery`, `/processing-release`, `/workflow`, `/escalation`, `/incident`, `/task`, and `/notification`
 - Analytics routes including `/dashboard`, `/operations`, `/workload`, `/sla`, `/drift-analysis`, and `/workflow-intelligence`
-- Supplier collaboration routes including `/supplier`, `/supplier-documents`, `/supplier-approvals`, and `/admin/suppliers`
+- Partner collaboration routes including `/partner`, `/partner/submission`, `/partner/complaint`, `/partner/documents`, and `/admin/partners`
 - Dynamic workspace engine that generates navigation, widgets, KPIs, queues, workbench columns, and task actions from role metadata
 - Centralized workflow orchestration engine for state validation, role authorization, decision matrices, SLA timers, task creation, notifications, audit events, and transition history
 - Expanded workflow state machine for Referral Received, Intake In Progress, Pending Administrative Screen, Pending Medical Social History Review, Pending Infectious Disease Review, Pending Tissue Suitability Review, Pending Recovery Suitability Review, Pending Medical Director Review, Pending QA Review, Recovery Authorized, Processing Hold, Pending Processing Release, Released for Clinical Use, Released for Research Use, Quarantine, Rejected, Destroyed, and Closed
@@ -227,7 +234,7 @@ Demo users:
 - `vendorops` - Vendor Operations Analyst
 - `opsmanager` - Operations Manager
 - `analyst` - Business Technology Analyst
-- `supplier` - Supplier External User
+- `partner` - Partner External User
 
 ## Screenshots
 

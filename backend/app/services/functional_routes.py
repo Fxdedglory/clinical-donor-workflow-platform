@@ -24,6 +24,9 @@ from app.models import (
     MedicalSocialHistory,
     Notification,
     Organization,
+    PartnerComplaint,
+    PartnerDocument,
+    PartnerSubmission,
     ProcessingRelease,
     RecoverySuitability,
     Role,
@@ -99,9 +102,10 @@ ROUTE_DEFINITIONS = [
             {"route_path": "/incident", "label": "Incident", "permissions": ["vendors.read", "vendors.manage"]},
             {"route_path": "/task", "label": "Task", "permissions": ["tasks.read", "tasks.manage"]},
             {"route_path": "/notification", "label": "Notification", "permissions": ["notifications.read", "notifications.manage"]},
-            {"route_path": "/supplier", "label": "Supplier Portal", "permissions": ["supplier.portal"]},
-            {"route_path": "/supplier-documents", "label": "Supplier Documents", "permissions": ["supplier.portal", "suppliers.read"]},
-            {"route_path": "/supplier-approvals", "label": "Supplier Approvals", "permissions": ["supplier.portal", "suppliers.read"]},
+            {"route_path": "/partner", "label": "Partner Portal", "permissions": ["partner.portal"]},
+            {"route_path": "/partner/submission", "label": "Submissions", "permissions": ["partner.portal", "partners.read"]},
+            {"route_path": "/partner/complaint", "label": "Quality Complaints", "permissions": ["partner.portal", "partners.read"]},
+            {"route_path": "/partner/documents", "label": "Documents", "permissions": ["partner.portal", "partners.read"]},
         ],
     },
     {
@@ -122,7 +126,7 @@ ROUTE_DEFINITIONS = [
             {"route_path": "/admin/workspaces", "label": "Workspaces", "permissions": ["workflow.configure"]},
             {"route_path": "/admin/permissions", "label": "Permissions", "permissions": ["roles.manage"]},
             {"route_path": "/admin/audit-logs", "label": "Audit Logs", "permissions": ["audit.review"]},
-            {"route_path": "/admin/suppliers", "label": "Suppliers", "permissions": ["suppliers.manage"]},
+            {"route_path": "/admin/partners", "label": "Partners", "permissions": ["partners.manage", "suppliers.manage"]},
             {"route_path": "/admin/responsibility-center", "label": "Responsibility Center", "permissions": ["system.admin"]},
             {"route_path": "/admin/system-health", "label": "System Health", "permissions": ["system.admin"]},
         ],
@@ -200,7 +204,8 @@ def default_route_for_role(role_name: str, groups: list[dict[str, Any]] | None =
         "Vendor Operations Analyst": "/dashboard",
         "Operations Manager": "/dashboard",
         "Business Technology Analyst": "/dashboard",
-        "Supplier External User": "/supplier",
+        "Partner External User": "/partner",
+        "Supplier External User": "/partner",
     }
     default = defaults.get(role_name)
     if default:
@@ -277,9 +282,9 @@ def route_path_for_record(
     if record_type == "EscalationEvent":
         return f"/escalation/{record_id}"
     if record_type == "SecureDocument":
-        return f"/supplier-documents/{record_id}"
+        return f"/partner/documents/{record_id}"
     if record_type == "Organization":
-        return f"/admin/suppliers/{record_id}"
+        return f"/admin/partners/{record_id}"
     if task_id:
         return f"/task/{task_id}"
     return f"/workflow/{record_id}"
@@ -309,6 +314,8 @@ def _route_parts(route_path: str) -> tuple[str, str | None]:
     key = parts[0]
     if key == "admin" and len(parts) > 1:
         return f"admin/{parts[1]}", parts[2] if len(parts) > 2 else None
+    if key == "partner" and len(parts) > 1:
+        return f"partner/{parts[1]}", parts[2] if len(parts) > 2 else None
     return key, parts[1] if len(parts) > 1 else None
 
 
@@ -343,6 +350,10 @@ def _route_group(route_key: str) -> str:
         "incident",
         "task",
         "notification",
+        "partner",
+        "partner/submission",
+        "partner/complaint",
+        "partner/documents",
         "supplier",
         "supplier-documents",
         "supplier-approvals",
@@ -377,9 +388,13 @@ def _route_label(route_key: str) -> str:
         "incident": "Incident",
         "task": "Task",
         "notification": "Notification",
-        "supplier": "Supplier Portal",
-        "supplier-documents": "Supplier Documents",
-        "supplier-approvals": "Supplier Approvals",
+        "partner": "Partner Portal",
+        "partner/submission": "Submissions",
+        "partner/complaint": "Quality Complaints",
+        "partner/documents": "Documents",
+        "supplier": "Partner Portal",
+        "supplier-documents": "Partner Documents",
+        "supplier-approvals": "Partner Approvals",
         "dashboard": "Dashboard",
         "operations": "Dashboard",
         "workload": "Dashboard",
@@ -392,7 +407,8 @@ def _route_label(route_key: str) -> str:
         "admin/workspaces": "Workspace Configuration",
         "admin/permissions": "Permissions",
         "admin/audit-logs": "Audit Logs",
-        "admin/suppliers": "Supplier Administration",
+        "admin/partners": "Partner Administration",
+        "admin/suppliers": "Partner Administration",
         "admin/responsibility-center": "Responsibility Center",
         "admin/system-health": "System Health",
     }
@@ -416,7 +432,7 @@ def _task_query_for_role(db: Session, role: Role, current_user: User | None = No
 
 
 def _collection_rows(db: Session, route_key: str, role: Role, current_user: User) -> list[dict[str, Any]]:
-    if route_key == "supplier":
+    if route_key in {"partner", "supplier"}:
         return [
             _model_dict(
                 task,
@@ -452,7 +468,7 @@ def _collection_rows(db: Session, route_key: str, role: Role, current_user: User
                     "created_at",
                 ],
             )
-            | {"route_path": f"/supplier-documents/{document.document_id}"}
+            | {"route_path": f"/partner/documents/{document.document_id}"}
             for document in db.execute(query).scalars().all()
         ]
     if route_key == "supplier-approvals":
@@ -474,7 +490,84 @@ def _collection_rows(db: Session, route_key: str, role: Role, current_user: User
             )
             for signature in db.execute(query).scalars().all()
         ]
-    if route_key == "admin/suppliers":
+    if route_key == "partner/submission":
+        query = (
+            select(PartnerSubmission)
+            .where(PartnerSubmission.is_archived.is_(False))
+            .order_by(desc(PartnerSubmission.submitted_at))
+            .limit(200)
+        )
+        query = apply_org_scope(query, PartnerSubmission, current_user)
+        return [
+            _model_dict(
+                submission,
+                [
+                    "submission_id",
+                    "submission_code",
+                    "submission_type",
+                    "title",
+                    "partner_visible_status",
+                    "priority",
+                    "product_or_tissue",
+                    "batch_or_reference",
+                    "estimated_completion_at",
+                    "submitted_at",
+                ],
+            )
+            | {"route_path": f"/partner/submission/{submission.submission_code}"}
+            for submission in db.execute(query).scalars().all()
+        ]
+    if route_key == "partner/complaint":
+        query = (
+            select(PartnerComplaint)
+            .where(PartnerComplaint.is_archived.is_(False))
+            .order_by(desc(PartnerComplaint.submitted_at))
+            .limit(200)
+        )
+        query = apply_org_scope(query, PartnerComplaint, current_user)
+        return [
+            _model_dict(
+                complaint,
+                [
+                    "complaint_id",
+                    "complaint_code",
+                    "product_or_batch",
+                    "issue_category",
+                    "severity",
+                    "partner_visible_status",
+                    "submitted_at",
+                    "closed_at",
+                ],
+            )
+            | {"route_path": f"/partner/complaint/{complaint.complaint_code}"}
+            for complaint in db.execute(query).scalars().all()
+        ]
+    if route_key == "partner/documents":
+        query = (
+            select(SecureDocument)
+            .join(PartnerDocument, PartnerDocument.document_id == SecureDocument.document_id, isouter=True)
+            .where(SecureDocument.is_active.is_(True))
+            .order_by(desc(SecureDocument.created_at))
+            .limit(200)
+        )
+        query = apply_org_scope(query, SecureDocument, current_user)
+        return [
+            _model_dict(
+                document,
+                [
+                    "document_id",
+                    "record_type",
+                    "record_id",
+                    "document_name",
+                    "document_type",
+                    "access_classification",
+                    "created_at",
+                ],
+            )
+            | {"route_path": f"/partner/documents/{document.document_id}"}
+            for document in db.execute(query).scalars().all()
+        ]
+    if route_key in {"admin/partners", "admin/suppliers"}:
         organizations = db.execute(
             select(Organization)
             .where(Organization.organization_type.in_(["Supplier", "supplier", "Partner", "partner", "Recovery Organization"]))
@@ -495,7 +588,7 @@ def _collection_rows(db: Session, route_key: str, role: Role, current_user: User
                     "created_at",
                 ],
             )
-            | {"route_path": f"/admin/suppliers/{org.organization_id}"}
+            | {"route_path": f"/admin/partners/{org.organization_id}"}
             for org in organizations
         ]
     if route_key == "donor":
@@ -711,11 +804,25 @@ def _load_entity(db: Session, route_key: str, record_id: str) -> tuple[Any | Non
         return db.get(EscalationEvent, int(record_id)), "EscalationEvent", record_id
     if route_key == "notification" and record_id.isdigit():
         return db.get(Notification, int(record_id)), "Notification", record_id
+    if route_key == "partner/submission":
+        if record_id.isdigit():
+            return db.get(PartnerSubmission, int(record_id)), "PartnerSubmission", record_id
+        return db.execute(
+            select(PartnerSubmission).where(PartnerSubmission.submission_code == record_id)
+        ).scalar_one_or_none(), "PartnerSubmission", record_id
+    if route_key == "partner/complaint":
+        if record_id.isdigit():
+            return db.get(PartnerComplaint, int(record_id)), "PartnerComplaint", record_id
+        return db.execute(
+            select(PartnerComplaint).where(PartnerComplaint.complaint_code == record_id)
+        ).scalar_one_or_none(), "PartnerComplaint", record_id
+    if route_key == "partner/documents" and record_id.isdigit():
+        return db.get(SecureDocument, int(record_id)), "SecureDocument", record_id
     if route_key == "supplier-documents" and record_id.isdigit():
         return db.get(SecureDocument, int(record_id)), "SecureDocument", record_id
     if route_key == "supplier-approvals" and record_id.isdigit():
         return db.get(SignatureEvent, int(record_id)), "SignatureEvent", record_id
-    if route_key == "admin/suppliers" and record_id.isdigit():
+    if route_key in {"admin/partners", "admin/suppliers"} and record_id.isdigit():
         return db.get(Organization, int(record_id)), "Organization", record_id
     return None, None, None
 
@@ -745,6 +852,8 @@ def _entity_payload(entity: Any, entity_type: str) -> dict[str, Any]:
         "SecureDocument": ["document_id", "record_type", "record_id", "document_name", "document_type", "access_classification", "created_at", "organization_id"],
         "SignatureEvent": ["signature_id", "user_id", "organization_id", "record_type", "record_id", "signature_type", "reason", "meaning", "signed_at", "prior_state", "new_state"],
         "Organization": ["organization_id", "organization_name", "organization_type", "approval_status", "contact_email", "mfa_required", "is_active", "created_at"],
+        "PartnerSubmission": ["submission_id", "submission_code", "organization_id", "submission_type", "title", "partner_visible_status", "priority", "description", "product_or_tissue", "batch_or_reference", "estimated_completion_at", "submitted_at", "closed_at"],
+        "PartnerComplaint": ["complaint_id", "complaint_code", "organization_id", "product_or_batch", "issue_category", "severity", "description", "impact_assessment", "partner_visible_status", "submitted_at", "closed_at"],
     }
     return _model_dict(entity, field_map[entity_type])
 
@@ -752,6 +861,10 @@ def _entity_payload(entity: Any, entity_type: str) -> dict[str, Any]:
 def _workflow_target(entity: Any, entity_type: str) -> tuple[str | None, str | None, int | None, str | None]:
     if entity_type == "WorkflowTask":
         return entity.related_record_type, entity.related_record_id, entity.task_id, entity.workflow_state
+    if entity_type == "PartnerSubmission":
+        return "PartnerSubmission", str(entity.submission_id), None, entity.internal_state
+    if entity_type == "PartnerComplaint":
+        return "PartnerComplaint", str(entity.complaint_id), None, entity.internal_state
     if entity_type == "Donor":
         return "Donor", str(entity.donor_pk), None, entity.current_workflow_state
     if entity_type == "DonorScreening":
@@ -1049,7 +1162,8 @@ def _role_lens(db: Session, role: Role, route_key: str, workflow_state: str | No
         "Operations Manager": "Cross-functional backlog, staffing load, SLA exposure, and escalation resolution.",
         "Business Technology Analyst": "AI governance, workflow intelligence, explainability, and optimization.",
         "System Administrator": "Platform governance, configuration, permissions, and system health.",
-        "Supplier External User": "Scoped collaboration, document exchange, response tasks, and attributable approvals.",
+        "Partner External User": "Bounded partner submissions, document exchange, response tasks, and status tracking.",
+        "Supplier External User": "Legacy external supplier role routed through the Partner Portal.",
     }
     return {
         "role": role.role_name,
@@ -1081,7 +1195,7 @@ def _analytics_context(db: Session, route_key: str, role: Role, current_user: Us
                 {"source": task.task_type, "target": task.workflow_state, "value": 1}
                 for task in tasks[:120]
             ],
-            "supplier_queue": [{"status": task.status, "priority": task.priority, "volume": 1} for task in tasks],
+            "partner_queue": [{"status": task.status, "priority": task.priority, "volume": 1} for task in tasks],
             "route_key": route_key,
         }
 
@@ -1217,16 +1331,21 @@ def page_key_for_route(route_key: str, role_name: str) -> str:
         "sla": "vendor_dashboard",
         "workflow-intelligence": "workflow_intelligence",
         "drift-analysis": "operational_trends",
-        "supplier": "supplier_portal",
-        "supplier-documents": "supplier_documents",
-        "supplier-approvals": "supplier_approvals",
+        "partner": "partner_portal",
+        "partner/submission": "partner_submissions",
+        "partner/complaint": "partner_complaints",
+        "partner/documents": "partner_documents",
+        "supplier": "partner_portal",
+        "supplier-documents": "partner_documents",
+        "supplier-approvals": "partner_approvals",
         "admin/users": "admin_users",
         "admin/roles": "admin_roles",
         "admin/workflow-engine": "workflow_configuration",
         "admin/workspaces": "workspace_configuration",
         "admin/permissions": "admin_roles",
         "admin/audit-logs": "audit_administration",
-        "admin/suppliers": "supplier_admin",
+        "admin/partners": "partner_admin",
+        "admin/suppliers": "partner_admin",
         "admin/responsibility-center": "responsibility_center",
         "admin/system-health": "system_health",
     }
@@ -1373,7 +1492,52 @@ def enterprise_search(db: Session, *, current_user: User, query: str, preview_ro
             _search_result(task.title, f"{task.workflow_state} | {task.queue_name}", f"/task/{task.task_id}", "Task")
             for task in tasks
         )
-    if _has_any(permissions, ["supplier.portal", "suppliers.read"]):
+    if _has_any(permissions, ["partner.portal", "partners.read", "supplier.portal", "suppliers.read"]):
+        submission_query = (
+            select(PartnerSubmission)
+            .where(
+                or_(
+                    PartnerSubmission.submission_code.ilike(like),
+                    PartnerSubmission.title.ilike(like),
+                    PartnerSubmission.submission_type.ilike(like),
+                    PartnerSubmission.batch_or_reference.ilike(like),
+                )
+            )
+            .limit(8)
+        )
+        submission_query = apply_org_scope(submission_query, PartnerSubmission, current_user)
+        submissions = db.execute(submission_query).scalars().all()
+        results.extend(
+            _search_result(
+                submission.submission_code,
+                f"{submission.title} | {submission.partner_visible_status}",
+                f"/partner/submission/{submission.submission_code}",
+                "Partner Submission",
+            )
+            for submission in submissions
+        )
+        complaint_query = (
+            select(PartnerComplaint)
+            .where(
+                or_(
+                    PartnerComplaint.complaint_code.ilike(like),
+                    PartnerComplaint.product_or_batch.ilike(like),
+                    PartnerComplaint.issue_category.ilike(like),
+                )
+            )
+            .limit(8)
+        )
+        complaint_query = apply_org_scope(complaint_query, PartnerComplaint, current_user)
+        complaints = db.execute(complaint_query).scalars().all()
+        results.extend(
+            _search_result(
+                complaint.complaint_code,
+                f"{complaint.issue_category} | {complaint.partner_visible_status}",
+                f"/partner/complaint/{complaint.complaint_code}",
+                "Quality Complaint",
+            )
+            for complaint in complaints
+        )
         document_query = (
             select(SecureDocument)
             .where(
@@ -1391,7 +1555,7 @@ def enterprise_search(db: Session, *, current_user: User, query: str, preview_ro
             _search_result(
                 document.document_name,
                 f"{document.document_type} | {document.record_type} {document.record_id}",
-                f"/supplier-documents/{document.document_id}",
+                f"/partner/documents/{document.document_id}",
                 "Document",
             )
             for document in documents

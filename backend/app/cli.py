@@ -3,7 +3,7 @@ import random
 from datetime import UTC, datetime, timedelta
 
 from faker import Faker
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.auth.security import get_password_hash
 from app.database import SessionLocal
@@ -32,12 +32,18 @@ from app.models import (
     EligibilityRule,
     EscalationEvent,
     ExternalInvitation,
+    ExternalStatusMapping,
     InfectiousDiseaseResult,
     InfectiousDiseaseTest,
     MedicalSocialHistory,
     MFAConfiguration,
     Notification,
     Organization,
+    PartnerComplaint,
+    PartnerDocument,
+    PartnerMessage,
+    PartnerSubmission,
+    PartnerSubmissionStatus,
     PasswordResetToken,
     ProcessingRelease,
     RealtimeEvent,
@@ -340,7 +346,7 @@ def _ensure_users(db, roles: dict[str, Role]) -> dict[str, User]:
 def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
     for account_type, description, is_internal, is_external, requires_approval in [
         ("internal", "Native platform account for internal operations.", True, False, False),
-        ("supplier", "Future supplier account scoped to an approved organization.", False, True, True),
+        ("supplier", "Legacy external supplier account type retained for compatibility.", False, True, True),
         ("partner", "Future partner account with organization-scoped access.", False, True, True),
         ("external", "Future external auditor or contractor account.", False, True, True),
     ]:
@@ -524,7 +530,7 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
 
 
 def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
-    supplier_role = roles.get("Supplier External User")
+    supplier_role = roles.get("Partner External User") or roles.get("Supplier External User")
     admin_user = db.execute(select(User).where(User.username == "sysadmin")).scalar_one_or_none()
     internal_org = db.execute(
         select(Organization).where(Organization.organization_name == "Internal Operations")
@@ -534,11 +540,51 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
 
     password_hash = get_password_hash(DEFAULT_PASSWORD)
     now = datetime.now(UTC)
+    for internal_state, external_status, description in [
+        ("Referral Received", "Submitted", "Submission was received by the partner portal."),
+        ("Pending Intake Validation", "Intake Review", "Submission is being checked for completeness."),
+        ("Pending Administrative Screen", "Intake Review", "Submission is in intake review."),
+        ("Pending Clinical Review", "Under Clinical Review", "Submission is under clinical review."),
+        ("Pending Infectious Disease Review", "Under Clinical Review", "Clinical eligibility review is underway."),
+        ("Pending QA Review", "Under QA Review", "Submission is under quality review."),
+        ("QA Investigation", "Under QA Review", "Quality review is active."),
+        ("CAPA Investigation", "Under QA Review", "Quality review is active."),
+        ("Awaiting External Review", "Information Requested", "Additional information is requested from the partner."),
+        ("Pending Additional Information", "Information Requested", "Additional information is requested from the partner."),
+        ("Approved", "Approved", "Submission has been approved."),
+        ("Rejected", "Rejected", "Submission has been rejected."),
+        ("Closed", "Closed", "Submission lifecycle is closed."),
+    ]:
+        mapping = db.execute(
+            select(ExternalStatusMapping).where(ExternalStatusMapping.internal_state == internal_state)
+        ).scalar_one_or_none()
+        if not mapping:
+            db.add(
+                ExternalStatusMapping(
+                    internal_state=internal_state,
+                    external_status=external_status,
+                    external_description=description,
+                )
+            )
+        else:
+            mapping.external_status = external_status
+            mapping.external_description = description
+            mapping.is_active = True
+
     supplier_specs = [
         {
             "organization_name": "NorthStar Labs",
-            "organization_type": "Supplier",
-            "contact_email": "supplier@northstarlabs.example",
+            "organization_type": "Partner",
+            "contact_email": "partner@northstarlabs.example",
+            "username": "partner",
+            "full_name": "Riley Patel",
+            "email": "riley.patel@northstarlabs.example",
+            "risk_tier": "Medium",
+        },
+        {
+            "organization_name": "NorthStar Labs",
+            "organization_type": "Partner",
+            "contact_email": "partner@northstarlabs.example",
             "username": "supplier",
             "full_name": "Sam Rivera",
             "email": "sam.rivera@northstarlabs.example",
@@ -602,7 +648,7 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                 approved_by=admin_user.user_id,
                 approved_at=now,
                 details={
-                    "scope": "document_exchange_supplier_tasks",
+                    "scope": "bounded_partner_portal",
                     "access_model": "organization_scoped",
                 },
             )
@@ -626,7 +672,7 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                 hashed_password=password_hash,
                 role_id=supplier_role.role_id,
                 role=supplier_role.role_name,
-                department="Supplier Portal",
+                department="Partner Portal",
                 is_active=True,
             )
             db.add(user)
@@ -638,9 +684,9 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
         user.hashed_password = user.hashed_password or password_hash
         user.role_id = supplier_role.role_id
         user.role = supplier_role.role_name
-        user.department = "Supplier Portal"
-        user.account_type = "supplier"
-        user.user_type = "supplier"
+        user.department = "Partner Portal"
+        user.account_type = "partner"
+        user.user_type = "partner"
         user.organization_id = org.organization_id
         user.is_internal = False
         user.is_external = True
@@ -665,14 +711,14 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                     user_id=user.user_id,
                     identity_provider="Platform Native",
                     provider_subject=user.username,
-                    user_type="supplier",
+                    user_type="partner",
                     mfa_required=True,
                     external_user_flag=True,
                 )
             )
         else:
             identity.provider_subject = user.username
-            identity.user_type = "supplier"
+            identity.user_type = "partner"
             identity.mfa_required = True
             identity.external_user_flag = True
 
@@ -695,9 +741,9 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
 
         sidebar = db.execute(select(SidebarState).where(SidebarState.user_id == user.user_id)).scalar_one_or_none()
         if not sidebar:
-            db.add(SidebarState(user_id=user.user_id, sidebar_collapsed=False, last_route="/supplier"))
+            db.add(SidebarState(user_id=user.user_id, sidebar_collapsed=False, last_route="/partner"))
         else:
-            sidebar.last_route = sidebar.last_route or "/supplier"
+            sidebar.last_route = "/partner" if sidebar.last_route in {None, "", "/supplier"} else sidebar.last_route
 
         pref = db.execute(
             select(UserPreference).where(
@@ -711,7 +757,7 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                     user_id=user.user_id,
                     preference_key="notification_preferences",
                     preference_value={
-                        "supplier_notifications": True,
+                        "partner_notifications": True,
                         "document_requests": True,
                         "approval_requests": True,
                     },
@@ -720,9 +766,9 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
 
         task_specs = [
             ("Document Request", f"Upload NAT result packet for {org.organization_name}", "Requested Documents", "Awaiting External Review", "High"),
-            ("External CAPA Response", f"Respond to CAPA evidence request for {org.organization_name}", "Supplier CAPA Response", "Awaiting External Review", "Critical"),
-            ("Supplier Approval", f"Acknowledge supplier qualification review for {org.organization_name}", "Supplier Approvals", "Awaiting Signatures", "High"),
-            ("Supplier Review", f"Confirm annual certification status for {org.organization_name}", "Supplier Collaboration Queue", "Supplier Review", "Standard"),
+            ("External CAPA Response", f"Respond to CAPA evidence request for {org.organization_name}", "Partner CAPA Response", "Awaiting External Review", "Critical"),
+            ("Partner Approval", f"Acknowledge qualification review for {org.organization_name}", "Partner Approvals", "Awaiting Signatures", "High"),
+            ("Partner Review", f"Confirm annual certification status for {org.organization_name}", "Partner Collaboration Queue", "Submitted", "Standard"),
         ]
         existing_task_count = db.execute(
             select(WorkflowTask.task_id).where(WorkflowTask.organization_id == org.organization_id).limit(1)
@@ -732,7 +778,7 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                 task = WorkflowTask(
                     task_type=task_type,
                     title=title,
-                    description="Organization-scoped supplier collaboration task.",
+                    description="Organization-scoped partner collaboration task.",
                     assigned_to_user_id=user.user_id,
                     assigned_role_id=supplier_role.role_id,
                     priority=priority,
@@ -750,18 +796,18 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                 notification = Notification(
                     user_id=user.user_id,
                     title=f"[{priority}] {title}",
-                    message=f"{queue_name} requires supplier action for {org.organization_name}.",
+                    message=f"{queue_name} requires partner action for {org.organization_name}.",
                     notification_type=task_type,
                     priority=priority,
                     workflow_task_id=task.task_id,
                     related_record_type="WorkflowTask",
                     related_record_id=str(task.task_id),
-                    action_route="/supplier",
+                    action_route="/partner",
                     workflow_context={
                         "task_id": task.task_id,
                         "workflow_state": workflow_state,
                         "queue_name": queue_name,
-                        "route_path": "/supplier",
+                        "route_path": "/partner",
                     },
                     organization_id=org.organization_id,
                 )
@@ -777,10 +823,10 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                     record_id=f"SUP-QUAL-{org.organization_id:03d}",
                     document_name=f"{org.organization_name} {document_type}.pdf",
                     document_type=document_type,
-                    storage_uri_encrypted=encrypt_text(f"supplier://{org.organization_id}/{document_type.lower().replace(' ', '-')}.pdf"),
+                    storage_uri_encrypted=encrypt_text(f"partner://{org.organization_id}/{document_type.lower().replace(' ', '-')}.pdf"),
                     checksum_sha256=f"seed-checksum-{org.organization_id}-{version}",
                     uploaded_by=user.user_id,
-                    access_classification="Supplier Submitted",
+                    access_classification="Partner Submitted",
                     organization_id=org.organization_id,
                 )
                 db.add(doc)
@@ -801,8 +847,16 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                     DocumentAccess(
                         document_id=doc.document_id,
                         user_id=user.user_id,
-                        action_type="SUPPLIER_UPLOAD_SEEDED",
+                        action_type="PARTNER_UPLOAD_SEEDED",
                         details={"document_type": document_type},
+                    )
+                )
+                db.add(
+                    PartnerDocument(
+                        organization_id=org.organization_id,
+                        document_id=doc.document_id,
+                        document_category=document_type,
+                        request_status="Submitted",
                     )
                 )
 
@@ -816,13 +870,13 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                     organization_id=org.organization_id,
                     record_type="SupplierQualification",
                     record_id=f"SUP-QUAL-{org.organization_id:03d}",
-                    signature_type="Supplier Approval",
-                    reason="Seeded supplier qualification acknowledgement.",
-                    meaning="Supplier representative attests the qualification packet is accurate.",
+                    signature_type="Partner Approval",
+                    reason="Seeded partner qualification acknowledgement.",
+                    meaning="Partner representative attests the qualification packet is accurate.",
                     signed_at=now,
                     signature_hash=f"seed-signature-{org.organization_id}-{user.user_id}",
-                    prior_state="Pending Supplier Approval",
-                    new_state="Supplier Approved",
+                    prior_state="Pending Partner Approval",
+                    new_state="Partner Approved",
                 )
             )
 
@@ -837,21 +891,21 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
                     status="Assigned",
                     expires_at=now + timedelta(days=365),
                     competency_status="Pending Validation",
-                    validation_notes="Supplier portal controlled-record handling training assigned.",
+                    validation_notes="Partner portal controlled-record handling training assigned.",
                 )
             )
 
         event_exists = db.execute(
             select(RealtimeEvent.event_id).where(
                 RealtimeEvent.organization_id == org.organization_id,
-                RealtimeEvent.event_type == "Supplier Workspace Refreshed",
+                RealtimeEvent.event_type == "Partner Portal Refreshed",
             )
         ).first()
         if not event_exists:
             db.add(
                 RealtimeEvent(
-                    event_type="Supplier Workspace Refreshed",
-                    channel="supplier-portal",
+                    event_type="Partner Portal Refreshed",
+                    channel="partner-portal",
                     audience_user_id=user.user_id,
                     organization_id=org.organization_id,
                     record_type="Organization",
@@ -862,33 +916,139 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
         job_exists = db.execute(
             select(BackgroundJob.job_id).where(
                 BackgroundJob.organization_id == org.organization_id,
-                BackgroundJob.job_type == "Supplier SLA Monitor",
+                BackgroundJob.job_type == "Partner SLA Monitor",
             )
         ).first()
         if not job_exists:
             db.add(
                 BackgroundJob(
-                    job_type="Supplier SLA Monitor",
+                    job_type="Partner SLA Monitor",
                     status="Queued",
                     priority="High" if spec["risk_tier"] == "High" else "Normal",
                     scheduled_for=now + timedelta(hours=1),
-                    payload={"organization_id": org.organization_id, "monitor": "supplier_response_sla"},
+                    payload={"organization_id": org.organization_id, "monitor": "partner_response_sla"},
                     organization_id=org.organization_id,
                 )
             )
 
-    invite_exists = db.execute(
-        select(ExternalInvitation.invitation_id).where(ExternalInvitation.email == "pending.supplier@northstarlabs.example")
-    ).first()
+        existing_partner_docs = db.execute(
+            select(PartnerDocument.partner_document_id).where(PartnerDocument.organization_id == org.organization_id).limit(1)
+        ).first()
+        if not existing_partner_docs:
+            for document in db.execute(
+                select(SecureDocument).where(SecureDocument.organization_id == org.organization_id)
+            ).scalars().all():
+                db.add(
+                    PartnerDocument(
+                        organization_id=org.organization_id,
+                        document_id=document.document_id,
+                        document_category=document.document_type,
+                        request_status=document.access_classification,
+                    )
+                )
+
+        existing_submission = db.execute(
+            select(PartnerSubmission.submission_id).where(PartnerSubmission.organization_id == org.organization_id).limit(1)
+        ).first()
+        if not existing_submission:
+            submission_specs = [
+                ("New Tissue Submission", "Tissue suitability packet", "Under Clinical Review", "Pending Clinical Review", "High"),
+                ("New Recovery Submission", "Recovery coordination packet", "Intake Review", "Pending Intake Validation", "Standard"),
+                ("New Qualification Request", "Annual qualification review", "Information Requested", "Awaiting External Review", "High"),
+            ]
+            for index, (submission_type, title, external_status, internal_state, priority) in enumerate(submission_specs, start=1):
+                submission = PartnerSubmission(
+                    submission_code=f"SUB-{now.year}-{org.organization_id:02d}{index:02d}",
+                    organization_id=org.organization_id,
+                    submitted_by_user_id=user.user_id,
+                    submission_type=submission_type,
+                    title=f"{org.organization_name} {title}",
+                    partner_visible_status=external_status,
+                    internal_state=internal_state,
+                    priority=priority,
+                    description="Seeded partner lifecycle submission for bounded external portal demonstration.",
+                    product_or_tissue=random.choice(["Cornea", "Dermal Matrix", "Recovery Documentation", "Qualification File"]),
+                    batch_or_reference=f"EXT-{org.organization_id:03d}-{index:03d}",
+                    estimated_completion_at=now + timedelta(days=index + 1),
+                    submitted_at=now - timedelta(days=index),
+                    details={"source": "seed", "external_status_abstraction": True},
+                )
+                db.add(submission)
+                db.flush()
+                db.add(
+                    PartnerSubmissionStatus(
+                        submission_id=submission.submission_id,
+                        from_status=None,
+                        to_status=external_status,
+                        internal_state=internal_state,
+                        changed_by_user_id=user.user_id,
+                        changed_at=submission.submitted_at,
+                        note="Partner-visible lifecycle status seeded from internal workflow state.",
+                    )
+                )
+                db.add(
+                    WorkflowTask(
+                        task_type="Partner Submission Review",
+                        title=f"Review partner submission {submission.submission_code}",
+                        description=submission.description,
+                        assigned_to_user_id=None,
+                        assigned_role_id=roles["Quality Assurance Specialist"].role_id if "Quality" in submission_type or "Qualification" in submission_type else roles["Donor Intake Coordinator"].role_id,
+                        priority=priority,
+                        status="Assigned",
+                        workflow_state=internal_state,
+                        queue_name="Partner Intake Review",
+                        due_date=now + timedelta(hours=24 * index),
+                        related_record_type="PartnerSubmission",
+                        related_record_id=str(submission.submission_id),
+                        organization_id=org.organization_id,
+                    )
+                )
+            complaint = PartnerComplaint(
+                complaint_code=f"QC-{now.year}-{org.organization_id:04d}",
+                organization_id=org.organization_id,
+                submitted_by_user_id=user.user_id,
+                product_or_batch=f"Batch EXT-{org.organization_id:03d}",
+                issue_category=random.choice(["Documentation discrepancy", "Packaging concern", "Temperature excursion"]),
+                severity=random.choice(["Medium", "High"]),
+                description="Partner-reported quality concern routed to QA review.",
+                impact_assessment="Potential downstream review delay; no confirmed patient impact in demo data.",
+                contact_email=spec["contact_email"],
+                partner_visible_status="Under QA Review",
+                internal_state="Pending QA Review",
+                submitted_at=now - timedelta(days=2),
+                details={"source": "seed", "complaint_intake": True},
+            )
+            db.add(complaint)
+            db.flush()
+            db.add(
+                PartnerMessage(
+                    organization_id=org.organization_id,
+                    complaint_id=complaint.complaint_id,
+                    sender_user_id=user.user_id,
+                    audience="Internal",
+                    subject=f"Initial complaint context for {complaint.complaint_code}",
+                    body="Partner uploaded initial quality concern details and awaits QA review.",
+                )
+            )
+
     northstar = db.execute(select(Organization).where(Organization.organization_name == "NorthStar Labs")).scalar_one_or_none()
+    pending_partner_token = f"seed-partner-invitation-{northstar.organization_id}" if northstar else ""
+    invite_exists = db.execute(
+        select(ExternalInvitation.invitation_id).where(
+            or_(
+                ExternalInvitation.email == "pending.partner@northstarlabs.example",
+                ExternalInvitation.token_hash == pending_partner_token,
+            )
+        )
+    ).first()
     if not invite_exists and northstar:
         db.add(
             ExternalInvitation(
                 organization_id=northstar.organization_id,
-                email="pending.supplier@northstarlabs.example",
+                email="pending.partner@northstarlabs.example",
                 invited_by=admin_user.user_id,
                 role_id=supplier_role.role_id,
-                token_hash=f"seed-invitation-{northstar.organization_id}",
+                token_hash=pending_partner_token,
                 status="Pending Acceptance",
                 expires_at=now + timedelta(days=7),
                 extra_metadata={"source": "seed", "organization_name": northstar.organization_name},
@@ -899,15 +1059,15 @@ def _ensure_supplier_portal_data(db, roles: dict[str, Role]) -> None:
     if not validation_exists:
         db.add(
             ValidationEvidence(
-                evidence_type="Supplier Portal Validation",
-                title="Supplier organization scoping validation evidence",
+                evidence_type="Partner Portal Validation",
+                title="Partner organization scoping validation evidence",
                 status="Approved",
                 owner_user_id=admin_user.user_id,
                 approved_by=admin_user.user_id,
                 approved_at=now,
                 details={
                     "control": "organization_scoped_rbac",
-                    "evidence": "supplier users can only query records linked to their organization_id",
+                    "evidence": "partner users can only query records linked to their organization_id",
                 },
             )
         )

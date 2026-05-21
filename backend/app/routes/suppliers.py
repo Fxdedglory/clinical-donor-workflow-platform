@@ -47,12 +47,12 @@ from app.services.tenant_access import (
     require_organization,
 )
 
-router = APIRouter(prefix="/api/suppliers", tags=["Supplier Portal"])
+router = APIRouter(prefix="/api/suppliers", tags=["Partner Portal Compatibility"])
 
 
 class SupplierOrganizationCreate(BaseModel):
     organization_name: str
-    organization_type: str = "Supplier"
+    organization_type: str = "Partner"
     contact_email: str
     risk_tier: str = "Medium"
     approval_status: str = "Pending Approval"
@@ -61,7 +61,7 @@ class SupplierOrganizationCreate(BaseModel):
 class SupplierInvitationCreate(BaseModel):
     organization_id: int
     email: str
-    role_name: str = "Supplier External User"
+    role_name: str = "Partner External User"
 
 
 class SupplierInvitationAccept(BaseModel):
@@ -81,7 +81,7 @@ class SupplierDocumentUpload(BaseModel):
     record_id: str
     document_name: str
     document_type: str
-    storage_reference: str = "supplier-portal-upload-placeholder"
+    storage_reference: str = "partner-portal-upload-placeholder"
     checksum_sha256: str | None = None
 
 
@@ -98,9 +98,9 @@ class SupplierTaskAction(BaseModel):
 class SignatureRequest(BaseModel):
     record_type: str
     record_id: str
-    signature_type: str = "Supplier Approval"
+    signature_type: str = "Partner Approval"
     reason: str
-    meaning: str = "I certify this supplier response is complete and attributable to my authenticated identity."
+    meaning: str = "I certify this partner response is complete and attributable to my authenticated identity."
     password: str
     prior_state: str | None = None
     new_state: str | None = None
@@ -263,7 +263,7 @@ def create_supplier_invitation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
     role = db.execute(select(Role).where(Role.role_name == payload.role_name)).scalar_one_or_none()
     if not role:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier role not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner role not found")
     invitation = ExternalInvitation(
         organization_id=org.organization_id,
         email=str(payload.email),
@@ -278,14 +278,14 @@ def create_supplier_invitation(
     db.flush()
     token = create_invitation_token(str(payload.email), invitation.invitation_id)
     invitation.token_hash = hash_token(token)
-    invitation_url = f"{settings.app_base_url.rstrip('/')}/?supplier_invite={token}"
+    invitation_url = f"{settings.app_base_url.rstrip('/')}/?partner_invite={token}"
     send_email(
         db,
         EmailMessage(
             to_email=str(payload.email),
-            subject="Supplier portal invitation",
+            subject="Partner portal invitation",
             body=(
-                f"You have been invited to collaborate with Clinical Donor Workflow Platform for "
+                f"You have been invited to collaborate through the Clinical Donor Partner Portal for "
                 f"{org.organization_name}. Use this single-use onboarding link within 7 days: {invitation_url}"
             ),
             email_type=EmailType.SUPPLIER_INVITE,
@@ -296,7 +296,7 @@ def create_supplier_invitation(
     )
     db.add(
         BackgroundJob(
-            job_type="Supplier Invitation Delivery",
+            job_type="Partner Invitation Delivery",
             status="Queued",
             payload={"invitation_id": invitation.invitation_id, "email": invitation.email},
             organization_id=org.organization_id,
@@ -358,7 +358,7 @@ def accept_supplier_invitation(
     invitation = _find_invitation(db, payload.token)
     role = db.get(Role, invitation.role_id) if invitation.role_id else None
     if not role:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier role not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner role not found")
     existing = db.execute(select(User).where(User.username == payload.username)).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
@@ -373,10 +373,10 @@ def accept_supplier_invitation(
         hashed_password=get_password_hash(payload.password),
         role_id=role.role_id,
         role=role.role_name,
-        department="Supplier Portal",
+        department="Partner Portal",
         is_active=True,
-        account_type="supplier",
-        user_type="supplier",
+        account_type="partner",
+        user_type="partner",
         organization_id=invitation.organization_id,
         is_internal=False,
         is_external=True,
@@ -413,7 +413,7 @@ def accept_supplier_invitation(
         UserPreference(
             user_id=user.user_id,
             preference_key="notification_preferences",
-            preference_value={"supplier_notifications": True, "document_requests": True, "approval_requests": True},
+            preference_value={"partner_notifications": True, "document_requests": True, "approval_requests": True},
         )
     )
     invitation.status = "Pending Approval"
@@ -429,8 +429,8 @@ def accept_supplier_invitation(
         relationship.onboarding_status = "Pending Approval"
     db.add(
         RealtimeEvent(
-            event_type="Supplier Invitation Accepted",
-            channel="supplier-onboarding",
+            event_type="Partner Invitation Accepted",
+            channel="partner-onboarding",
             organization_id=invitation.organization_id,
             audience_user_id=invitation.invited_by,
             record_type="ExternalInvitation",
@@ -588,7 +588,7 @@ def upload_supplier_document(
         storage_uri_encrypted=encrypt_text(payload.storage_reference) or "",
         checksum_sha256=payload.checksum_sha256,
         uploaded_by=current_user.user_id,
-        access_classification="Supplier Submitted",
+        access_classification="Partner Submitted",
         organization_id=org_id,
     )
     db.add(document)
@@ -602,14 +602,14 @@ def upload_supplier_document(
             storage_uri_encrypted=document.storage_uri_encrypted,
             checksum_sha256=document.checksum_sha256,
             approval_status="Pending Review",
-            extra_metadata={"source": "supplier_portal"},
+            extra_metadata={"source": "partner_portal"},
         )
     )
     db.add(
         DocumentAccess(
             document_id=document.document_id,
             user_id=current_user.user_id,
-            action_type="SUPPLIER_UPLOAD",
+            action_type="PARTNER_UPLOAD",
             ip_address=request_ip(request),
             route=str(request.url.path),
             details={"document_name": document.document_name},
@@ -617,8 +617,8 @@ def upload_supplier_document(
     )
     db.add(
         RealtimeEvent(
-            event_type="Supplier Document Uploaded",
-            channel="supplier-documents",
+            event_type="Partner Document Uploaded",
+            channel="partner-documents",
             audience_user_id=current_user.user_id,
             organization_id=org_id,
             record_type=payload.record_type,
@@ -757,14 +757,14 @@ def review_supplier_document(
             },
         )
     )
-    supplier_users = db.execute(
+    partner_users = db.execute(
         select(User).where(
             User.organization_id == document.organization_id,
             User.is_external.is_(True),
             User.is_active.is_(True),
         )
     ).scalars().all()
-    notify_user_ids = {user.user_id for user in supplier_users}
+    notify_user_ids = {user.user_id for user in partner_users}
     if document.uploaded_by:
         notify_user_ids.add(document.uploaded_by)
     priority = "High" if payload.approval_status in {"Rejected", "Needs Rework", "Hold"} else "Normal"
@@ -774,16 +774,16 @@ def review_supplier_document(
                 user_id=user_id,
                 title=f"[Document {payload.approval_status}] {document.document_name}",
                 message=payload.review_note or f"{document.document_name} was reviewed by the operations team.",
-                notification_type="Supplier Document Review",
+                notification_type="Partner Document Review",
                 priority=priority,
                 related_record_type="SecureDocument",
                 related_record_id=str(document.document_id),
-                action_route="/supplier",
+                action_route="/partner",
                 workflow_context={
                     "document_id": document.document_id,
                     "record_type": document.record_type,
                     "record_id": document.record_id,
-                    "route_path": "/supplier",
+                    "route_path": "/partner",
                     "approval_status": payload.approval_status,
                 },
                 organization_id=document.organization_id,
@@ -791,8 +791,8 @@ def review_supplier_document(
         )
     db.add(
         RealtimeEvent(
-            event_type="Supplier Document Reviewed",
-            channel="supplier-documents",
+            event_type="Partner Document Reviewed",
+            channel="partner-documents",
             audience_user_id=document.uploaded_by,
             organization_id=document.organization_id,
             record_type="SecureDocument",
@@ -806,7 +806,7 @@ def review_supplier_document(
     )
     db.add(
         BackgroundJob(
-            job_type="Supplier Document Review Notification",
+            job_type="Partner Document Review Notification",
             status="Queued",
             priority=priority,
             organization_id=document.organization_id,
@@ -856,8 +856,8 @@ def respond_to_supplier_task(
     task.completed_at = datetime.now(UTC) if payload.status == "Completed" else task.completed_at
     db.add(
         RealtimeEvent(
-            event_type="Supplier Task Response",
-            channel="supplier-tasks",
+            event_type="Partner Task Response",
+            channel="partner-tasks",
             audience_user_id=current_user.user_id,
             organization_id=task.organization_id,
             record_type="WorkflowTask",

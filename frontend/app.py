@@ -27,9 +27,9 @@ from views import (
     admin_portal,
     audit_logs,
     functional_routes,
+    partner_portal,
     role_center,
     role_workspace,
-    supplier_portal,
     system_health,
 )
 
@@ -65,10 +65,16 @@ ADMIN_PAGE_RENDERERS = {
     "audit_administration": audit_logs.render,
     "responsibility_center": role_center.render,
     "system_health": system_health.render,
-    "supplier_admin": supplier_portal.render_admin,
+    "partner_admin": partner_portal.render_admin,
 }
 
-SUPPLIER_PAGE_KEYS = {"supplier_portal", "supplier_documents", "supplier_approvals"}
+PARTNER_PAGE_KEYS = {
+    "partner_portal",
+    "partner_submissions",
+    "partner_complaints",
+    "partner_documents",
+    "partner_approvals",
+}
 
 
 def _query_value(key: str) -> str | None:
@@ -157,15 +163,13 @@ def _all_available_routes(navigation: dict) -> dict[str, dict]:
 
 
 def render_login() -> None:
-    st.markdown("<div style='height: 7vh'></div>", unsafe_allow_html=True)
-    left, center, right = st.columns([0.55, 1.05, 0.55])
-    with center:
-        st.title("Clinical Donor Workflow Platform")
-        st.caption(
-            "Donor eligibility, recovery suitability, processing release, and QMS workflow operations"
-        )
-        pending_mfa = st.session_state.get("pending_mfa")
-        if pending_mfa:
+    st.markdown("<div style='height: 5vh'></div>", unsafe_allow_html=True)
+    st.title("Clinical Donor Workflow Platform")
+    st.caption("Secure staff operations and partner collaboration for donor eligibility, recovery, release, and QMS workflows.")
+    pending_mfa = st.session_state.get("pending_mfa")
+    if pending_mfa:
+        left, center, right = st.columns([0.55, 1.05, 0.55])
+        with center:
             st.info(f"MFA verification required for {st.session_state.get('pending_mfa_username', 'this user')}.")
             with st.form("mfa_form", border=True):
                 code = st.text_input("Verification code", value="000000", type="password")
@@ -177,22 +181,49 @@ def render_login() -> None:
                 st.session_state.pop("pending_mfa", None)
                 st.session_state.pop("pending_mfa_username", None)
                 st.rerun()
-        else:
-            with st.form("login_form", border=True):
-                username = st.text_input("Username", value="sysadmin")
-                password = st.text_input("Password", value="ClinicalDemo!2026", type="password")
-                submitted = st.form_submit_button("Sign In", width="stretch")
-            if submitted:
-                if login(username, password):
-                    set_route("/")
-                    st.rerun()
-                if st.session_state.get("pending_mfa"):
-                    st.rerun()
+        return
 
-        with st.expander("Demo Accounts", expanded=True):
+    staff, partner = st.columns(2)
+    with staff:
+        st.markdown("### Staff Login")
+        st.caption("Internal donor operations, QMS, analytics, and administration.")
+        with st.form("staff_login_form", border=True):
+            username = st.text_input("Username", value="sysadmin", key="staff_username")
+            password = st.text_input("Password", value="ClinicalDemo!2026", type="password", key="staff_password")
+            submitted = st.form_submit_button("Sign In", width="stretch")
+        if submitted:
+            if login(username, password):
+                set_route("/")
+                st.rerun()
+            if st.session_state.get("pending_mfa"):
+                st.rerun()
+        with st.expander("Staff demo accounts", expanded=False):
             st.write("Default password: `ClinicalDemo!2026`")
-            st.write("`intake`  `clinical`  `qa`  `vendorops`  `opsmanager`  `analyst`  `supplier`  `sysadmin`")
+            st.write("`intake`  `clinical`  `qa`  `vendorops`  `opsmanager`  `analyst`  `sysadmin`")
 
+    with partner:
+        st.markdown("### Partner Portal")
+        st.caption("External submissions, document exchange, quality complaints, and status tracking.")
+        with st.form("partner_login_form", border=True):
+            username = st.text_input("Username", value="partner", key="partner_username")
+            password = st.text_input("Password", value="ClinicalDemo!2026", type="password", key="partner_password")
+            submitted = st.form_submit_button("Enter Partner Portal", width="stretch")
+        if submitted:
+            if login(username, password):
+                set_route("/")
+                st.rerun()
+            if st.session_state.get("pending_mfa"):
+                st.rerun()
+        with st.expander("Partner demo account", expanded=False):
+            st.write("Default password: `ClinicalDemo!2026`")
+            st.write("`partner`")
+
+    st.divider()
+    reset_left, reset_right = st.columns([0.5, 0.5])
+    with reset_left:
+        st.markdown("**Security**")
+        st.caption("Partner access is organization-scoped and MFA-enabled. Internal workflow details remain bounded from external users.")
+    with reset_right:
         with st.expander("Reset Password", expanded=False):
             st.caption("Enter your account email and a single-use reset link will be sent if the account exists.")
             with st.form("password_reset_request", border=False):
@@ -227,20 +258,20 @@ def render_password_reset_confirm(reset_token: str) -> None:
                 st.rerun()
 
 
-def render_supplier_invitation_accept(invite_token: str) -> None:
+def render_partner_invitation_accept(invite_token: str) -> None:
     preview = get_json(f"/api/suppliers/invitations/preview?token={quote(invite_token, safe='')}") or {}
     st.markdown("<div style='height: 7vh'></div>", unsafe_allow_html=True)
     left, center, right = st.columns([0.45, 1.1, 0.45])
     with center:
-        st.title("Supplier Portal Invitation")
+        st.title("Partner Portal Invitation")
         organization = preview.get("organization") or {}
-        st.caption(f"Create an organization-scoped supplier account for {organization.get('organization_name', 'your organization')}.")
-        with st.form("supplier_invitation_accept", border=True):
+        st.caption(f"Create an organization-scoped partner account for {organization.get('organization_name', 'your organization')}.")
+        with st.form("partner_invitation_accept", border=True):
             full_name = st.text_input("Full name")
             username = st.text_input("Username", value=(preview.get("email") or "").split("@")[0])
             password = st.text_input("Password", type="password")
             confirm_password = st.text_input("Confirm password", type="password")
-            submitted = st.form_submit_button("Create Supplier Account", width="stretch")
+            submitted = st.form_submit_button("Create Partner Account", width="stretch")
         if submitted:
             if password != confirm_password:
                 st.error("Passwords do not match.")
@@ -256,10 +287,12 @@ def render_supplier_invitation_accept(invite_token: str) -> None:
             )
             if result:
                 st.success("Account created. Access is pending internal approval.")
+                _clear_query_value("partner_invite")
                 _clear_query_value("supplier_invite")
                 st.rerun()
 
         if st.button("Return to Sign In", width="stretch"):
+            _clear_query_value("partner_invite")
             _clear_query_value("supplier_invite")
             st.rerun()
 
@@ -307,11 +340,11 @@ def _render_quick_actions(active_role: str | None) -> None:
             ("Eligibility Rules", "/eligibility-rule"),
             ("Audit Logs", "/admin/audit-logs"),
         ]
-    elif active_role == "Supplier External User":
+    elif active_role in {"Partner External User", "Supplier External User"}:
         actions = [
-            ("Supplier Portal", "/supplier"),
-            ("Submit Document", "/supplier-documents"),
-            ("Pending Approvals", "/supplier-approvals"),
+            ("New Submission", "/partner/submission"),
+            ("Quality Complaint", "/partner/complaint"),
+            ("Upload Document", "/partner/documents"),
             ("Notifications", "/notification"),
         ]
     else:
@@ -342,13 +375,18 @@ def _render_user_menu(user: dict) -> None:
             st.rerun()
 
 
-def _render_global_search(preview_role_id: int | None) -> None:
+def _render_global_search(preview_role_id: int | None, active_role: str | None = None) -> None:
+    placeholder = (
+        "Search submissions, complaints, documents..."
+        if active_role in {"Partner External User", "Supplier External User"}
+        else "Search donors, CAPAs, investigations, releases..."
+    )
     with st.form("global_search_form", border=False):
         cols = st.columns([0.82, 0.18])
         query = cols[0].text_input(
             "Global search",
             label_visibility="collapsed",
-            placeholder="Search donors, CAPAs, investigations, releases...",
+            placeholder=placeholder,
         )
         submitted = cols[1].form_submit_button("Search", width="stretch")
     if submitted and query:
@@ -381,10 +419,14 @@ def _render_search_results(preview_role_id: int | None) -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _render_system_notice() -> None:
+def _render_system_notice(active_role: str | None = None) -> None:
+    if active_role in {"Partner External User", "Supplier External User"}:
+        notice = "Secure Partner Portal: submissions and documents are scoped to your organization."
+    else:
+        notice = "NorthStar Labs imports are delayed; NAT result packets may require manual verification."
     st.markdown(
         "<div class='system-notice'><strong>System Notice:</strong> "
-        "NorthStar Labs imports are delayed; NAT result packets may require manual verification.</div>",
+        f"{notice}</div>",
         unsafe_allow_html=True,
     )
 
@@ -401,14 +443,14 @@ def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> 
         toggle_sidebar_compact()
         st.rerun()
     with search:
-        _render_global_search(preview_role_id)
+        _render_global_search(preview_role_id, workspace.get("active_role"))
     with quick:
         _render_quick_actions(workspace.get("active_role"))
     with notices:
         render_notification_bell(workspace)
     with profile:
         _render_user_menu(user)
-    _render_system_notice()
+    _render_system_notice(workspace.get("active_role"))
     _render_search_results(preview_role_id)
 
 
@@ -446,6 +488,20 @@ def render_operational_navigation(navigation: dict) -> None:
     routes = _all_available_routes(navigation)
     current_route = _current_route(navigation)
     admin_only = navigation.get("active_role") == "System Administrator"
+    partner_role = navigation.get("active_role") in {"Partner External User", "Supplier External User"}
+
+    if partner_role:
+        st.markdown("**Partner Portal**")
+        for label, path, icon in [
+            ("Home", "/partner", "P"),
+            ("Submissions", "/partner/submission", "S"),
+            ("Quality Complaints", "/partner/complaint", "Q"),
+            ("Documents", "/partner/documents", "D"),
+            ("Notifications", "/notification", "N"),
+        ]:
+            if path in routes:
+                _nav_item(label, path, icon, current_route, "partner")
+        return
 
     work_items: list[tuple[str, str, str]] = []
     for label, options, icon in [
@@ -454,7 +510,7 @@ def render_operational_navigation(navigation: dict) -> None:
         ("Escalations", ["/escalation"], "!"),
         ("SLA Risks", ["/sla", "/incident"], "SLA"),
         ("Recent Notifications", ["/notification"], "N"),
-        ("Supplier Portal", ["/supplier"], "S"),
+        ("Partner Portal", ["/partner"], "P"),
         ("Dashboard", ["/dashboard"], "D"),
     ]:
         path = _preferred_route(routes, options)
@@ -468,8 +524,7 @@ def render_operational_navigation(navigation: dict) -> None:
         ("Processing Release", "/processing-release", "PR"),
         ("CAPAs", "/capa", "C"),
         ("Investigations", "/investigation", "I"),
-        ("Supplier Documents", "/supplier-documents", "SD"),
-        ("Supplier Approvals", "/supplier-approvals", "SA"),
+        ("Partner Documents", "/partner/documents", "PD"),
         ("Notifications", "/notification", "N"),
     ]:
         if path in routes:
@@ -483,7 +538,7 @@ def render_operational_navigation(navigation: dict) -> None:
         ("System Health", "/admin/system-health", "H"),
         ("Eligibility Rules", "/eligibility-rule", "ER"),
         ("Audit Logs", "/admin/audit-logs", "A"),
-        ("Suppliers", "/admin/suppliers", "S"),
+        ("Partners", "/admin/partners", "P"),
     ]:
         if path in routes:
             admin_items.append((label, path, icon))
@@ -723,9 +778,9 @@ def render_todays_operations(workspace: dict, context: dict) -> None:
         functional_routes.render_analytics_visuals(analytics)
 
 
-supplier_invite = _query_value("supplier_invite")
-if supplier_invite and "user" not in st.session_state:
-    render_supplier_invitation_accept(supplier_invite)
+partner_invite = _query_value("partner_invite") or _query_value("supplier_invite")
+if partner_invite and "user" not in st.session_state:
+    render_partner_invitation_accept(partner_invite)
     st.stop()
 
 reset_token = _query_value("reset_token")
@@ -776,7 +831,8 @@ render_top_bar(user, workspace, preview_role_id)
 with st.sidebar:
     render_sidebar_toggle()
     if not st.session_state.sidebar_compact:
-        st.markdown("### Clinical Operations")
+        sidebar_title = "Partner Portal" if user.get("role_name") in {"Partner External User", "Supplier External User"} else "Clinical Operations"
+        st.markdown(f"### {sidebar_title}")
     if "system.admin" in permissions and role_options:
         selected_role = st.selectbox(
             "View as",
@@ -816,7 +872,7 @@ if context.get("kind") == "admin":
         role_workspace.render(workspace, page_key, context["label"])
 elif context.get("route_key") == "dashboard":
     render_todays_operations(workspace, context)
-elif page_key in SUPPLIER_PAGE_KEYS:
-    supplier_portal.render_dashboard()
+elif page_key in PARTNER_PAGE_KEYS:
+    partner_portal.render_dashboard()
 else:
     functional_routes.render(context)

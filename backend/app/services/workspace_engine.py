@@ -357,14 +357,14 @@ def _workspace_kpis(db: Session, role: Role, user: User) -> dict[str, Any]:
     if role.role_name == "Business Technology Analyst":
         return governance_kpis(db)
 
-    if role.role_name == "Supplier External User":
-        supplier_tasks = _role_tasks(db, role, user)
+    if role.role_name in {"Partner External User", "Supplier External User"}:
+        partner_tasks = _role_tasks(db, role, user)
         return {
-            "Open Supplier Tasks": counts["open"],
-            "Pending Documents": sum(1 for task in supplier_tasks if "Document" in task.task_type),
-            "Pending Approvals": sum(1 for task in supplier_tasks if "Approval" in task.task_type),
-            "SLA Response Risk": counts["near_sla"],
-            "Escalated Requests": counts["escalated"],
+            "Open Submissions": counts["open"],
+            "Pending Review": sum(1 for task in partner_tasks if task.status in {"Assigned", "In Progress"}),
+            "Info Requested": sum(1 for task in partner_tasks if "Document" in task.task_type),
+            "Approved": sum(1 for task in partner_tasks if task.status == "Completed"),
+            "Closed": sum(1 for task in partner_tasks if task.status in {"Completed", "Closed"}),
         }
 
     active_users = db.execute(select(func.count(User.user_id)).where(User.is_active.is_(True))).scalar() or 0
@@ -483,16 +483,16 @@ def _widget_data(db: Session, role: Role, user: User) -> dict[str, Any]:
             }
         )
         return analytics
-    if role.role_name == "Supplier External User":
+    if role.role_name in {"Partner External User", "Supplier External User"}:
         return {
-            "supplier_task_queue": task_rows,
+            "partner_task_queue": task_rows,
             "requested_documents": [
                 row for row in task_rows if "Document" in row.get("task_type", "") or "Upload" in row.get("title", "")
             ],
             "pending_approvals": [
                 row for row in task_rows if "Approval" in row.get("task_type", "") or "Acknowledge" in row.get("title", "")
             ],
-            "supplier_notifications": task_rows,
+            "partner_notifications": task_rows,
             "role_tasks": task_rows,
         }
     return {

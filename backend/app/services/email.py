@@ -17,7 +17,7 @@ class EmailType(StrEnum):
     MFA_VERIFICATION = "MFA Verification"
     SECURITY_ALERT = "Security Alert"
     WORKFLOW_NOTIFICATION = "Workflow Notification"
-    SUPPLIER_INVITE = "Future Supplier Invite"
+    SUPPLIER_INVITE = "Partner Invite"
 
 
 @dataclass(slots=True)

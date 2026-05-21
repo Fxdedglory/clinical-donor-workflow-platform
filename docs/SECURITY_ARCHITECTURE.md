@@ -23,7 +23,7 @@ Supported account types:
 - `partner`
 - `external`
 
-Supplier accounts are active in the Supplier Portal. Partner and external auditor account types remain future-ready foundations. Supplier access is scoped by organization, approval state, MFA policy, route permissions, document access, and workflow assignment.
+Partner accounts are active in the Partner Portal. Legacy supplier account types remain compatibility foundations for vendor/supplier records. Partner access is scoped by organization, approval state, MFA policy, route permissions, document access, submission visibility, and workflow assignment.
 
 ## Authentication Flow
 
@@ -63,12 +63,19 @@ Authorization is enforced in four places:
 
 Users cannot rely on hidden frontend controls for security. API calls validate permissions and workflow role authorization.
 
-## Supplier Portal And Multi-Tenant Isolation
+## Partner Portal And Multi-Tenant Isolation
 
-Supplier collaboration is modeled with:
+Partner collaboration is modeled with:
 
 - `operational.dim_supplier_relationship`
 - `operational.dim_external_invitation`
+- `operational.dim_external_status_mapping`
+- `operational.dim_partner_submission`
+- `operational.fact_partner_submission_status`
+- `operational.fact_partner_message`
+- `operational.fact_partner_complaint`
+- `operational.dim_partner_document`
+- `operational.fact_partner_task_response`
 - `operational.dim_document_version`
 - `operational.fact_signature_event`
 - `operational.fact_background_job`
@@ -76,11 +83,11 @@ Supplier collaboration is modeled with:
 - `operational.dim_training_record`
 - `operational.fact_validation_evidence`
 
-External supplier users are assigned the `Supplier External User` role and an `organization_id`. API routes, task queries, document APIs, route resolution, workspace queues, and search apply organization scoping so Supplier A cannot see Supplier B records or internal donor queues. Supplier users receive `/supplier`, `/supplier-documents`, `/supplier-approvals`, `/task`, and `/notification` visibility, while internal supplier administration remains under `/admin/suppliers`.
+External partner users are assigned the `Partner External User` role and an `organization_id`. API routes, task queries, submission queries, complaint queries, document APIs, route resolution, workspace queues, and search apply organization scoping so Partner A cannot see Partner B records or internal donor queues. Partner users receive `/partner`, `/partner/submission`, `/partner/complaint`, `/partner/documents`, `/task`, and `/notification` visibility, while internal partner administration remains under `/admin/partners`.
 
-Supplier onboarding supports signed invitation links, pending approval, internal approval/rejection/suspension/revocation, MFA-enabled account creation, and security audit events.
+Partner onboarding supports signed invitation links, pending approval, internal approval/rejection/suspension/revocation, MFA-enabled account creation, and security audit events.
 
-Supplier document review is internal-only. Supplier users can submit organization-scoped documents and view their own review status, but review outcomes require internal `suppliers.manage` or `documents.manage` authority plus an internal account. Reviews create document access records, security audit events, operational audit entries, realtime activity events, background notification jobs, and supplier-visible notifications.
+Partner document review is internal-only. Partner users can submit organization-scoped documents and view their own review status, but review outcomes require internal `partners.manage`, `suppliers.manage`, or `documents.manage` authority plus an internal account. Reviews create document access records, security audit events, operational audit entries, realtime activity events, background notification jobs, and partner-visible notifications.
 
 ## Encryption Model
 
@@ -128,7 +135,7 @@ Production email delivery requires an outbound sender such as SMTP, SendGrid, or
 
 ## External-Ready Foundations
 
-Supplier access now enforces:
+Partner access now enforces:
 
 - organization scoping
 - approval workflow
@@ -137,4 +144,4 @@ Supplier access now enforces:
 - document-level access checks
 - audit logging for every access and export
 
-External users must never see unrestricted donor data, internal operational queues, or other supplier organizations.
+External users must never see unrestricted donor data, internal operational queues, or other partner organizations.
