@@ -73,6 +73,17 @@ services:
       sleep 12h & wait "$$!";
       done'
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - cloudflare
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - frontend
+
   backup:
     image: postgres:16
     restart: unless-stopped

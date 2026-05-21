@@ -129,6 +129,13 @@ def apply_theme(compact_sidebar: bool = False) -> None:
             visibility: hidden;
         }
 
+        div[data-testid="stSidebarCollapseButton"],
+        div[data-testid="stSidebarCollapseButton"] button[data-testid="stBaseButton-headerNoPadding"] {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+
         header[data-testid="stHeader"] {
             background: transparent;
         }

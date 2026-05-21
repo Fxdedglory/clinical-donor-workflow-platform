@@ -10,7 +10,7 @@ This project simulates internal donor-services and regulated tissue-processing s
 
 The latest upgrade adds security, compliance, and production-hardening foundations on top of the donor eligibility decision engine and QMS workflow expansion. Routes represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
 
-The production deployment upgrade adds native platform identity, organization scoping foundations, persistent UX preferences, SysAdmin system health monitoring, encrypted backup support, Nginx/TLS deployment configuration for `teemails.com`, and supplier/partner account foundations without requiring external identity-provider dependencies.
+The production deployment upgrade adds native platform identity, organization scoping foundations, persistent UX preferences, SysAdmin system health monitoring, encrypted backup support, Cloudflare Tunnel and Nginx/TLS deployment configuration for `teemails.com`, and supplier/partner account foundations without requiring external identity-provider dependencies.
 
 Resume themes demonstrated:
 
@@ -146,7 +146,7 @@ Legacy compatibility, QMS, and vendor tables:
 - Supplier portal identity foundations with native account types, organization linkage, approval status, MFA enablement, and future organization-scoped external access
 - Persistent user preferences for sidebar collapse state, last route, recently viewed records, pinned records, and notification preferences
 - SysAdmin System Health surface for DB, auth, email, document storage, backup posture, uptime, and active sessions
-- Production deployment scaffolding with Nginx reverse proxy, HTTPS/HSTS/CSP headers, teemails.com routing, Certbot renewal support, and encrypted daily PostgreSQL backup container
+- Production deployment scaffolding with Cloudflare Tunnel, optional Nginx reverse proxy, HTTPS/HSTS/CSP headers, teemails.com routing, Certbot renewal support, and encrypted daily PostgreSQL backup container
 - Seven enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst
 - Role-permission bridge for route-level authorization
 - Function-first enterprise routing for master data, workflow operations, analytics, and administration routes
@@ -262,6 +262,8 @@ Production deployment and recovery runbooks:
 - `docs/SECURITY_ARCHITECTURE.md`
 - `docs/BACKUP_RECOVERY.md`
 
+Recommended public deployment for `https://teemails.com` is the Cloudflare Tunnel path in `docs/PROD_DEPLOYMENT.md`, using the production Compose `cloudflared` profile.
+
 ### Run Locally with uv
 
 Start PostgreSQL first, then from the repository root:
@@ -347,6 +349,6 @@ uv run streamlit run frontend/app.py
 - Approval-chain designer for QMS and donor exceptions
 - Email, Teams, Slack, and SMS notification adapters
 - Power BI export or semantic model integration
-- Platform-native production deployment runbook for `teemails.com`
+- Production hardening beyond the current `teemails.com` runbook, including managed PostgreSQL, object storage, and external monitoring integrations
 - SharePoint document-control integration
 - Deeper non-conformance and CAPA lifecycle expansion

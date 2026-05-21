@@ -308,12 +308,16 @@ def _render_system_notice() -> None:
     )
 
 
+def toggle_sidebar_compact() -> None:
+    st.session_state.sidebar_compact = not st.session_state.sidebar_compact
+    persist_sidebar_state()
+    _save_preferences({"sidebar_collapsed": st.session_state.sidebar_compact})
+
+
 def render_top_bar(user: dict, workspace: dict, preview_role_id: int | None) -> None:
     left, search, quick, notices, profile = st.columns([0.06, 0.47, 0.10, 0.14, 0.23])
     if left.button("Menu", key="toggle_sidebar_v2", width="stretch"):
-        st.session_state.sidebar_compact = not st.session_state.sidebar_compact
-        persist_sidebar_state()
-        _save_preferences({"sidebar_collapsed": st.session_state.sidebar_compact})
+        toggle_sidebar_compact()
         st.rerun()
     with search:
         _render_global_search(preview_role_id)
@@ -336,6 +340,15 @@ def _preferred_route(routes: dict[str, dict], options: list[str]) -> str | None:
 
 def _sidebar_label(icon: str, label: str) -> str:
     return icon if st.session_state.sidebar_compact else f"{icon} {label}"
+
+
+def render_sidebar_toggle() -> None:
+    spacer, control = st.columns([0.82, 0.18])
+    with control:
+        label = ">>" if st.session_state.sidebar_compact else "<<"
+        if st.button(label, key="sidebar_inline_toggle", help="Toggle menu", width="stretch"):
+            toggle_sidebar_compact()
+            st.rerun()
 
 
 def _nav_item(label: str, route_path: str, icon: str, current_route: str, key_prefix: str) -> None:
@@ -666,6 +679,7 @@ if not workspace:
 render_top_bar(user, workspace, preview_role_id)
 
 with st.sidebar:
+    render_sidebar_toggle()
     if not st.session_state.sidebar_compact:
         st.markdown("### Clinical Operations")
     if "system.admin" in permissions and role_options:
