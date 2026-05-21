@@ -31,6 +31,21 @@ This app is a Streamlit + FastAPI + PostgreSQL container stack, so it should not
 
 When `cloudflared` runs inside this Compose project, use `http://frontend:8501`, not `http://localhost:8501`. Inside the Tunnel container, `localhost` means the Tunnel container itself.
 
+### Cut Over From An Existing Site
+
+Running the Docker stack starts the new app, but Cloudflare will keep serving the old site until the hostname is routed to this Tunnel.
+
+If the old `teemails.com` site still appears:
+
+1. Open Cloudflare Zero Trust and confirm the Tunnel status is healthy.
+2. Open the Tunnel's public hostnames and confirm both routes exist:
+   - `teemails.com` -> `http://frontend:8501`
+   - `www.teemails.com` -> `http://frontend:8501`
+3. Open Cloudflare DNS and remove old root or `www` records that point to the previous site.
+4. If the old site was a Cloudflare Pages app, remove `teemails.com` and `www.teemails.com` from that Pages project's custom domains.
+5. Confirm DNS now points each hostname to the Tunnel target, either through the public hostname automation or a proxied CNAME to `<tunnel-id>.cfargotunnel.com`.
+6. Purge Cloudflare cache for `teemails.com` if the old static HTML still appears after the route change.
+
 ### Cloudflare Tunnel Deploy
 
 ```bash
