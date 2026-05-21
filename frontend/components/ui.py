@@ -69,17 +69,37 @@ STATUS_COLORS = {
 
 
 def apply_theme(compact_sidebar: bool = False) -> None:
-    compact_css = """
-        section[data-testid="stSidebar"] {
-            min-width: 6.4rem !important;
-            max-width: 6.4rem !important;
-        }
+    sidebar_width = "6.4rem" if compact_sidebar else "18rem"
+    sidebar_padding = "0.45rem" if compact_sidebar else "1rem"
+    sidebar_css = f"""
+        section[data-testid="stSidebar"] {{
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            min-width: {sidebar_width} !important;
+            max-width: {sidebar_width} !important;
+            width: {sidebar_width} !important;
+            transform: translateX(0) !important;
+            left: 0 !important;
+            background: #0b2738 !important;
+            border-right: 1px solid rgba(255,255,255,0.08) !important;
+            z-index: 999991 !important;
+        }}
 
-        section[data-testid="stSidebar"] div[data-testid="stSidebarContent"] {
-            padding-left: 0.45rem;
-            padding-right: 0.45rem;
-        }
-    """ if compact_sidebar else ""
+        section[data-testid="stSidebar"] > div,
+        section[data-testid="stSidebar"] div[data-testid="stSidebarContent"] {{
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            min-height: 100vh;
+            background: #0b2738 !important;
+        }}
+
+        section[data-testid="stSidebar"] div[data-testid="stSidebarContent"] {{
+            padding-left: {sidebar_padding};
+            padding-right: {sidebar_padding};
+        }}
+    """
     st.markdown(
         """
         <style>
@@ -111,11 +131,6 @@ def apply_theme(compact_sidebar: bool = False) -> None:
 
         header[data-testid="stHeader"] {
             background: transparent;
-        }
-
-        section[data-testid="stSidebar"] {
-            background: #0b2738;
-            border-right: 1px solid rgba(255,255,255,0.08);
         }
 
         section[data-testid="stSidebar"] h1,
@@ -362,7 +377,7 @@ def apply_theme(compact_sidebar: bool = False) -> None:
         }
 
         """
-        + compact_css
+        + sidebar_css
         + """
         </style>
         """,
