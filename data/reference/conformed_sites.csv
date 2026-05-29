@@ -1,0 +1,8 @@
+site_id,site_code,site_name,region,country
+SITE-ALACHUA,ALACHUA,Alachua Regenerative Medicine Campus,North America,United States
+SITE-WLAF,WLAF,West Lafayette Biologics Facility,North America,United States
+SITE-EP,EP,Eden Prairie Distribution and QA,North America,United States
+SITE-GLENCOE,GLENCOE,Glencoe Processing Annex,North America,United States
+SITE-NEUNK,NEUNK,Neunkirchen Precision Manufacturing,EMEA,Germany
+SITE-GLASGOW,GLASGOW,Glasgow Advanced Materials Site,EMEA,United Kingdom
+SITE-MARTON,MARTON,Marton Tissue Processing Site,APAC,New Zealand

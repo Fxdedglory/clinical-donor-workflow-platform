@@ -139,6 +139,80 @@ RISK_FACTORS = [
     "QA release hold",
 ]
 
+CONFORMED_SITES = [
+    {
+        "site_id": "SITE-ALACHUA",
+        "site_code": "ALACHUA",
+        "site_name": "Alachua Regenerative Medicine Campus",
+        "region": "North America",
+        "country": "United States",
+    },
+    {
+        "site_id": "SITE-WLAF",
+        "site_code": "WLAF",
+        "site_name": "West Lafayette Biologics Facility",
+        "region": "North America",
+        "country": "United States",
+    },
+    {
+        "site_id": "SITE-EP",
+        "site_code": "EP",
+        "site_name": "Eden Prairie Distribution and QA",
+        "region": "North America",
+        "country": "United States",
+    },
+    {
+        "site_id": "SITE-GLENCOE",
+        "site_code": "GLENCOE",
+        "site_name": "Glencoe Processing Annex",
+        "region": "North America",
+        "country": "United States",
+    },
+    {
+        "site_id": "SITE-NEUNK",
+        "site_code": "NEUNK",
+        "site_name": "Neunkirchen Precision Manufacturing",
+        "region": "EMEA",
+        "country": "Germany",
+    },
+    {
+        "site_id": "SITE-GLASGOW",
+        "site_code": "GLASGOW",
+        "site_name": "Glasgow Advanced Materials Site",
+        "region": "EMEA",
+        "country": "United Kingdom",
+    },
+    {
+        "site_id": "SITE-MARTON",
+        "site_code": "MARTON",
+        "site_name": "Marton Tissue Processing Site",
+        "region": "APAC",
+        "country": "New Zealand",
+    },
+]
+
+CLINICAL_PRODUCT_ALIGNMENT = {
+    "bone": {"product_family": "Allograft", "erp_material_family": "Allograft"},
+    "cornea": {"product_family": "Ocular Tissue", "erp_material_family": "Allograft"},
+    "dermal matrix": {"product_family": "Dermal Matrix", "erp_material_family": "Allograft"},
+    "heart valve": {"product_family": "Cardiovascular Tissue", "erp_material_family": "Allograft"},
+    "organ": {"product_family": "Clinical Organ Referral", "erp_material_family": "Not ERP-managed"},
+    "skin": {"product_family": "Dermal Tissue", "erp_material_family": "Allograft"},
+    "tendon": {"product_family": "Musculoskeletal Tissue", "erp_material_family": "Allograft"},
+}
+
+EXPORT_METADATA_FIELDS = [
+    "source_system",
+    "source_table",
+    "source_record_id",
+    "source_created_at",
+    "source_updated_at",
+    "ingestion_batch_id",
+    "extraction_batch_id",
+    "generated_at",
+    "extracted_at",
+]
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -307,6 +381,21 @@ def _risk_profile(rng: random.Random) -> tuple[int, str, list[str], str, str]:
     return score, "Low", flags, "Approve", "Routine"
 
 
+def _site_context_for_org(organization: Organization | None) -> dict[str, str]:
+    if not organization:
+        return CONFORMED_SITES[0]
+    return CONFORMED_SITES[(organization.organization_id - 1) % len(CONFORMED_SITES)]
+
+
+def _product_context(product_or_tissue: str | None) -> dict[str, str]:
+    key = str(product_or_tissue or "").strip().lower()
+    context = CLINICAL_PRODUCT_ALIGNMENT.get(
+        key,
+        {"product_family": product_or_tissue or "Unknown", "erp_material_family": "Unmapped"},
+    )
+    return {"product_or_tissue": product_or_tissue or "Unknown", **context}
+
+
 def _create_donor_case(
     db: Session,
     *,
@@ -327,6 +416,8 @@ def _create_donor_case(
     organization = _choose(rng, organizations)
     referral_source = _choose(rng, referral_sources)
     tissue_type = _choose(rng, tissue_types)
+    site_context = _site_context_for_org(organization)
+    product_context = _product_context(tissue_type.tissue_name)
     risk_score, risk_level, flags, recommended_action, priority = _risk_profile(rng)
     donor_identifier = f"DON-{now.strftime('%y%m%d')}-{rng.randint(100000, 999999)}"
     donor_name = fake.name()
@@ -371,7 +462,10 @@ def _create_donor_case(
         donor_history={
             "risk_factors": flags,
             "source": "continuous_data_producer",
+            "source_system": SOURCE_SYSTEM,
             "extraction_batch_id": extraction_batch_id,
+            "site_context": site_context,
+            "product_context": product_context,
         },
         current_workflow_state=state,
         eligibility_status=eligibility_status,
@@ -528,7 +622,13 @@ def _create_donor_case(
             related_record_id=str(donor.donor_pk),
             event_type="DONOR_REFERRAL_GENERATED",
             event_summary=f"Generated donor referral {donor_identifier}",
-            event_detail={"risk_score": risk_score, "risk_flags": flags, "extraction_batch_id": extraction_batch_id},
+            event_detail={
+                "risk_score": risk_score,
+                "risk_flags": flags,
+                "extraction_batch_id": extraction_batch_id,
+                "site_context": site_context,
+                "product_context": product_context,
+            },
             created_by=reviewer.user_id,
             created_at=now,
         )
@@ -559,7 +659,13 @@ def _create_donor_case(
             timestamp=now,
         )
     )
-    return {"donor_pk": donor.donor_pk, "task_id": task.task_id, "risk_level": risk_level}
+    return {
+        "donor_pk": donor.donor_pk,
+        "task_id": task.task_id,
+        "risk_level": risk_level,
+        "site_id": site_context["site_id"],
+        "product_family": product_context["product_family"],
+    }
 
 
 def _create_partner_activity(
@@ -575,10 +681,13 @@ def _create_partner_activity(
         return None
     now = utc_now()
     org = _choose(rng, partner_orgs)
+    site_context = _site_context_for_org(org)
     partner_users = [user for user in users if user.organization_id == org.organization_id and user.is_external]
     submitter = _choose(rng, partner_users) if partner_users else None
     status, internal_state = _choose(rng, PARTNER_STATUS_STEPS)
     submission_code = f"SUB-{now.strftime('%y%m%d')}-{rng.randint(10000, 99999)}"
+    product_or_tissue = _choose(rng, ["Cornea", "Skin", "Bone", "Dermal Matrix", "Heart Valve"])
+    product_context = _product_context(product_or_tissue)
     submission = PartnerSubmission(
         submission_code=submission_code,
         organization_id=org.organization_id,
@@ -589,11 +698,16 @@ def _create_partner_activity(
         internal_state=internal_state,
         priority=_choose(rng, ["Standard", "High", "Critical"]),
         description=fake.sentence(nb_words=14),
-        product_or_tissue=_choose(rng, ["Cornea", "Skin", "Bone", "Dermal Matrix", "Heart Valve"]),
+        product_or_tissue=product_or_tissue,
         batch_or_reference=f"REF-{rng.randint(100000, 999999)}",
         estimated_completion_at=now + timedelta(hours=rng.randint(12, 96)),
         submitted_at=now,
-        details={"source_system": SOURCE_SYSTEM, "extraction_batch_id": extraction_batch_id},
+        details={
+            "source_system": SOURCE_SYSTEM,
+            "extraction_batch_id": extraction_batch_id,
+            "site_context": site_context,
+            "product_context": product_context,
+        },
     )
     db.add(submission)
     db.flush()
@@ -634,7 +748,12 @@ def _create_partner_activity(
             checksum_sha256=document.checksum_sha256,
             approval_status=_choose(rng, ["Pending Review", "Approved", "Correction Requested"]),
             created_at=now,
-            extra_metadata={"source_system": SOURCE_SYSTEM, "extraction_batch_id": extraction_batch_id},
+            extra_metadata={
+                "source_system": SOURCE_SYSTEM,
+                "extraction_batch_id": extraction_batch_id,
+                "site_context": site_context,
+                "product_context": product_context,
+            },
         )
     )
     db.add(
@@ -668,11 +787,21 @@ def _create_partner_activity(
             organization_id=org.organization_id,
             record_type="PartnerSubmission",
             record_id=str(submission.submission_id),
-            payload={"submission_code": submission_code, "status": status},
+            payload={
+                "submission_code": submission_code,
+                "status": status,
+                "site_id": site_context["site_id"],
+                "product_family": product_context["product_family"],
+            },
             created_at=now,
         )
     )
-    return {"submission_id": submission.submission_id, "document_id": document.document_id}
+    return {
+        "submission_id": submission.submission_id,
+        "document_id": document.document_id,
+        "site_id": site_context["site_id"],
+        "product_family": product_context["product_family"],
+    }
 
 
 def _create_qms_and_vendor_activity(
@@ -748,6 +877,8 @@ def _create_qms_and_vendor_activity(
         result["vendor_ticket"] = incident.ticket_number
     if partner_orgs and rng.random() < 0.35:
         org = _choose(rng, partner_orgs)
+        site_context = _site_context_for_org(org)
+        product_context = _product_context("Dermal Matrix")
         complaint = PartnerComplaint(
             complaint_code=f"CMP-{now.strftime('%y%m%d')}-{rng.randint(10000, 99999)}",
             organization_id=org.organization_id,
@@ -760,10 +891,16 @@ def _create_qms_and_vendor_activity(
             partner_visible_status="Submitted",
             internal_state="Pending QA Review",
             submitted_at=now,
-            details={"source_system": SOURCE_SYSTEM, "extraction_batch_id": extraction_batch_id},
+            details={
+                "source_system": SOURCE_SYSTEM,
+                "extraction_batch_id": extraction_batch_id,
+                "site_context": site_context,
+                "product_context": product_context,
+            },
         )
         db.add(complaint)
         result["complaint_code"] = complaint.complaint_code
+        result["complaint_site_id"] = site_context["site_id"]
     db.add(
         AuditLog(
             user_id=owner.user_id,
@@ -1132,6 +1269,33 @@ def validate_database(db: Session, *, record_run: bool = True) -> dict[str, Any]
         )
         add_check("audit events have core attributes", audit_integrity == 0, f"{audit_integrity} audit events are missing action/table/record.")
 
+        conformed_site_ids = {site["site_id"] for site in CONFORMED_SITES}
+        add_check(
+            "conformed site references are defined",
+            conformed_site_ids
+            == {
+                "SITE-ALACHUA",
+                "SITE-WLAF",
+                "SITE-EP",
+                "SITE-GLENCOE",
+                "SITE-NEUNK",
+                "SITE-GLASGOW",
+                "SITE-MARTON",
+            },
+            "Clinical producer must retain the shared enterprise site ids.",
+        )
+        tissue_names = [row[0] for row in db.execute(select(TissueType.tissue_name)).all()]
+        unmapped_tissues = [
+            tissue_name
+            for tissue_name in tissue_names
+            if _product_context(tissue_name).get("erp_material_family") == "Unmapped"
+        ]
+        add_check(
+            "clinical tissue types have product-family mappings",
+            not unmapped_tissues,
+            f"Unmapped tissue types: {unmapped_tissues}",
+        )
+
         overdue_capa = int(
             db.execute(
                 select(func.count())
@@ -1191,6 +1355,24 @@ def _serialize_cell(value: Any) -> Any:
     return value
 
 
+def _source_record_id(record: Any, model: Any) -> str:
+    key_values = []
+    for column in model.__mapper__.primary_key:
+        key_values.append(str(getattr(record, column.name)))
+    return "|".join(key_values)
+
+
+def _record_timestamp(record: Any, *names: str) -> str:
+    for name in names:
+        if hasattr(record, name):
+            value = getattr(record, name)
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if value is not None:
+                return str(value)
+    return ""
+
+
 def export_database_batch(
     db: Session,
     *,
@@ -1215,13 +1397,26 @@ def export_database_batch(
             with output_path.open("w", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(
                     handle,
-                    fieldnames=[*columns, "source_system", "extraction_batch_id", "extracted_at"],
+                    fieldnames=[*columns, *EXPORT_METADATA_FIELDS],
                 )
                 writer.writeheader()
                 for record in db.execute(select(model)).scalars().all():
                     row = {column: _serialize_cell(getattr(record, column)) for column in columns}
                     row["source_system"] = SOURCE_SYSTEM
+                    row["source_table"] = table_name
+                    row["source_record_id"] = _source_record_id(record, model)
+                    row["source_created_at"] = _record_timestamp(record, "created_at", "submitted_at", "opened_at")
+                    row["source_updated_at"] = _record_timestamp(
+                        record,
+                        "updated_at",
+                        "changed_at",
+                        "submitted_at",
+                        "created_at",
+                        "opened_at",
+                    )
+                    row["ingestion_batch_id"] = batch_id
                     row["extraction_batch_id"] = batch_id
+                    row["generated_at"] = started.isoformat()
                     row["extracted_at"] = started.isoformat()
                     writer.writerow(row)
                     digest.update(json.dumps(row, default=_json_default, sort_keys=True).encode("utf-8"))
