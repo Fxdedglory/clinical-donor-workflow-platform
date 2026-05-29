@@ -125,6 +125,29 @@ STATUSES = [
     "Rejected",
     "Destroyed",
 ]
+STATUS_WEIGHTS = [
+    28,
+    24,
+    20,
+    18,
+    18,
+    16,
+    14,
+    12,
+    10,
+    8,
+    8,
+    8,
+    8,
+    10,
+    8,
+    10,
+    8,
+    8,
+    7,
+    12,
+    4,
+]
 NOTES = [
     "Routine intake packet reviewed. No abnormal disclosures.",
     "Recent travel documented; confirm exposure questionnaire during clinical review.",
@@ -1403,7 +1426,7 @@ def _ensure_donor_eligibility_data(db, roles: dict[str, Role], users_by_role: di
         for index, review in enumerate(review_rows, start=1):
             status = random.choices(
                 STATUSES,
-                weights=[8, 12, 15, 14, 12, 10, 7, 5, 6, 4, 4, 5, 3, 2, 2, 1, 1],
+                weights=STATUS_WEIGHTS,
                 k=1,
             )[0]
             created_at = review.created_at or _random_datetime(90)
@@ -2094,29 +2117,7 @@ def seed_database(records: int, force: bool = False, seed: int | None = None) ->
             missing = random.random() < 0.07
             status_choice = random.choices(
                 STATUSES,
-                weights=[
-                    28,
-                    24,
-                    20,
-                    18,
-                    18,
-                    16,
-                    14,
-                    12,
-                    10,
-                    8,
-                    8,
-                    8,
-                    8,
-                    10,
-                    8,
-                    10,
-                    8,
-                    8,
-                    7,
-                    12,
-                    4,
-                ],
+                weights=STATUS_WEIGHTS,
                 k=1,
             )[0]
             created_at = _random_datetime(45)

@@ -11,10 +11,8 @@ As of 2026-05-29 in this shell:
 - That interpreter reports Python `3.13.7` and can create `.venv` for this repo.
 - No Python executable was found under `AppData\Local\Programs\Python`.
 - No Conda executable was found by `where conda`.
-- PostgreSQL 13 and 16 services are installed but stopped.
+- PostgreSQL 16 is available locally on `localhost:5433` for this repo.
 - `psql.exe` exists under `C:\Program Files\PostgreSQL\16\bin`.
-- Starting `postgresql-x64-16` from a non-elevated PowerShell failed with service permission errors.
-- `localhost:5432` did not accept TCP connections.
 
 Recommended Python fix if you want a standard install:
 
@@ -64,14 +62,14 @@ Set `DATABASE_URL` for the local PostgreSQL database.
 For local development, use a localhost database URL. If an older ignored `.env` still points to Docker host `db`, replace it before running migrations:
 
 ```powershell
-DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/clinical_donor_workflow
+DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5433/clinical_donor_workflow
 ```
 
 Start PostgreSQL 16 from an elevated PowerShell window if the service is stopped:
 
 ```powershell
 Start-Service postgresql-x64-16
-& "C:\Program Files\PostgreSQL\16\bin\pg_isready.exe" -h localhost -p 5432
+& "C:\Program Files\PostgreSQL\16\bin\pg_isready.exe" -h localhost -p 5433
 ```
 
 Run migrations:
