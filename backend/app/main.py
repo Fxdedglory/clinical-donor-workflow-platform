@@ -1,14 +1,18 @@
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import settings
+from app.database import engine
 from app.routes import (
     admin,
     ai_governance,
@@ -33,6 +37,9 @@ from app.routes import (
     workflow_tasks,
     workspaces,
 )
+
+APP_NAME = "clinical-donor-platform"
+APP_STARTED_MONOTONIC = time.monotonic()
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -114,6 +121,28 @@ def api_health() -> dict[str, str]:
         "version": settings.app_version,
         "environment": settings.app_env,
         "startup_mode": settings.startup_mode,
+    }
+
+
+@app.get("/api/monitoring/health", tags=["Monitoring"])
+def monitoring_health() -> dict[str, str | float | None]:
+    database_status = "unknown"
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("select 1"))
+        database_status = "ok"
+    except Exception:
+        database_status = "unavailable"
+    return {
+        "app_name": APP_NAME,
+        "environment": settings.app_env,
+        "status": "ok" if database_status == "ok" else "degraded",
+        "version": settings.app_version,
+        "build_sha": "unknown",
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "storage_backend": "postgresql",
+        "database_status": database_status,
+        "uptime_seconds": round(time.monotonic() - APP_STARTED_MONOTONIC, 3),
     }
 
 
