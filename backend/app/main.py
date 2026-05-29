@@ -117,7 +117,7 @@ def api_health() -> dict[str, str]:
     }
 
 
-@app.get("/", tags=["System"])
+@app.get("/", tags=["System"], response_model=None)
 def root() -> FileResponse | dict[str, str]:
     index_path = _frontend_index()
     if index_path:
@@ -128,7 +128,7 @@ def root() -> FileResponse | dict[str, str]:
     }
 
 
-@app.get("/{full_path:path}", include_in_schema=False)
+@app.get("/{full_path:path}", include_in_schema=False, response_model=None)
 def serve_frontend(full_path: str) -> FileResponse:
     if full_path.startswith(("api/", "docs", "redoc", "openapi.json", "health")):
         raise HTTPException(status_code=404, detail="Not found")
