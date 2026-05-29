@@ -16,4 +16,10 @@ coverage.xml
 htmlcov/
 node_modules/
 *.log
+logs/*
+!logs/.gitkeep
+data/generated/*
+!data/generated/.gitkeep
+data/exports/*
+!data/exports/.gitkeep
 

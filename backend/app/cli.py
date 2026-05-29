@@ -1950,7 +1950,11 @@ def ensure_enterprise_data(db) -> None:
     db.commit()
 
 
-def seed_database(records: int, force: bool = False) -> None:
+def seed_database(records: int, force: bool = False, seed: int | None = None) -> None:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+        fake.seed_instance(seed)
     records = max(500, min(records, 5000))
     db = SessionLocal()
     try:
@@ -2260,10 +2264,11 @@ def main() -> None:
     seed_parser = subparsers.add_parser("seed", help="Seed realistic demo data")
     seed_parser.add_argument("--records", type=int, default=1200, help="Donor records, clamped to 500-5000")
     seed_parser.add_argument("--force", action="store_true", help="Clear and reseed existing demo data")
+    seed_parser.add_argument("--seed", type=int, default=None, help="Optional deterministic random seed")
 
     args = parser.parse_args()
     if args.command == "seed":
-        seed_database(records=args.records, force=args.force)
+        seed_database(records=args.records, force=args.force, seed=args.seed)
 
 
 if __name__ == "__main__":

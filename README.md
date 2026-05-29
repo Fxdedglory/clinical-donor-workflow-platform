@@ -264,7 +264,62 @@ Rendered enterprise route/workspace examples:
 
 ## Setup Instructions
 
-### Run with Docker Compose
+### Azure Hosting Path: No Docker, No uv
+
+The Azure App Service path for this repo uses standard Python tooling:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+The current shell on this machine is resolving `python` to the Windows Store alias. Install Python 3.12 from python.org and disable the Store aliases if `python --version` opens the Store prompt. Details are in `docs/runbooks/local_development_runbook.md`.
+
+Run FastAPI and Streamlit locally after PostgreSQL is available:
+
+```powershell
+$env:PYTHONPATH="backend"
+$env:DATABASE_URL="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow"
+.\.venv\Scripts\python -m alembic upgrade head
+.\.venv\Scripts\python -m app.cli seed --records 1200 --seed 42
+.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In a second terminal:
+
+```powershell
+$env:API_URL="http://127.0.0.1:8000"
+.\.venv\Scripts\python -m streamlit run frontend\app.py
+```
+
+App Service startup helper:
+
+```powershell
+.\.venv\Scripts\python scripts\start_app_service.py --check
+.\.venv\Scripts\python scripts\start_app_service.py
+```
+
+### Continuous Clinical Data Producer
+
+The data producer adds row-level source-system activity for donor referrals, partner portal submissions, document workflows, QMS deviations, CAPAs, vendor SLA incidents, audit events, validation, exports, and run history.
+
+```powershell
+.\.venv\Scripts\python scripts\run_data_producer.py incremental --scale 1 --seed 42 --confirm
+.\.venv\Scripts\python scripts\run_data_producer.py validate --confirm
+.\.venv\Scripts\python scripts\run_data_producer.py export --batch-id smoke_batch --confirm
+.\.venv\Scripts\python scripts\run_data_producer.py continuous --interval-seconds 1 --cycles 1 --scale 1 --seed 42 --confirm
+```
+
+Admin UI route:
+
+```text
+/admin/data-producer
+```
+
+Generated producer metadata and export batches are ignored by Git under `data/generated`, `data/exports`, and `logs`.
+
+### Legacy Docker Compose Path
 
 ```bash
 docker compose up --build
@@ -285,28 +340,16 @@ Production deployment and recovery runbooks:
 - `docs/SECURITY_ARCHITECTURE.md`
 - `docs/BACKUP_RECOVERY.md`
 
-Recommended public deployment for `https://teemails.com` is the Cloudflare Tunnel path in `docs/PROD_DEPLOYMENT.md`, using the production Compose `cloudflared` profile.
+The Docker Compose and uv instructions are legacy/local-only references. They are not the Azure hosting path for the teemails portfolio.
 
-### Run Locally with uv
+Azure readiness docs:
 
-Start PostgreSQL first, then from the repository root:
-
-```powershell
-uv venv
-uv pip install -r requirements.txt
-$env:PYTHONPATH="backend"
-$env:DATABASE_URL="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow"
-uv run alembic upgrade head
-uv run python -m app.cli seed --records 1200
-uv run uvicorn app.main:app --reload --app-dir backend
-```
-
-In a second terminal:
-
-```powershell
-$env:API_URL="http://localhost:8000"
-uv run streamlit run frontend/app.py
-```
+- `docs/architecture/azure_hosting_readiness_audit.md`
+- `docs/architecture/no_docker_no_uv_migration_plan.md`
+- `docs/azure/app_service_hosting_plan.md`
+- `docs/azure/app_settings_reference.md`
+- `docs/azure/final_azure_deployment_execution_plan.md`
+- `docs/runbooks/data_producer_runbook.md`
 
 ## Demo Workflow
 

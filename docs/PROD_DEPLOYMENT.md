@@ -1,5 +1,7 @@
 # Production Deployment
 
+> Legacy note: this runbook documents the existing Docker/Cloudflare Tunnel deployment path. The teemails Azure hosting path for this repo is no-Docker/no-uv and is documented in `docs/azure/app_service_hosting_plan.md`.
+
 Target domain: `https://teemails.com`
 
 This project is prepared for a containerized production deployment with four core services:

@@ -129,6 +129,7 @@ ROUTE_DEFINITIONS = [
             {"route_path": "/admin/partners", "label": "Partners", "permissions": ["partners.manage", "suppliers.manage"]},
             {"route_path": "/admin/responsibility-center", "label": "Responsibility Center", "permissions": ["system.admin"]},
             {"route_path": "/admin/system-health", "label": "System Health", "permissions": ["system.admin"]},
+            {"route_path": "/admin/data-producer", "label": "Data Producer", "permissions": ["system.admin"]},
         ],
     },
 ]
@@ -411,6 +412,7 @@ def _route_label(route_key: str) -> str:
         "admin/suppliers": "Partner Administration",
         "admin/responsibility-center": "Responsibility Center",
         "admin/system-health": "System Health",
+        "admin/data-producer": "Data Producer",
     }
     return labels.get(route_key, route_key.replace("-", " ").replace("/", " / ").title())
 
@@ -1348,6 +1350,7 @@ def page_key_for_route(route_key: str, role_name: str) -> str:
         "admin/suppliers": "partner_admin",
         "admin/responsibility-center": "responsibility_center",
         "admin/system-health": "system_health",
+        "admin/data-producer": "data_producer",
     }
     if route_key == "dashboard" and role_name == "Business Technology Analyst":
         return "ai_risk_dashboard"

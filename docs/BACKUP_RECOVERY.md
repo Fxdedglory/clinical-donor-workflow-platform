@@ -1,5 +1,7 @@
 # Backup And Recovery
 
+> Legacy note: this runbook documents Docker Compose commands for the existing local/container stack. For Azure App Service and Azure Database for PostgreSQL, use platform backup/restore procedures after provisioning is approved.
+
 This document defines production backup, restore, rollback, and outage recovery foundations for `teemails.com`.
 
 ## Backup Policy

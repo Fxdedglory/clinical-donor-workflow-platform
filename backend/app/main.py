@@ -18,6 +18,7 @@ from app.routes import (
     enterprise_dashboard,
     escalations,
     functional_routes,
+    generation,
     notifications,
     partners,
     reviews,
@@ -83,11 +84,23 @@ app.include_router(enterprise_dashboard.router)
 app.include_router(workspaces.router)
 app.include_router(functional_routes.router)
 app.include_router(suppliers.router)
+app.include_router(generation.router)
 
 
 @app.get("/health", tags=["System"])
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": settings.app_name}
+    return {"status": "ok", "service": settings.app_name, "version": settings.app_version}
+
+
+@app.get("/api/health", tags=["System"])
+def api_health() -> dict[str, str]:
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "version": settings.app_version,
+        "environment": settings.app_env,
+        "startup_mode": settings.startup_mode,
+    }
 
 
 @app.get("/", tags=["System"])

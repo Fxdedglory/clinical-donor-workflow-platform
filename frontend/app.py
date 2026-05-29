@@ -26,6 +26,7 @@ from components.ui import (
 from views import (
     admin_portal,
     audit_logs,
+    data_producer,
     functional_routes,
     partner_portal,
     role_center,
@@ -65,6 +66,7 @@ ADMIN_PAGE_RENDERERS = {
     "audit_administration": audit_logs.render,
     "responsibility_center": role_center.render,
     "system_health": system_health.render,
+    "data_producer": data_producer.render,
     "partner_admin": partner_portal.render_admin,
 }
 
@@ -539,6 +541,7 @@ def render_operational_navigation(navigation: dict) -> None:
         ("Eligibility Rules", "/eligibility-rule", "ER"),
         ("Audit Logs", "/admin/audit-logs", "A"),
         ("Partners", "/admin/partners", "P"),
+        ("Data Producer", "/admin/data-producer", "DP"),
     ]:
         if path in routes:
             admin_items.append((label, path, icon))

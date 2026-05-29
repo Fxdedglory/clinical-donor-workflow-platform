@@ -1,6 +1,8 @@
+import json
 from functools import lru_cache
 
 from pydantic import Field
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,12 +45,34 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow",
         alias="DATABASE_URL",
     )
+    api_internal_port: int = Field(default=8000, alias="API_INTERNAL_PORT")
+    streamlit_port: int = Field(default=8501, alias="PORT")
+    startup_mode: str = Field(default="streamlit_with_api", alias="STARTUP_MODE")
+    data_producer_metadata_root: str = Field(default="data/generated", alias="DATA_PRODUCER_METADATA_ROOT")
+    data_producer_export_root: str = Field(default="data/exports", alias="DATA_PRODUCER_EXPORT_ROOT")
+    data_producer_stop_file: str = Field(default="data/generated/STOP_CONTINUOUS", alias="DATA_PRODUCER_STOP_FILE")
+    data_producer_min_interval_seconds: int = Field(default=1, alias="DATA_PRODUCER_MIN_INTERVAL_SECONDS")
+    data_producer_max_cycles: int = Field(default=1000, alias="DATA_PRODUCER_MAX_CYCLES")
+    data_producer_allow_infinite: bool = Field(default=False, alias="DATA_PRODUCER_ALLOW_INFINITE")
+    enable_data_producer_api: bool = Field(default=True, alias="ENABLE_DATA_PRODUCER_API")
     cors_origins: list[str] = [
         "http://localhost:8501",
         "http://127.0.0.1:8501",
         "https://teemails.com",
         "https://www.teemails.com",
     ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                return json.loads(stripped)
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return value
 
 
 @lru_cache
