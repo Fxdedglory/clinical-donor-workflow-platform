@@ -7,28 +7,33 @@ Host the Clinical Donor Platform as the Clinical app in the teemails portfolio w
 Preferred path:
 
 - Azure App Service Linux, Python 3.12 runtime
+- FastAPI serves API routes and the built React/Vite frontend from `frontend/dist`
 - Azure Database for PostgreSQL Flexible Server for persistent hosted data
 - App Service application settings for secrets/config
 - Optional Application Insights for request/error telemetry
+- Power BI Service hosts future analytics at `teemails.com/analytics`
 - Cloudflare or Azure edge routing handled later by the portfolio routing plan
 
 ## Runtime Shape
 
 ```text
 Azure App Service
-  public port: Streamlit frontend
-  local companion process: FastAPI API on 127.0.0.1
+  public port: FastAPI
+  static frontend: React/Vite build served by FastAPI
   database: Azure Database for PostgreSQL
+
+Power BI Service
+  future analytics route: teemails.com/analytics
 ```
 
-The startup helper `scripts/start_app_service.py` launches FastAPI first, then starts Streamlit on the public App Service port.
+The startup helper `scripts/start_app_service.py` starts one FastAPI process on `$PORT`. Streamlit is not part of the target hosting architecture.
 
 ## Build/Startup Commands
 
 Build command:
 
 ```text
-python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+python -m pip install --upgrade pip && python -m pip install -r requirements.txt && cd frontend && npm install && npm run build
 ```
 
 Startup command:
@@ -74,6 +79,14 @@ https://teemails.com/Clinical
 ```
 
 Path-based routing should be implemented at Cloudflare Worker, Azure Front Door, or a portfolio gateway. The Clinical app itself should be tested for operation behind a path prefix before production cutover.
+
+Analytics route:
+
+```text
+https://teemails.com/analytics
+```
+
+The analytics route should point to Power BI Service links or secure embedded Power BI reports after the downstream Snowflake/dbt platform exists. This Clinical repo should not host production analytics dashboards.
 
 ## No-Provisioning Boundary
 

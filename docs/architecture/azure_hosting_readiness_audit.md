@@ -6,16 +6,16 @@ Mode: repository audit and no-provisioning implementation pass. No Azure resourc
 
 ## Executive Summary
 
-The Clinical Donor Platform is a mature FastAPI + Streamlit + SQLAlchemy/PostgreSQL workflow application with JWT/RBAC, partner portal scoping, QMS/CAPA, audit logging, workflow routing, vendor SLA monitoring, and rich seed data.
+The Clinical Donor Platform is a mature FastAPI + SQLAlchemy/PostgreSQL workflow application with JWT/RBAC, partner portal scoping, QMS/CAPA, audit logging, workflow routing, vendor SLA monitoring, and rich seed data. The former Streamlit UI has been removed from the target architecture and replaced by a React/Vite operational shell.
 
-The main hosting blocker is not application capability; it is deployment packaging. The current repo still contains Docker Compose, Dockerfiles, `uv.lock`, and README/runbook instructions centered on Docker/uv. Those artifacts can remain as legacy/local references, but the Azure App Service path must use standard Python virtual environments, `pip install -r requirements.txt`, a custom startup command, and Azure Database for PostgreSQL.
+The main hosting blocker is local runtime availability: this shell still only resolves Python to the Windows Store alias. PostgreSQL 13 and 16 services are installed but stopped. The Azure App Service path uses standard Python virtual environments, `pip install -r requirements.txt`, React/Vite build output, a FastAPI startup command, and Azure Database for PostgreSQL when hosted persistence is approved.
 
 ## Existing Architecture
 
 | Area | Current state |
 |---|---|
 | Backend framework | FastAPI in `backend/app/main.py` |
-| Frontend framework | Streamlit in `frontend/app.py` and `frontend/views/*` |
+| Frontend framework | React/Vite under `frontend/src`; FastAPI serves `frontend/dist` when built |
 | ORM/database | SQLAlchemy models in `backend/app/models/entities.py`; Alembic migrations under `database/migrations` |
 | Persistence target | PostgreSQL 16-oriented schema using `operational`, `staging`, and `marts` schemas |
 | Auth/RBAC | JWT access/refresh tokens, route permissions, roles, MFA foundation, security audit logging |
@@ -34,13 +34,13 @@ Docker artifacts present:
 - `docker/frontend.Dockerfile`
 - `docker/nginx.conf`
 
-uv artifacts present:
+uv artifacts:
 
-- `uv.lock`
-- `[tool.uv]` section in `pyproject.toml`
-- README local setup currently references `uv venv`, `uv pip`, and `uv run`
+- `uv.lock` was removed.
+- `[tool.uv]` was removed from `pyproject.toml`.
+- README local setup now uses `python -m venv` and `pip`.
 
-These are deployment blockers only if used for the Azure hosting path. They were not deleted in this pass. The no-Docker/no-uv App Service path is now documented separately.
+These are deployment blockers only if used for the Azure hosting path. They remain legacy references and are not the target deployment mechanism.
 
 ## PostgreSQL Requirements
 
@@ -82,11 +82,11 @@ Future Azure hardening should add Microsoft Entra ID for internal users and a de
 |---|---|
 | No-Docker/no-uv run path | Added docs and `scripts/start_app_service.py` |
 | App Service app settings reference | Added |
-| Data producer operations | Added DB-backed service, CLI, API controls, and admin UI surface |
+| Data producer operations | Added DB-backed service, CLI, API controls, and React admin surface |
 | Run history/validation/export metadata | Added file-backed metadata under ignored `data/generated` and `data/exports` |
 | Generated data ignored | Added `.gitignore` rules and `.gitkeep` placeholders |
 | Python local execution | Blocked in current shell by Windows Store alias; documented in runbook |
-| PostgreSQL availability | Still requires local or Azure PostgreSQL; no resource provisioned |
+| PostgreSQL availability | PostgreSQL services are installed but stopped; `psql.exe` found under PostgreSQL 16; no Azure resource provisioned |
 | Entra ID | Planned only, not implemented |
 
 ## GitHub Status At Audit Time
@@ -97,4 +97,4 @@ Future Azure hardening should add Microsoft Entra ID for internal users and a de
 
 ## Bottom Line
 
-The app can move toward Azure App Service without removing legacy Docker/uv artifacts. The recommended first hosted shape is Streamlit as the public App Service process and FastAPI as a localhost companion process started by `scripts/start_app_service.py`, backed by Azure Database for PostgreSQL when persistence is required.
+The app can move toward Azure App Service as a single FastAPI process serving API routes and built React assets. Streamlit is no longer part of the production target. Azure Database for PostgreSQL remains required for persistent hosted operation.

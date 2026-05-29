@@ -1,9 +1,5 @@
-from __future__ import annotations
-
 import argparse
 import os
-import signal
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,56 +23,22 @@ def check() -> None:
 
     print("Clinical Donor App Service startup check")
     print(f"startup_mode={settings.startup_mode}")
-    print(f"streamlit_port={settings.streamlit_port}")
-    print(f"api_internal_port={settings.api_internal_port}")
+    print(f"port={settings.port}")
+    print(f"serve_frontend={settings.serve_frontend}")
+    print(f"frontend_dist_dir={settings.frontend_dist_dir}")
     print(f"backend_path={BACKEND}")
     print("status=ok")
 
 
 def run() -> int:
+    import uvicorn
+
     env = _base_env()
-    port = int(env.get("PORT", "8501"))
-    api_port = int(env.get("API_INTERNAL_PORT", "8000"))
-    env.setdefault("API_URL", f"http://127.0.0.1:{api_port}")
-
-    api_cmd = [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "app.main:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(api_port),
-    ]
-    frontend_cmd = [
-        sys.executable,
-        "-m",
-        "streamlit",
-        "run",
-        str(ROOT / "frontend" / "app.py"),
-        "--server.address=0.0.0.0",
-        "--server.port",
-        str(port),
-        "--server.headless=true",
-    ]
-
-    api = subprocess.Popen(api_cmd, cwd=ROOT, env=env)
-
-    def stop_children(*_: object) -> None:
-        if api.poll() is None:
-            api.terminate()
-
-    signal.signal(signal.SIGTERM, stop_children)
-    signal.signal(signal.SIGINT, stop_children)
-    try:
-        return subprocess.call(frontend_cmd, cwd=ROOT, env=env)
-    finally:
-        stop_children()
-        try:
-            api.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            api.kill()
+    os.environ.update(env)
+    port = int(env.get("PORT", "8000"))
+    sys.path.insert(0, str(BACKEND))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+    return 0
 
 
 def main() -> None:

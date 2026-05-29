@@ -470,7 +470,7 @@ def _ensure_security_foundations(db, users_by_role: dict[str, User]) -> None:
         )
 
     for name, base_url, is_active in [
-        ("DEV", "http://localhost:8501", True),
+        ("DEV", "http://localhost:8000", True),
         ("TEST", "https://test.teemails.com", False),
         ("PROD", "https://teemails.com", False),
     ]:

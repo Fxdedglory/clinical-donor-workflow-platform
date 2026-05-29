@@ -22,7 +22,7 @@ Future target:
 ## Recommended Pattern
 
 1. Register an Entra app for the Clinical platform.
-2. Configure redirect URI for the hosted Streamlit/App Service route.
+2. Configure redirect URI for the hosted React/App Service route.
 3. Use Authorization Code with PKCE.
 4. Validate issuer, audience, nonce, and token signature.
 5. Map Entra `oid` or `sub` to `dim_auth_identity`.

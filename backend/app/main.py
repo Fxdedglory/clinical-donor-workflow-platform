@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -87,6 +91,16 @@ app.include_router(suppliers.router)
 app.include_router(generation.router)
 
 
+def _frontend_index() -> Path | None:
+    index_path = Path(settings.frontend_dist_dir) / "index.html"
+    return index_path if settings.serve_frontend and index_path.exists() else None
+
+
+assets_path = Path(settings.frontend_dist_dir) / "assets"
+if settings.serve_frontend and assets_path.exists():
+    app.mount("/assets", StaticFiles(directory=assets_path), name="frontend-assets")
+
+
 @app.get("/health", tags=["System"])
 def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name, "version": settings.app_version}
@@ -104,9 +118,22 @@ def api_health() -> dict[str, str]:
 
 
 @app.get("/", tags=["System"])
-def root() -> dict[str, str]:
+def root() -> FileResponse | dict[str, str]:
+    index_path = _frontend_index()
+    if index_path:
+        return FileResponse(index_path)
     return {
         "message": "Clinical Donor Screening & Quality Workflow Platform API",
         "docs": "/docs",
     }
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def serve_frontend(full_path: str) -> FileResponse:
+    if full_path.startswith(("api/", "docs", "redoc", "openapi.json", "health")):
+        raise HTTPException(status_code=404, detail="Not found")
+    index_path = _frontend_index()
+    if not index_path:
+        raise HTTPException(status_code=404, detail="Frontend build is not available")
+    return FileResponse(index_path)
 

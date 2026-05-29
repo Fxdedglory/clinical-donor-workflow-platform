@@ -6,7 +6,7 @@
 - Set `COOKIE_SECURE=true`.
 - Use strong `SECRET_KEY`.
 - Configure production `ENCRYPTION_KEY`.
-- Review CSP for Streamlit and API routes.
+- Review CSP for React static assets and API routes.
 - Confirm partner org scoping on every partner-facing endpoint.
 - Disable demo MFA bypass in production.
 - Confirm password policy values.

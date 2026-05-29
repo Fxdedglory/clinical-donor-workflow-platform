@@ -1,6 +1,6 @@
 # Clinical Donor Screening & Quality Workflow Platform
 
-Enterprise-style healthcare operations platform for donor referral intake, donor eligibility screening, tissue recovery suitability, processing release, governed AI-assisted decision support, centralized workflow orchestration, function-first routing, master data records, RBAC-secured transitions, audit trails, QMS/CAPA/deviation workflows, SOP training, vendor SLA monitoring, actionable notifications, escalations, AI governance, and operational intelligence dashboards.
+Enterprise-style healthcare operations platform for donor referral intake, donor eligibility screening, tissue recovery suitability, processing release, governed AI-assisted decision support, centralized workflow orchestration, function-first routing, master data records, RBAC-secured transitions, audit trails, QMS/CAPA/deviation workflows, SOP training, vendor SLA monitoring, actionable notifications, escalations, AI governance, source-system data production, validation, and export operations.
 
 Repository: `github.com/Fxdedglory/clinical-donor-workflow-platform`
 
@@ -10,7 +10,7 @@ This project simulates internal donor-services and regulated tissue-processing s
 
 The latest upgrade adds security, compliance, and production-hardening foundations on top of the donor eligibility decision engine and QMS workflow expansion. Routes represent donor-services functions and master data entities such as `/donor/{id}`, `/referral/{id}`, `/screening/{id}`, `/medical-review/{id}`, `/recovery/{id}`, `/processing-release/{id}`, `/release/{id}`, `/deviation/{id}`, `/capa/{id}`, `/eligibility-rule/{id}`, `/task/{id}`, and `/workflow-intelligence`; the logged-in role determines visible widgets, actions, and operational context inside the same route. Buttons trigger authorized workflow transitions instead of directly modifying records; the orchestration engine validates role, state, decision matrices, SLA routing, notifications, audit events, transition history, and task creation.
 
-The latest upgrade replaces supplier-inside-the-platform access with a bounded Partner Portal: external partner organizations get a simplified submission lifecycle, quality complaint intake, document exchange, task responses, partner-visible status tracking, invitation/approval flows, and organization-scoped auditability without exposing internal donor operations or requiring Azure identity dependencies.
+The latest architecture pivot removes Streamlit from the production target. The hosted Clinical app is now FastAPI plus a React/Vite operational shell. Analytics are planned downstream through Snowflake, dbt, and Power BI Service at `teemails.com/analytics`.
 
 Resume themes demonstrated:
 
@@ -33,7 +33,7 @@ Resume themes demonstrated:
 ## Architecture
 
 ```text
-Streamlit function-first operations console
+React/Vite operational frontend
         |
         v
 FastAPI REST API -- JWT/RBAC dependencies
@@ -57,7 +57,7 @@ FastAPI REST API -- JWT/RBAC dependencies
         +-- Escalation engine
         +-- QMS/change control and SOP training
         +-- Vendor SLA operations
-        +-- Audit logging and dashboard aggregation
+        +-- Audit logging, source validation, and source batch exports
         |
         v
 SQLAlchemy ORM -> PostgreSQL 16
@@ -167,7 +167,8 @@ Legacy compatibility, QMS, and vendor tables:
 - Background job and realtime event foundation for SLA monitoring, partner notifications, document workflows, and future live activity streams
 - Persistent user preferences for sidebar collapse state, last route, recently viewed records, pinned records, and notification preferences
 - SysAdmin System Health surface for DB, auth, email, document storage, backup posture, uptime, and active sessions
-- Production deployment scaffolding with Cloudflare Tunnel, optional Nginx reverse proxy, HTTPS/HSTS/CSP headers, teemails.com routing, Certbot renewal support, and encrypted daily PostgreSQL backup container
+- Azure App Service readiness for a no-Docker/no-uv FastAPI + React deployment
+- Continuous clinical source-system data producer with validation, source freshness metadata, run history, and export manifests
 - Eight enterprise roles: System Administrator, Donor Intake Coordinator, Clinical Reviewer, Quality Assurance Specialist, Vendor Operations Analyst, Operations Manager, Business Technology Analyst, Partner External User
 - Role-permission bridge for route-level authorization
 - Function-first enterprise routing for master data, workflow operations, analytics, and administration routes
@@ -180,7 +181,7 @@ Legacy compatibility, QMS, and vendor tables:
 - Centralized workflow orchestration engine for state validation, role authorization, decision matrices, SLA timers, task creation, notifications, audit events, and transition history
 - Expanded workflow state machine for Referral Received, Intake In Progress, Pending Administrative Screen, Pending Medical Social History Review, Pending Infectious Disease Review, Pending Tissue Suitability Review, Pending Recovery Suitability Review, Pending Medical Director Review, Pending QA Review, Recovery Authorized, Processing Hold, Pending Processing Release, Released for Clinical Use, Released for Research Use, Quarantine, Rejected, Destroyed, and Closed
 - Workflow transition event history for who changed what, from/to state, action taken, notes, and decision context
-- Deep-link notification routing that opens the exact function route with record context without unsafe Streamlit session-state mutation
+- Deep-link notification routing and route context APIs for React operational screens
 - Contextual action ribbon that renders different workflow actions on the same route based on role, permission, and workflow state
 - Configurable donor eligibility rule engine with administrative, medical/social history, infectious disease, tissue-specific, recovery suitability, processing release, QMS compliance, customer restriction, and export restriction categories
 - Donor record pages showing referral source, workflow state, eligibility status, tissue types under review, infectious disease results, medical/social history flags, recovery suitability, QA/QMS status, linked CAPAs/deviations, final disposition, workflow timeline, related tasks, and action ribbon
@@ -194,7 +195,7 @@ Legacy compatibility, QMS, and vendor tables:
 - Database-driven AI risk rules with active/inactive status, condition operator, score delta, severity, and auto-escalation governance
 - AI explainability panel showing triggered rules, score contributions, escalation reasons, workflow impact, confidence level, and historical comparisons
 - Human-in-the-loop override tracking with override reason, reviewer, before/after decision, notification routing, and workflow timeline events
-- Operational intelligence visualizations across roles: intake aging heatmap, documentation matrix, clinical risk heatmap, SLA timeline, escalation funnel, QA CAPA heatmap, investigation Sankey, vendor SLA heatmap, incident timeline, enterprise queue heatmap, workforce load balancer, AI workflow bottleneck Sankey, override trends, SLA prediction accuracy, escalation root cause matrix, and workflow queue heatmap
+- Operational intelligence APIs for role-specific queues, workflow state, and quality signals; production analytics move to Power BI Service
 - Rule simulation sandbox for previewing risk threshold and escalation impact without changing production workflows
 - System Administrator governance workspace with admin-only role, workspace, workflow, audit, system health, and integration surfaces
 - Admin workspace preview mode for inspecting operational role workspaces without making admin a queue participant
@@ -276,7 +277,7 @@ python -m venv .venv
 
 The current shell on this machine is resolving `python` to the Windows Store alias. Install Python 3.12 from python.org and disable the Store aliases if `python --version` opens the Store prompt. Details are in `docs/runbooks/local_development_runbook.md`.
 
-Run FastAPI and Streamlit locally after PostgreSQL is available:
+Run FastAPI locally after PostgreSQL is available:
 
 ```powershell
 $env:PYTHONPATH="backend"
@@ -286,16 +287,21 @@ $env:DATABASE_URL="postgresql+psycopg://clinical_admin:clinical_demo_password@lo
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In a second terminal:
+Run the React/Vite frontend in a second terminal during development:
 
 ```powershell
-$env:API_URL="http://127.0.0.1:8000"
-.\.venv\Scripts\python -m streamlit run frontend\app.py
+cd frontend
+npm install
+$env:VITE_API_BASE_URL="http://127.0.0.1:8000"
+npm run dev
 ```
 
-App Service startup helper:
+For App Service-style serving, build React and let FastAPI serve `frontend/dist`:
 
 ```powershell
+cd frontend
+npm run build
+cd ..
 .\.venv\Scripts\python scripts\start_app_service.py --check
 .\.venv\Scripts\python scripts\start_app_service.py
 ```
@@ -314,38 +320,21 @@ The data producer adds row-level source-system activity for donor referrals, par
 Admin UI route:
 
 ```text
-/admin/data-producer
+React Data Producer section
 ```
 
 Generated producer metadata and export batches are ignored by Git under `data/generated`, `data/exports`, and `logs`.
 
-### Legacy Docker Compose Path
+### Legacy Docker/Streamlit Note
 
-```bash
-docker compose up --build
-```
-
-Services:
-
-- API: `http://localhost:8000`
-- API docs: `http://localhost:8000/docs`
-- Streamlit dashboard: `http://localhost:8501`
-- PostgreSQL: `localhost:5432`
-
-The backend container runs Alembic migrations and seeds demo data on startup.
-
-Production deployment and recovery runbooks:
-
-- `docs/PROD_DEPLOYMENT.md`
-- `docs/SECURITY_ARCHITECTURE.md`
-- `docs/BACKUP_RECOVERY.md`
-
-The Docker Compose and uv instructions are legacy/local-only references. They are not the Azure hosting path for the teemails portfolio.
+Docker, uv, and Streamlit instructions are no longer part of the target hosting architecture. Historical docs are kept only as migration context and are not the Azure App Service path.
 
 Azure readiness docs:
 
 - `docs/architecture/azure_hosting_readiness_audit.md`
 - `docs/architecture/no_docker_no_uv_migration_plan.md`
+- `docs/architecture/streamlit_removal_plan.md`
+- `docs/architecture/powerbi_analytics_strategy.md`
 - `docs/azure/app_service_hosting_plan.md`
 - `docs/azure/app_settings_reference.md`
 - `docs/azure/final_azure_deployment_execution_plan.md`

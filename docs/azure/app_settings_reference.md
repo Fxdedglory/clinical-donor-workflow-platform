@@ -8,10 +8,10 @@
 | `DATABASE_URL` | `postgresql+psycopg://...` | Store only in App Service settings or local `.env`. |
 | `SECRET_KEY` | generated secret | Must be unique and rotated outside Git. |
 | `APP_BASE_URL` | `https://teemails.com/Clinical` | Public frontend URL. |
-| `API_URL` | `http://127.0.0.1:8000` | For one-App-Service mode. |
-| `API_INTERNAL_PORT` | `8000` | Local FastAPI companion port. |
-| `PORT` | `8501` | App Service public port injected by platform. |
-| `STARTUP_MODE` | `streamlit_with_api` | Current no-Docker target. |
+| `PORT` | `8000` | App Service public port injected by platform. |
+| `STARTUP_MODE` | `fastapi_react` | Current no-Docker target. |
+| `SERVE_FRONTEND` | `true` | FastAPI serves `frontend/dist` when built. |
+| `FRONTEND_DIST_DIR` | `frontend/dist` | React/Vite build directory. |
 
 ## Security
 
@@ -29,7 +29,7 @@
 
 | Setting | Example |
 |---|---|
-| `CORS_ORIGINS` | `https://teemails.com,https://www.teemails.com,http://localhost:8501` |
+| `CORS_ORIGINS` | `https://teemails.com,https://www.teemails.com,http://localhost:5173,http://127.0.0.1:5173` |
 
 Comma-separated values are accepted.
 

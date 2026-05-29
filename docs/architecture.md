@@ -3,15 +3,11 @@
 The platform is organized as function-first enterprise workflow software. Routes represent business functions and master data entities, while role configuration determines which routes, widgets, actions, and operational context a user can see. A role is still more than a permission set, but it no longer creates a separate URL structure.
 
 ```text
-frontend/app.py
-  Authenticated Streamlit shell
-  Reads st.query_params["route"]
-  Renders function route navigation, notification bell, search, and route pages
-
-frontend/views/functional_routes.py
-  Route-aware master data, workflow, analytics, and administration renderer
-  Contextual action ribbon, workflow-aware dialogs, workflow timeline,
-  related records, collections, and operational visualizations
+frontend/src/App.jsx
+  React/Vite operational shell
+  Authenticates against FastAPI
+  Shows source-system status, producer controls, QMS/vendor/partner summaries,
+  and future links to operational route screens
 
 backend/app/routes/functional_routes.py
   Navigation, route resolution, enterprise search, and notification-open API
@@ -20,10 +16,6 @@ backend/app/services/functional_routes.py
   Central route catalog, role visibility checks, master data loading,
   workflow context loading, breadcrumbs, role lens, authorized actions,
   related records, timeline data, analytics payloads, and route helpers
-
-frontend/views/role_workspace.py
-  Legacy-compatible renderer for admin configuration and existing
-  role workspace components reused by function routes
 
 backend/app/routes/workspaces.py
   Workspace API, admin workspace config API, transition API
@@ -165,14 +157,14 @@ The donor master record persists beyond workflow execution. Workflow tasks, elig
 
 This project models security controls expected in regulated healthcare operations software. It is not a certified HIPAA or FDA 21 CFR Part 11 system, but it demonstrates the implementation concepts:
 
-- Persistent authentication with access tokens, refresh-token rotation, HTTPOnly API cookies, Streamlit browser-session restoration, and session revocation.
+- Persistent authentication with access tokens, refresh-token rotation, HTTPOnly API cookies, React/API session restoration, and session revocation.
 - MFA foundation for higher-risk roles, currently using a demo verification code with TOTP/email-OTP-ready tables.
 - Application-layer AES-256-GCM encryption helpers for sensitive donor identifiers, donor names, clinical notes, medical/social history notes, infectious disease result values, and protected document storage URIs.
 - Security audit events for authentication, failed access, sensitive record access, user changes, workflow transitions, document actions, MFA, password reset, and session revocation.
 - Part 11 concept support through attributable workflow transitions, electronic signature metadata, before/after audit logging, timestamped transition history, and role-validated approvals.
 - Secure document handling through access-controlled document APIs, signed download links, token expiration, and document access logs.
 - Partner Portal support through native account types, organization-scoped RBAC, partner relationship records, invitation approval states, external-user flags, MFA policy, partner submission queues, quality complaint intake, document exchange, and electronic signature events.
-- Production deployment scaffolding for `teemails.com` through Cloudflare Tunnel, optional Nginx reverse proxy config, HTTPS/HSTS/CSP headers, secure-cookie flags, Certbot renewal support, encrypted backups, and SysAdmin system health monitoring.
+- Azure App Service readiness for `teemails.com/Clinical` through FastAPI, built React assets, HTTPS/HSTS/CSP headers, secure-cookie flags, PostgreSQL persistence, source validation, and system health monitoring.
 
 ## Decision Engine
 
@@ -193,18 +185,18 @@ Decision matrix categories:
 ## Route Resolution Flow
 
 ```text
-Streamlit login form
+React login form
   -> POST /api/auth/login
   -> JWT access token + refresh token
-  -> Streamlit stores session token
-  -> route query param determines requested function route
+  -> React stores session token for API calls
+  -> requested screen determines API calls
   -> GET /api/routes/navigation
   -> FastAPI resolves actual or admin-preview role visibility
   -> GET /api/routes/resolve?route=/donor/{id}
   -> functional route engine parses route, loads entity/workflow context,
      validates role permissions, builds breadcrumbs, loads timeline,
      loads related records, and returns authorized action ribbon metadata
-  -> Streamlit renders the route-aware operational page
+  -> React renders the operational page or status panel
 ```
 
 ## Legacy Workspace Compatibility
@@ -212,14 +204,10 @@ Streamlit login form
 The role workspace metadata remains valuable because it defines operational identity, dashboard visibility, and workbench configuration. It is now consumed as a role visibility and layout lens rather than as the primary routing architecture.
 
 ```text
-frontend/app.py
-  Loads /api/workspaces/me
-  Uses workspace metadata for current role, notification bell, and
-  admin preview context
-
-frontend/views/role_workspace.py
-  Continues to support admin configuration surfaces and reusable
-  operational components
+frontend/src/App.jsx
+  Loads generation, validation, export, and source freshness APIs.
+  Future React pages will consume /api/workspaces/me and /api/routes/*
+  for role-specific operational screens.
 ```
 
 ## Request Flow
@@ -319,7 +307,7 @@ User opens notification bell
   -> POST /api/notifications/{id}/open
   -> notification is marked read
   -> backend returns the notification action_route, for example /donor/{id}
-  -> Streamlit updates st.query_params["route"]
+  -> React router opens the operational route
   -> route engine reloads the exact record, workflow state,
      role-authorized actions, timeline, and related records
 ```

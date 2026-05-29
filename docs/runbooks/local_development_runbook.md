@@ -9,6 +9,8 @@ As of 2026-05-29 in this shell:
 - `python --version` opens the Microsoft Store alias message.
 - No Python executable was found under `AppData\Local\Programs\Python`.
 - No Conda executable was found by `where conda`.
+- PostgreSQL 13 and 16 services are installed but stopped.
+- `psql.exe` exists under `C:\Program Files\PostgreSQL\16\bin`.
 
 Recommended fix:
 
@@ -73,15 +75,32 @@ $env:PYTHONPATH = "backend"
 Terminal 2:
 
 ```powershell
-$env:API_URL = "http://127.0.0.1:8000"
-.\.venv\Scripts\python -m streamlit run frontend\app.py
+cd frontend
+npm install
+$env:VITE_API_BASE_URL = "http://127.0.0.1:8000"
+npm run dev
 ```
 
 URLs:
 
 - API: `http://127.0.0.1:8000`
 - API health: `http://127.0.0.1:8000/api/health`
-- Streamlit: `http://localhost:8501`
+- React dev frontend: `http://127.0.0.1:5173`
+
+## App Service-Style Local Run
+
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python scripts\start_app_service.py
+```
+
+URL:
+
+- App: `http://127.0.0.1:8000`
 
 ## App Service Startup Check
 

@@ -43,38 +43,48 @@ Use only after approval:
 5. Create PostgreSQL database only if approved.
 6. Configure `DATABASE_URL` with TLS.
 7. Deploy code from GitHub or ZIP.
-8. Run startup check:
+8. Build React frontend:
+
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+9. Run startup check:
 
 ```powershell
 python scripts/start_app_service.py --check
 ```
 
-9. Run migrations:
+10. Run migrations:
 
 ```powershell
 python -m alembic upgrade head
 ```
 
-10. Seed controlled demo data:
+11. Seed controlled demo data:
 
 ```powershell
 python scripts/run_data_producer.py seed --records 1200 --seed 42 --confirm
 ```
 
-11. Validate:
+12. Validate:
 
 ```powershell
 python scripts/run_data_producer.py validate --confirm
 ```
 
-12. Smoke test:
+13. Smoke test:
 
 ```text
 /api/health
-Streamlit login page
+React operational shell
 System Health
 Data Producer
 Partner Portal
+Power BI analytics route plan at /analytics
 ```
 
 ## Rollback

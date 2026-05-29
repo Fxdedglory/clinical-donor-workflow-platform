@@ -6,7 +6,7 @@ Provide a clean Azure App Service deployment path that does not rely on Docker, 
 
 ## What Remains
 
-Docker files remain as legacy/local-only references until the user explicitly approves deletion:
+Docker files remain as legacy references only. The frontend Dockerfile and Compose frontend service are obsolete because Streamlit is no longer part of the target architecture:
 
 - `docker-compose.yml`
 - `docker-compose.prod.yml`
@@ -14,12 +14,12 @@ Docker files remain as legacy/local-only references until the user explicitly ap
 - `docker/frontend.Dockerfile`
 - `docker/nginx.conf`
 
-uv files remain as legacy/local-only references:
+uv files were removed from the active repo:
 
-- `uv.lock`
-- `[tool.uv]` in `pyproject.toml`
+- `uv.lock` removed
+- `[tool.uv]` removed from `pyproject.toml`
 
-These files must not be used in Azure App Service deployment commands.
+Use only `python -m venv` and `pip install -r requirements.txt`.
 
 ## Standard Local Python Path
 
@@ -48,11 +48,12 @@ $env:PYTHONPATH = "backend"
 
 ## App Service Startup Strategy
 
-The App Service path uses one public process and one local companion process:
+The App Service path uses one public FastAPI process:
 
-- Public process: Streamlit on `$PORT`
-- Internal companion: FastAPI on `127.0.0.1:$API_INTERNAL_PORT`
-- Streamlit calls FastAPI through `API_URL=http://127.0.0.1:$API_INTERNAL_PORT`
+- FastAPI listens on `$PORT`
+- FastAPI serves API routes under `/api`
+- FastAPI serves the built React/Vite frontend from `frontend/dist`
+- Analytics are delivered later through Power BI Service, not this app process
 
 Startup helper:
 
@@ -76,9 +77,9 @@ Use App Service application settings for runtime config:
 - `ENCRYPTION_KEY`
 - `APP_ENV`
 - `APP_BASE_URL`
-- `API_URL`
-- `API_INTERNAL_PORT`
 - `PORT`
+- `SERVE_FRONTEND`
+- `FRONTEND_DIST_DIR`
 - `CORS_ORIGINS`
 - email provider settings
 - data producer settings
@@ -105,7 +106,7 @@ Only `.gitkeep` placeholders are tracked.
 
 ## Deletion Plan
 
-No files are deleted in this pass. Before deleting Docker/uv artifacts later:
+Streamlit frontend files are removed in this pass and replaced by React/Vite. Before deleting Docker/uv artifacts later:
 
 1. Confirm App Service path is working.
 2. Confirm README/runbooks no longer depend on Docker/uv.

@@ -77,8 +77,8 @@ def main() -> None:
     pyproject = ROOT / "pyproject.toml"
     if pyproject.exists() and "[tool.uv]" in pyproject.read_text(encoding="utf-8", errors="ignore"):
         uv_files.append("pyproject.toml")
-    add("Docker artifacts documented as legacy", bool(docker_files), ", ".join(docker_files), severity="warning")
-    add("uv artifacts documented as legacy", bool(uv_files), ", ".join(uv_files), severity="warning")
+    add("Docker artifacts are legacy only", bool(docker_files), ", ".join(docker_files), severity="warning")
+    add("uv artifacts absent", not uv_files, ", ".join(uv_files) or "none")
 
     failed = [check for check in checks if not check["passed"] and check["severity"] == "error"]
     payload = {

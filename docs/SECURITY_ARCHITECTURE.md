@@ -35,7 +35,7 @@ Login
   -> MFA policy check
   -> access token issued
   -> refresh token stored as hash in dim_user_session
-  -> Streamlit restores session after refresh
+  -> React frontend or API client uses bearer token/cookies for protected API calls
 ```
 
 Access tokens are short lived. Refresh tokens rotate and are revocable through logout or logout-all.

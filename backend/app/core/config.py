@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     encryption_key: str | None = Field(default=None, alias="ENCRYPTION_KEY")
     mfa_dev_bypass_code: str = Field(default="000000", alias="MFA_DEV_BYPASS_CODE")
     document_signed_url_minutes: int = Field(default=10, alias="DOCUMENT_SIGNED_URL_MINUTES")
-    app_base_url: str = Field(default="http://localhost:8501", alias="APP_BASE_URL")
+    app_base_url: str = Field(default="http://localhost:8000", alias="APP_BASE_URL")
     email_provider: str = Field(default="console", alias="EMAIL_PROVIDER")
     email_from: str = Field(default="no-reply@teemails.com", alias="EMAIL_FROM")
     email_from_name: str = Field(default="Clinical Donor Workflow", alias="EMAIL_FROM_NAME")
@@ -45,9 +45,10 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow",
         alias="DATABASE_URL",
     )
-    api_internal_port: int = Field(default=8000, alias="API_INTERNAL_PORT")
-    streamlit_port: int = Field(default=8501, alias="PORT")
-    startup_mode: str = Field(default="streamlit_with_api", alias="STARTUP_MODE")
+    port: int = Field(default=8000, alias="PORT")
+    startup_mode: str = Field(default="fastapi_react", alias="STARTUP_MODE")
+    serve_frontend: bool = Field(default=True, alias="SERVE_FRONTEND")
+    frontend_dist_dir: str = Field(default="frontend/dist", alias="FRONTEND_DIST_DIR")
     data_producer_metadata_root: str = Field(default="data/generated", alias="DATA_PRODUCER_METADATA_ROOT")
     data_producer_export_root: str = Field(default="data/exports", alias="DATA_PRODUCER_EXPORT_ROOT")
     data_producer_stop_file: str = Field(default="data/generated/STOP_CONTINUOUS", alias="DATA_PRODUCER_STOP_FILE")
@@ -56,8 +57,10 @@ class Settings(BaseSettings):
     data_producer_allow_infinite: bool = Field(default=False, alias="DATA_PRODUCER_ALLOW_INFINITE")
     enable_data_producer_api: bool = Field(default=True, alias="ENABLE_DATA_PRODUCER_API")
     cors_origins: list[str] = [
-        "http://localhost:8501",
-        "http://127.0.0.1:8501",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
         "https://teemails.com",
         "https://www.teemails.com",
     ]
