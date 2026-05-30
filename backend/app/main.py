@@ -127,9 +127,28 @@ def api_health() -> dict[str, str]:
 @app.get("/api/monitoring/health", tags=["Monitoring"])
 def monitoring_health() -> dict[str, str | float | None]:
     database_status = "unknown"
+    database_role = None
+    database_ssl_status = None
     try:
         with engine.connect() as connection:
-            connection.execute(text("select 1"))
+            row = connection.execute(
+                text(
+                    """
+                    select
+                        current_user as database_role,
+                        coalesce(
+                            (
+                                select case when ssl then 'on' else 'off' end
+                                from pg_stat_ssl
+                                where pid = pg_backend_pid()
+                            ),
+                            'unknown'
+                        ) as database_ssl_status
+                    """
+                )
+            ).mappings().one()
+            database_role = row["database_role"]
+            database_ssl_status = row["database_ssl_status"]
         database_status = "ok"
     except Exception:
         database_status = "unavailable"
@@ -142,6 +161,8 @@ def monitoring_health() -> dict[str, str | float | None]:
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "storage_backend": "postgresql",
         "database_status": database_status,
+        "database_role": database_role,
+        "database_ssl_status": database_ssl_status,
         "uptime_seconds": round(time.monotonic() - APP_STARTED_MONOTONIC, 3),
     }
 

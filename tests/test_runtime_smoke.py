@@ -16,7 +16,18 @@ def test_api_health_returns_runtime_metadata() -> None:
 def test_standard_monitoring_endpoints_return_required_fields() -> None:
     client = TestClient(app)
     required_fields = {
-        "/api/monitoring/health": {"app_name", "environment", "status", "version", "build_sha", "timestamp_utc", "storage_backend"},
+        "/api/monitoring/health": {
+            "app_name",
+            "environment",
+            "status",
+            "version",
+            "build_sha",
+            "timestamp_utc",
+            "storage_backend",
+            "database_status",
+            "database_role",
+            "database_ssl_status",
+        },
         "/api/monitoring/source-freshness": {
             "app_name",
             "source_systems",
