@@ -258,6 +258,13 @@ def _random_datetime(days_back: int = 30) -> datetime:
     )
 
 
+def _random_datetime_between(start_date: datetime, end_date: datetime) -> datetime:
+    if end_date < start_date:
+        raise ValueError("end_date must be on or after start_date")
+    span_seconds = max(int((end_date - start_date).total_seconds()), 1)
+    return start_date + timedelta(seconds=random.randint(0, span_seconds))
+
+
 def _apply_analysis(db, donor: DonorReview) -> None:
     analysis = analyze_donor_risk(
         donor_name=donor.donor_name,
@@ -1973,12 +1980,20 @@ def ensure_enterprise_data(db) -> None:
     db.commit()
 
 
-def seed_database(records: int, force: bool = False, seed: int | None = None) -> None:
+def seed_database(
+    records: int,
+    force: bool = False,
+    seed: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> None:
     if seed is not None:
         random.seed(seed)
         Faker.seed(seed)
         fake.seed_instance(seed)
-    records = max(500, min(records, 5000))
+    records = max(500, min(records, 50000))
+    historical_start = datetime.fromisoformat(start_date).replace(tzinfo=UTC) if start_date else datetime.now(UTC) - timedelta(days=45)
+    historical_end = datetime.fromisoformat(end_date).replace(tzinfo=UTC) if end_date else datetime.now(UTC)
     db = SessionLocal()
     try:
         existing = db.execute(select(DonorReview.review_id).limit(1)).first()
@@ -2120,7 +2135,7 @@ def seed_database(records: int, force: bool = False, seed: int | None = None) ->
                 weights=STATUS_WEIGHTS,
                 k=1,
             )[0]
-            created_at = _random_datetime(45)
+            created_at = _random_datetime_between(historical_start, historical_end)
             reviewer = random.choice(users) if status_choice != "Pending Intake Validation" else None
             reviewed_at = None
             if status_choice in {"Approved", "Rejected"}:
@@ -2184,7 +2199,7 @@ def seed_database(records: int, force: bool = False, seed: int | None = None) ->
         changes = []
         for idx in range(1, 76):
             status_choice = random.choice(["Draft", "Investigation", "Pending Approval", "Approved", "Rejected"])
-            created_at = _random_datetime(120)
+            created_at = _random_datetime_between(historical_start, historical_end)
             capa_required = idx <= 45 or random.random() < 0.35
             changes.append(
                 ChangeControl(
@@ -2207,7 +2222,7 @@ def seed_database(records: int, force: bool = False, seed: int | None = None) ->
 
         incidents = []
         for idx in range(1, 91):
-            opened_at = _random_datetime(60)
+            opened_at = _random_datetime_between(historical_start, historical_end)
             is_open = random.random() < 0.28
             resolved_at = None if is_open else opened_at + timedelta(hours=random.randint(1, 80))
             age_hours = (
@@ -2252,7 +2267,10 @@ def seed_database(records: int, force: bool = False, seed: int | None = None) ->
 
         db.flush()
         ensure_enterprise_data(db)
-        print(f"Seed complete: {records} donors, {len(changes)} change requests, {len(incidents)} vendor incidents.")
+        print(
+            f"Seed complete: {records} donors, {len(changes)} change requests, {len(incidents)} vendor incidents "
+            f"from {historical_start.date()} through {historical_end.date()}."
+        )
         print(f"Demo login: sysadmin / {DEFAULT_PASSWORD}")
     finally:
         db.close()
@@ -2263,13 +2281,21 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     seed_parser = subparsers.add_parser("seed", help="Seed realistic demo data")
-    seed_parser.add_argument("--records", type=int, default=1200, help="Donor records, clamped to 500-5000")
+    seed_parser.add_argument("--records", type=int, default=1200, help="Donor records, clamped to 500-50000")
     seed_parser.add_argument("--force", action="store_true", help="Clear and reseed existing demo data")
     seed_parser.add_argument("--seed", type=int, default=None, help="Optional deterministic random seed")
+    seed_parser.add_argument("--start-date", default=None, help="Historical baseline start date, YYYY-MM-DD")
+    seed_parser.add_argument("--end-date", default=None, help="Historical baseline end date, YYYY-MM-DD")
 
     args = parser.parse_args()
     if args.command == "seed":
-        seed_database(records=args.records, force=args.force, seed=args.seed)
+        seed_database(
+            records=args.records,
+            force=args.force,
+            seed=args.seed,
+            start_date=args.start_date,
+            end_date=args.end_date,
+        )
 
 
 if __name__ == "__main__":

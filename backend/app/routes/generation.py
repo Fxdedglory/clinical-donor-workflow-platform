@@ -158,9 +158,12 @@ def seed_generation(
     _require_confirmation(confirm, "Seed generation")
     payload = payload or {}
     return run_seed_generation(
-        records=int(payload.get("records", 1200)),
+        records=int(payload["records"]) if payload.get("records") is not None else None,
         seed=payload.get("seed", 42),
         force=bool(payload.get("force", False)),
+        profile=payload.get("profile", "demo"),
+        start_date=payload.get("start_date"),
+        end_date=payload.get("end_date"),
     )
 
 

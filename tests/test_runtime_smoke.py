@@ -1,5 +1,6 @@
 from app.main import app
 from app.services.data_producer import CONFORMED_SITES, EXPORT_METADATA_FIELDS, _product_context
+from app.services.data_scale_profiles import profile_as_dict, resolve_profile
 from fastapi.testclient import TestClient
 
 
@@ -130,3 +131,13 @@ def test_enterprise_export_metadata_and_product_alignment() -> None:
     assert "source_table" in EXPORT_METADATA_FIELDS
     assert "generated_at" in EXPORT_METADATA_FIELDS
     assert _product_context("Dermal Matrix")["erp_material_family"] == "Allograft"
+
+
+def test_clinical_data_scale_profiles_are_defined() -> None:
+    demo = profile_as_dict(resolve_profile("demo"))
+    enterprise = profile_as_dict(resolve_profile("enterprise"))
+
+    assert demo["records"] == 500
+    assert demo["incremental_scale"] == 1
+    assert enterprise["records"] == 50000
+    assert enterprise["incremental_scale"] == 25

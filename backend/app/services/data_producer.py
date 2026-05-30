@@ -55,6 +55,7 @@ from app.models import (
     WorkflowTimelineEvent,
     WorkflowTransitionEvent,
 )
+from app.services.data_scale_profiles import profile_as_dict, resolve_profile
 
 SOURCE_SYSTEM = "clinical_donor_platform"
 RUN_HISTORY_FILE = "generation_runs.json"
@@ -1006,13 +1007,27 @@ def _mutate_existing_work(db: Session, *, rng: random.Random, users: list[User],
     return changes
 
 
-def run_seed_generation(records: int = 1200, seed: int | None = None, force: bool = False) -> dict[str, Any]:
+def run_seed_generation(
+    records: int | None = 1200,
+    seed: int | None = None,
+    force: bool = False,
+    profile: str = "demo",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     started = utc_now()
     extraction_batch_id = _new_batch_id("clinical_seed")
+    resolved = resolve_profile(profile, records_override=records, start_date_override=start_date, end_date_override=end_date)
     try:
         from app import cli as seed_cli
 
-        seed_cli.seed_database(records=records, force=force, seed=seed)
+        seed_cli.seed_database(
+            records=resolved.records,
+            force=force,
+            seed=seed,
+            start_date=resolved.start_date.isoformat(),
+            end_date=resolved.end_date.isoformat(),
+        )
         with SessionLocal() as db:
             counts = row_counts(db)
         return _record_run(
@@ -1021,7 +1036,12 @@ def run_seed_generation(records: int = 1200, seed: int | None = None, force: boo
             started_at=started,
             row_counts=counts,
             extraction_batch_id=extraction_batch_id,
-            details={"records_requested": records, "seed": seed, "force": force},
+            details={
+                "records_requested": resolved.records,
+                "seed": seed,
+                "force": force,
+                "profile": profile_as_dict(resolved),
+            },
         )
     except Exception as exc:
         return _record_run(
@@ -1030,7 +1050,7 @@ def run_seed_generation(records: int = 1200, seed: int | None = None, force: boo
             started_at=started,
             extraction_batch_id=extraction_batch_id,
             errors=[str(exc)],
-            details={"records_requested": records, "seed": seed, "force": force},
+            details={"records_requested": resolved.records, "seed": seed, "force": force, "profile": profile_as_dict(resolved)},
         )
 
 

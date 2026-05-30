@@ -30,14 +30,18 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     seed_parser = subparsers.add_parser("seed", help="Run deterministic seed generation")
-    seed_parser.add_argument("--records", type=int, default=1200)
+    seed_parser.add_argument("--records", type=int, default=None)
     seed_parser.add_argument("--seed", type=int, default=42)
+    seed_parser.add_argument("--profile", choices=["demo", "small", "medium", "large", "enterprise"], default="demo")
+    seed_parser.add_argument("--start-date", default=None)
+    seed_parser.add_argument("--end-date", default=None)
     seed_parser.add_argument("--force", action="store_true")
     seed_parser.add_argument("--confirm", action="store_true")
 
     incremental_parser = subparsers.add_parser("incremental", help="Generate row-level incremental activity")
     incremental_parser.add_argument("--seed", type=int, default=42)
-    incremental_parser.add_argument("--scale", type=int, default=1)
+    incremental_parser.add_argument("--scale", type=int, default=None)
+    incremental_parser.add_argument("--profile", choices=["demo", "small", "medium", "large", "enterprise"], default=None)
     incremental_parser.add_argument("--confirm", action="store_true")
 
     validate_parser = subparsers.add_parser("validate", help="Validate clinical producer data")
@@ -51,7 +55,8 @@ def main() -> None:
     continuous_parser.add_argument("--interval-seconds", type=int, default=30)
     continuous_parser.add_argument("--cycles", type=int, default=1)
     continuous_parser.add_argument("--seed", type=int, default=42)
-    continuous_parser.add_argument("--scale", type=int, default=1)
+    continuous_parser.add_argument("--scale", type=int, default=None)
+    continuous_parser.add_argument("--profile", choices=["demo", "small", "medium", "large", "enterprise"], default=None)
     continuous_parser.add_argument("--export-each-cycle", action="store_true")
     continuous_parser.add_argument("--allow-infinite", action="store_true")
     continuous_parser.add_argument("--confirm", action="store_true")
@@ -85,12 +90,26 @@ def main() -> None:
 
     if args.command == "seed":
         _require_confirmation(args.confirm, "Seed generation")
-        _print(run_seed_generation(records=args.records, seed=args.seed, force=args.force))
+        _print(
+            run_seed_generation(
+                records=args.records,
+                seed=args.seed,
+                force=args.force,
+                profile=args.profile,
+                start_date=args.start_date,
+                end_date=args.end_date,
+            )
+        )
         return
     if args.command == "incremental":
         _require_confirmation(args.confirm, "Incremental generation")
+        scale = args.scale or 1
+        if args.profile:
+            from app.services.data_scale_profiles import resolve_profile
+
+            scale = resolve_profile(args.profile, scale_override=args.scale).incremental_scale
         with SessionLocal() as db:
-            _print(run_incremental_generation(db, seed=args.seed, scale=args.scale))
+            _print(run_incremental_generation(db, seed=args.seed, scale=scale))
         return
     if args.command == "validate":
         _require_confirmation(args.confirm, "Validation")
@@ -104,12 +123,17 @@ def main() -> None:
         return
     if args.command == "continuous":
         _require_confirmation(args.confirm, "Continuous generation")
+        scale = args.scale or 1
+        if args.profile:
+            from app.services.data_scale_profiles import resolve_profile
+
+            scale = resolve_profile(args.profile, scale_override=args.scale).incremental_scale
         cycles = None if args.allow_infinite and args.cycles == 0 else args.cycles
         state = DATA_PRODUCER.start(
             interval_seconds=args.interval_seconds,
             cycles=cycles,
             seed=args.seed,
-            scale=args.scale,
+            scale=scale,
             export_each_cycle=args.export_each_cycle,
             allow_infinite=args.allow_infinite,
         )
