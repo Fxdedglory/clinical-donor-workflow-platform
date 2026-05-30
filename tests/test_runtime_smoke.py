@@ -13,6 +13,23 @@ def test_api_health_returns_runtime_metadata() -> None:
     assert payload["version"]
 
 
+def test_auth_experience_routes_serve_frontend_shell() -> None:
+    client = TestClient(app)
+
+    for path in [
+        "/login",
+        "/logout",
+        "/forgot-password",
+        "/reset-password",
+        "/request-access",
+        "/profile",
+        "/preferences",
+    ]:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert "text/html" in response.headers.get("content-type", ""), path
+
+
 def test_standard_monitoring_endpoints_return_required_fields() -> None:
     client = TestClient(app)
     required_fields = {

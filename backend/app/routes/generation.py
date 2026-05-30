@@ -56,6 +56,54 @@ def _monitoring_run_summary(run: dict) -> dict:
     }
 
 
+AUTH_EVENT_TYPES = {
+    "LOGIN",
+    "FAILED_LOGIN",
+    "LOGIN_LOCKED",
+    "LOGIN_BLOCKED_APPROVAL_STATUS",
+    "LOGOUT",
+    "TOKEN_REFRESH",
+    "MFA_CHALLENGE_CREATED",
+    "MFA_VERIFICATION",
+    "MFA_VERIFICATION_FAILED",
+    "PASSWORD_RESET_REQUEST",
+    "PASSWORD_RESET_COMPLETED",
+    "PASSWORD_CHANGE",
+    "PASSWORD_CHANGE_FAILED",
+    "PROFILE_UPDATE",
+    "USER_PREFERENCE_UPDATE",
+    "ACCESS_REQUEST_SUBMITTED",
+    "SUPPLIER_INVITATION_ACCEPTED",
+    "PARTNER_PORTAL_PASSWORD_CHANGE",
+}
+
+
+AUTH_EVENT_MAP = {
+    "LOGIN": "login_success",
+    "FAILED_LOGIN": "login_failure",
+    "LOGIN_LOCKED": "account_locked",
+    "LOGIN_BLOCKED_APPROVAL_STATUS": "access_denied",
+    "LOGOUT": "logout",
+    "TOKEN_REFRESH": "token_refresh",
+    "MFA_CHALLENGE_CREATED": "mfa_challenge",
+    "MFA_VERIFICATION": "mfa_success",
+    "MFA_VERIFICATION_FAILED": "mfa_failure",
+    "PASSWORD_RESET_REQUEST": "password_reset_requested",
+    "PASSWORD_RESET_COMPLETED": "password_reset_completed",
+    "PASSWORD_CHANGE": "password_change",
+    "PASSWORD_CHANGE_FAILED": "password_change_failed",
+    "PROFILE_UPDATE": "profile_update",
+    "USER_PREFERENCE_UPDATE": "preference_update",
+    "ACCESS_REQUEST_SUBMITTED": "access_requested",
+    "SUPPLIER_INVITATION_ACCEPTED": "partner_invitation_accepted",
+    "PARTNER_PORTAL_PASSWORD_CHANGE": "partner_password_change",
+}
+
+
+def _auth_event_type(event_type: str) -> str:
+    return AUTH_EVENT_MAP.get(event_type, event_type.lower())
+
+
 def _safe_export_summary(manifest: dict) -> dict:
     files = manifest.get("files", [])
     return {
@@ -327,6 +375,39 @@ def monitoring_user_access(
 ) -> dict:
     events = []
     try:
+        security_rows = (
+            db.execute(
+                select(SecurityAudit)
+                .where(SecurityAudit.event_type.in_(AUTH_EVENT_TYPES))
+                .order_by(desc(SecurityAudit.timestamp))
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        for row in security_rows:
+            user = db.get(User, row.user_id) if row.user_id is not None else None
+            events.append(
+                {
+                    "event_id": str(row.event_id),
+                    "timestamp_utc": row.timestamp.isoformat() if row.timestamp else None,
+                    "app_name": APP_NAME,
+                    "auth_event_type": _auth_event_type(row.event_type),
+                    "user_id": str(row.user_id) if row.user_id is not None else "",
+                    "username": user.username if user else "",
+                    "role": user.role if user else "",
+                    "is_internal_user": bool(user.is_internal) if user else False,
+                    "is_external_user": bool(user.is_external) if user else False,
+                    "partner_org_id": str(user.organization_id) if user and user.organization_id else "",
+                    "ip_address": None,
+                    "hashed_ip": _hash_ip(row.ip_address),
+                    "browser": "",
+                    "device_type": row.device or "",
+                    "cloudflare_ray_id": "",
+                    "success": bool(row.success),
+                    "failure_reason": "" if row.success else row.event_type,
+                }
+            )
         rows = db.execute(select(UserSessionRecord).order_by(desc(UserSessionRecord.created_at)).limit(limit)).scalars().all()
         for row in rows:
             user = db.get(User, row.user_id)
@@ -351,6 +432,8 @@ def monitoring_user_access(
                     "failure_reason": "",
                 }
             )
+        events.sort(key=lambda event: event.get("timestamp_utc") or "", reverse=True)
+        events = events[:limit]
     except Exception:
         events = []
     return {

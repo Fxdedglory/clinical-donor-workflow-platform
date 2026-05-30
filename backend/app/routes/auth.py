@@ -78,6 +78,15 @@ class PasswordResetConfirm(BaseModel):
     new_password: str
 
 
+class AccessRequest(BaseModel):
+    full_name: str
+    email: str
+    organization_name: str
+    organization_type: str = "Partner"
+    requested_role: str = "Partner External User"
+    business_reason: str
+
+
 class PreferenceUpdate(BaseModel):
     sidebar_collapsed: bool | None = None
     last_route: str | None = None
@@ -662,7 +671,7 @@ def request_password_reset(
             request=request,
             details={"reset_id": reset.reset_id},
         )
-        reset_url = f"{settings.app_base_url.rstrip('/')}/?reset_token={demo_token}"
+        reset_url = f"{settings.app_base_url.rstrip('/')}/reset-password?token={demo_token}"
         send_email(
             db,
             EmailMessage(
@@ -683,6 +692,36 @@ def request_password_reset(
     if demo_token and settings.app_env != "prod":
         response["demo_reset_token"] = demo_token
     return response
+
+
+@router.post("/access-request")
+def request_access(
+    payload: AccessRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    log_security_event(
+        db,
+        event_type="ACCESS_REQUEST_SUBMITTED",
+        user_id=existing.user_id if existing else None,
+        request=request,
+        details={
+            "full_name": payload.full_name,
+            "email": payload.email,
+            "organization_name": payload.organization_name,
+            "organization_type": payload.organization_type,
+            "requested_role": payload.requested_role,
+            "business_reason": payload.business_reason,
+            "existing_user": bool(existing),
+            "future_identity_provider": "Microsoft Entra ID / Entra B2B",
+        },
+    )
+    db.commit()
+    return {
+        "status": "access_request_received",
+        "message": "Your access request has been recorded for administrator review.",
+    }
 
 
 @router.post("/password-reset/confirm")

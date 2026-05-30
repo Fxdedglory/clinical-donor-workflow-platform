@@ -1,34 +1,78 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   BarChart3,
+  Bell,
   CheckCircle2,
   Database,
   FileCheck2,
   HeartPulse,
+  Home,
+  KeyRound,
+  LogIn,
   LogOut,
+  Mail,
   Play,
   RefreshCw,
   ShieldCheck,
   Square,
   UploadCloud,
+  User,
+  UserPlus,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+function resolvePublicBase() {
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/Clinical")) {
+    return "/Clinical";
+  }
+  return "";
+}
+
+function resolveApiBase() {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured) return configured.replace(/\/$/, "");
+  return resolvePublicBase();
+}
+
+const PUBLIC_BASE = resolvePublicBase();
+const API_BASE = resolveApiBase();
 
 const sections = [
-  { id: "operations", label: "Clinical Operations", icon: HeartPulse },
-  { id: "partner", label: "Partner Portal", icon: UploadCloud },
-  { id: "qms", label: "QMS", icon: FileCheck2 },
-  { id: "producer", label: "Data Producer", icon: Activity },
-  { id: "exports", label: "Exports", icon: Database },
-  { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "health", label: "System Health", icon: ShieldCheck },
+  { id: "operations", label: "Clinical Operations", route: "/dashboard", icon: HeartPulse },
+  { id: "partner", label: "Partner Portal", route: "/partner-portal", icon: UploadCloud },
+  { id: "qms", label: "QMS", route: "/qms", icon: FileCheck2 },
+  { id: "producer", label: "Data Producer", route: "/data-producer", icon: Activity },
+  { id: "exports", label: "Exports", route: "/exports", icon: Database },
+  { id: "analytics", label: "Analytics", route: "/analytics", icon: BarChart3 },
+  { id: "health", label: "System Health", route: "/health", icon: ShieldCheck },
 ];
+
+const routeToSection = Object.fromEntries(sections.map((section) => [section.route, section.id]));
+const sectionById = Object.fromEntries(sections.map((section) => [section.id, section]));
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
+}
+
+function normalizeRoute(route) {
+  const withSlash = route?.startsWith("/") ? route : `/${route || ""}`;
+  const clean = withSlash.replace(/\/+$/, "");
+  return clean || "/";
+}
+
+function appPath(route) {
+  const normalized = normalizeRoute(route);
+  return `${PUBLIC_BASE}${normalized === "/" ? "" : normalized}` || "/";
+}
+
+function browserRoute() {
+  let path = window.location.pathname || "/";
+  if (PUBLIC_BASE && (path === PUBLIC_BASE || path.startsWith(`${PUBLIC_BASE}/`))) {
+    path = path.slice(PUBLIC_BASE.length) || "/";
+  }
+  return normalizeRoute(path);
 }
 
 async function apiRequest(path, { token, method = "GET", body } = {}) {
@@ -62,6 +106,13 @@ async function login(username, password) {
   return response.json();
 }
 
+async function verifyMfa(mfaToken, code) {
+  return apiRequest("/api/auth/mfa/verify", {
+    method: "POST",
+    body: { mfa_token: mfaToken, code },
+  });
+}
+
 function formatNumber(value) {
   return new Intl.NumberFormat().format(Number(value || 0));
 }
@@ -87,9 +138,74 @@ function StatusPill({ status }) {
   return <span className={cx("status-pill", tone)}>{normalized}</span>;
 }
 
-function LoginPanel({ onLogin }) {
-  const [username, setUsername] = useState("sysadmin");
-  const [password, setPassword] = useState("ClinicalDemo!2026");
+function AuthShell({ eyebrow, title, lede, children, navigate }) {
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div>
+          <button type="button" className="ghost-link" onClick={() => navigate("/")}>
+            <Home size={16} />
+            Clinical home
+          </button>
+          <p className="eyebrow">{eyebrow}</p>
+          <h1>{title}</h1>
+          <p className="lede">{lede}</p>
+          <div className="auth-links">
+            <button type="button" onClick={() => navigate("/login")}>
+              <LogIn size={16} />
+              Sign in
+            </button>
+            <button type="button" onClick={() => navigate("/request-access")}>
+              <UserPlus size={16} />
+              Request access
+            </button>
+            <button type="button" onClick={() => navigate("/forgot-password")}>
+              <KeyRound size={16} />
+              Reset password
+            </button>
+          </div>
+        </div>
+        {children}
+      </section>
+    </main>
+  );
+}
+
+function PublicHome({ navigate }) {
+  return (
+    <AuthShell
+      eyebrow="Clinical source-system simulator"
+      title="Clinical Donor Platform"
+      lede="Secure operational entry point for donor referrals, screening queues, partner portal work, QMS, CAPA, audit events, data producer operations, and future Entra ID integration."
+      navigate={navigate}
+    >
+      <div className="login-form">
+        <h2>Access center</h2>
+        <p className="muted">
+          Choose a sign-in path, request partner access, or recover a native demo account. Analytics remain planned for Power BI through the platform analytics route.
+        </p>
+        <button type="button" onClick={() => navigate("/login")}>
+          <ShieldCheck size={16} />
+          Continue to sign in
+        </button>
+        <button type="button" className="secondary-button" onClick={() => navigate("/request-access")}>
+          <UserPlus size={16} />
+          Request partner or internal access
+        </button>
+        <button type="button" className="secondary-button" onClick={() => navigate("/forgot-password")}>
+          <Mail size={16} />
+          Forgot password
+        </button>
+      </div>
+    </AuthShell>
+  );
+}
+
+function LoginPage({ onLogin, navigate }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [mfaToken, setMfaToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -98,9 +214,10 @@ function LoginPanel({ onLogin }) {
     setBusy(true);
     setError("");
     try {
-      const payload = await login(username, password);
+      const payload = mfaToken ? await verifyMfa(mfaToken, mfaCode) : await login(username, password);
       if (payload.mfa_required) {
-        setError("MFA is required for this account. Use API docs or a non-MFA demo user until React MFA is added.");
+        setMfaToken(payload.mfa_token);
+        setError("MFA verification is required. Enter the approved verification code to continue.");
         return;
       }
       onLogin(payload);
@@ -112,37 +229,279 @@ function LoginPanel({ onLogin }) {
   }
 
   return (
-    <main className="login-shell">
-      <section className="login-panel">
-        <div>
-          <p className="eyebrow">Clinical source-system simulator</p>
-          <h1>Clinical Donor Platform</h1>
-          <p className="lede">
-            FastAPI operational app for donor screening, partner workflow, QMS, vendor SLA,
-            validation, and source batch exports.
-          </p>
-        </div>
-        <form onSubmit={submit} className="login-form">
-          <label>
-            Username
-            <input value={username} onChange={(event) => setUsername(event.target.value)} />
-          </label>
+    <AuthShell
+      eyebrow="Clinical authentication"
+      title="Sign in"
+      lede="Native Clinical sign-in remains active while Microsoft Entra ID integration is prepared. Internal users and partner users retain their existing role model."
+      navigate={navigate}
+    >
+      <form onSubmit={submit} className="login-form">
+        <label>
+          Username or email
+          <input value={username} onChange={(event) => setUsername(event.target.value)} disabled={Boolean(mfaToken)} />
+        </label>
+        {!mfaToken && (
           <label>
             Password
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
             />
           </label>
-          {error && <div className="error-state">{error}</div>}
-          <button type="submit" disabled={busy}>
-            {busy ? <RefreshCw size={16} /> : <ShieldCheck size={16} />}
-            {busy ? "Signing in" : "Sign In"}
+        )}
+        {mfaToken && (
+          <label>
+            MFA code
+            <input value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} autoComplete="one-time-code" />
+          </label>
+        )}
+        {error && <div className="error-state">{error}</div>}
+        <button type="submit" disabled={busy}>
+          {busy ? <RefreshCw size={16} /> : <ShieldCheck size={16} />}
+          {mfaToken ? "Verify MFA" : "Sign in"}
+        </button>
+        {mfaToken && (
+          <button type="button" className="secondary-button" onClick={() => setMfaToken("")}>
+            <ArrowLeft size={16} />
+            Use different account
           </button>
-        </form>
-      </section>
-    </main>
+        )}
+      </form>
+    </AuthShell>
+  );
+}
+
+function ForgotPasswordPage({ navigate }) {
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiRequest("/api/auth/password-reset/request", {
+        method: "POST",
+        body: { email },
+      });
+      setMessage(result?.status || "If the account exists, a reset link has been sent.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AuthShell
+      eyebrow="Account recovery"
+      title="Forgot password"
+      lede="Request a single-use reset link for native Clinical accounts. Future Entra ID accounts will use Microsoft-managed recovery."
+      navigate={navigate}
+    >
+      <form onSubmit={submit} className="login-form">
+        <label>
+          Work email
+          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" />
+        </label>
+        {message && <div className="notice-state">{message}</div>}
+        {error && <div className="error-state">{error}</div>}
+        <button type="submit" disabled={busy}>
+          {busy ? <RefreshCw size={16} /> : <Mail size={16} />}
+          Send reset link
+        </button>
+        <button type="button" className="secondary-button" onClick={() => navigate("/login")}>
+          Back to sign in
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function ResetPasswordPage({ navigate }) {
+  const [token, setToken] = useState(() => new URLSearchParams(window.location.search).get("token") || "");
+  const [newPassword, setNewPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest("/api/auth/password-reset/confirm", {
+        method: "POST",
+        body: { token, new_password: newPassword },
+      });
+      setMessage("Password reset completed. You can sign in with the new password.");
+      setNewPassword("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AuthShell
+      eyebrow="Account recovery"
+      title="Reset password"
+      lede="Complete a single-use reset token flow for a native Clinical account."
+      navigate={navigate}
+    >
+      <form onSubmit={submit} className="login-form">
+        <label>
+          Reset token
+          <input value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" />
+        </label>
+        <label>
+          New password
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            autoComplete="new-password"
+          />
+        </label>
+        {message && <div className="notice-state">{message}</div>}
+        {error && <div className="error-state">{error}</div>}
+        <button type="submit" disabled={busy}>
+          {busy ? <RefreshCw size={16} /> : <KeyRound size={16} />}
+          Reset password
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function RequestAccessPage({ navigate }) {
+  const [form, setForm] = useState({
+    full_name: "",
+    email: "",
+    organization_name: "",
+    organization_type: "Partner",
+    requested_role: "Partner External User",
+    business_reason: "",
+  });
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiRequest("/api/auth/access-request", {
+        method: "POST",
+        body: form,
+      });
+      setMessage(result?.message || "Access request received.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AuthShell
+      eyebrow="Partner onboarding"
+      title="Request access"
+      lede="Submit an internal or external access request for administrator review. This creates an auditable event for the Monitoring Platform and preserves future Entra B2B compatibility."
+      navigate={navigate}
+    >
+      <form onSubmit={submit} className="login-form">
+        <label>
+          Full name
+          <input value={form.full_name} onChange={(event) => update("full_name", event.target.value)} />
+        </label>
+        <label>
+          Work email
+          <input value={form.email} type="email" onChange={(event) => update("email", event.target.value)} />
+        </label>
+        <label>
+          Organization
+          <input value={form.organization_name} onChange={(event) => update("organization_name", event.target.value)} />
+        </label>
+        <div className="form-grid">
+          <label>
+            Organization type
+            <select value={form.organization_type} onChange={(event) => update("organization_type", event.target.value)}>
+              <option>Partner</option>
+              <option>Recovery Organization</option>
+              <option>Supplier</option>
+              <option>Internal</option>
+            </select>
+          </label>
+          <label>
+            Requested role
+            <select value={form.requested_role} onChange={(event) => update("requested_role", event.target.value)}>
+              <option>Partner External User</option>
+              <option>Supplier External User</option>
+              <option>Donor Intake Coordinator</option>
+              <option>Clinical Reviewer</option>
+              <option>Quality Assurance Specialist</option>
+              <option>Vendor Operations Analyst</option>
+              <option>Operations Manager</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Business reason
+          <textarea value={form.business_reason} onChange={(event) => update("business_reason", event.target.value)} rows={4} />
+        </label>
+        {message && <div className="notice-state">{message}</div>}
+        {error && <div className="error-state">{error}</div>}
+        <button type="submit" disabled={busy}>
+          {busy ? <RefreshCw size={16} /> : <UserPlus size={16} />}
+          Submit request
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function LogoutPage({ onLogout, navigate }) {
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    onLogout().finally(() => {
+      if (mounted) setDone(true);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <AuthShell
+      eyebrow="Clinical authentication"
+      title="Signed out"
+      lede="Your local session has been cleared. If the backend session was active, it has been revoked and logged for monitoring."
+      navigate={navigate}
+    >
+      <div className="login-form">
+        <StatusPill status={done ? "Logged out" : "Signing out"} />
+        <button type="button" onClick={() => navigate("/login")}>
+          <LogIn size={16} />
+          Sign in again
+        </button>
+      </div>
+    </AuthShell>
   );
 }
 
@@ -186,19 +545,20 @@ function ProducerControls({ token, refresh }) {
 
   return (
     <div className="operation-panel">
-      <button onClick={() => runAction("Incremental generation", "/api/generation/incremental", { seed: 42, scale: 1 })}>
+      <button type="button" onClick={() => runAction("Incremental generation", "/api/generation/incremental", { seed: 42, scale: 1 })}>
         <Play size={16} />
         Incremental
       </button>
-      <button onClick={() => runAction("Validation", "/api/generation/validate")}>
+      <button type="button" onClick={() => runAction("Validation", "/api/generation/validate")}>
         <CheckCircle2 size={16} />
         Validate
       </button>
-      <button onClick={() => runAction("Export", "/api/generation/export", { batch_id: `react_${Date.now()}` })}>
+      <button type="button" onClick={() => runAction("Export", "/api/generation/export", { batch_id: `react_${Date.now()}` })}>
         <Database size={16} />
         Export
       </button>
       <button
+        type="button"
         onClick={() =>
           runAction("Continuous generation", "/api/generation/continuous/start", {
             interval_seconds: 1,
@@ -212,7 +572,7 @@ function ProducerControls({ token, refresh }) {
         <Activity size={16} />
         One Cycle
       </button>
-      <button onClick={() => runAction("Stop", "/api/generation/continuous/stop")}>
+      <button type="button" onClick={() => runAction("Stop", "/api/generation/continuous/stop")}>
         <Square size={16} />
         Stop
       </button>
@@ -245,6 +605,127 @@ function Table({ rows, columns }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ProfilePage({ token, user, onUserUpdate }) {
+  const [form, setForm] = useState({
+    full_name: user?.full_name || "",
+    display_name: user?.display_name || "",
+    email: user?.email || "",
+  });
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    try {
+      const updated = await apiRequest("/api/auth/me", { token, method: "PATCH", body: form });
+      onUserUpdate(updated);
+      setMessage("Profile updated.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <section className="account-panel">
+      <h3>Profile</h3>
+      <form onSubmit={submit} className="stacked-form">
+        <label>
+          Full name
+          <input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} />
+        </label>
+        <label>
+          Display name
+          <input value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} />
+        </label>
+        <label>
+          Email
+          <input value={form.email} type="email" onChange={(event) => setForm({ ...form, email: event.target.value })} />
+        </label>
+        {message && <div className="notice-state">{message}</div>}
+        {error && <div className="error-state">{error}</div>}
+        <button type="submit">
+          <User size={16} />
+          Save profile
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function PreferencesPage({ token }) {
+  const [preferences, setPreferences] = useState({
+    task_assignments: true,
+    partner_notifications: true,
+    document_requests: true,
+    approval_requests: true,
+    security_alerts: true,
+  });
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    apiRequest("/api/auth/me/preferences", { token })
+      .then((payload) => {
+        if (!mounted) return;
+        setPreferences((current) => ({
+          ...current,
+          ...(payload.notification_preferences || {}),
+        }));
+      })
+      .catch((err) => {
+        if (mounted) setError(err.message);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [token]);
+
+  function toggle(key) {
+    setPreferences((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    try {
+      await apiRequest("/api/auth/me/preferences", {
+        token,
+        method: "PATCH",
+        body: { notification_preferences: preferences, last_route: "/preferences" },
+      });
+      setMessage("Notification preferences updated.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <section className="account-panel">
+      <h3>Notification Preferences</h3>
+      <form onSubmit={submit} className="stacked-form">
+        <div className="preference-list">
+          {Object.entries(preferences).map(([key, enabled]) => (
+            <label key={key} className="checkbox-row">
+              <input type="checkbox" checked={Boolean(enabled)} onChange={() => toggle(key)} />
+              {key.replaceAll("_", " ")}
+            </label>
+          ))}
+        </div>
+        {message && <div className="notice-state">{message}</div>}
+        {error && <div className="error-state">{error}</div>}
+        <button type="submit">
+          <Bell size={16} />
+          Save preferences
+        </button>
+      </form>
+    </section>
   );
 }
 
@@ -330,16 +811,44 @@ function SectionBody({ active, status, token, refresh }) {
 }
 
 function App() {
+  const [route, setRoute] = useState(browserRoute);
   const [tokenPayload, setTokenPayload] = useState(() => {
     const raw = window.localStorage.getItem("clinical_token_payload");
     return raw ? JSON.parse(raw) : null;
   });
-  const [active, setActive] = useState("operations");
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
   const token = tokenPayload?.access_token;
+  const user = tokenPayload?.user;
+  const active = routeToSection[route] || (route === "/" && token ? "operations" : "");
+  const activeSection = useMemo(() => sectionById[active], [active]);
 
-  const activeSection = useMemo(() => sections.find((section) => section.id === active), [active]);
+  useEffect(() => {
+    function onPopState() {
+      setRoute(browserRoute());
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function navigate(nextRoute) {
+    const normalized = normalizeRoute(nextRoute);
+    window.history.pushState({}, "", appPath(normalized));
+    setRoute(normalized);
+  }
+
+  function clearSession() {
+    setTokenPayload(null);
+    setStatus(null);
+    window.localStorage.removeItem("clinical_token_payload");
+  }
+
+  async function performLogout() {
+    if (token) {
+      await apiRequest("/api/auth/logout", { token, method: "POST" }).catch(() => null);
+    }
+    clearSession();
+  }
 
   async function refresh() {
     if (!token) return;
@@ -356,20 +865,34 @@ function App() {
   }
 
   useEffect(() => {
-    refresh();
-  }, [token]);
+    if (token && active) refresh();
+  }, [token, active]);
 
   function handleLogin(payload) {
     setTokenPayload(payload);
     window.localStorage.setItem("clinical_token_payload", JSON.stringify(payload));
+    navigate("/dashboard");
   }
 
-  function logout() {
-    setTokenPayload(null);
-    window.localStorage.removeItem("clinical_token_payload");
+  function updateUser(userPayload) {
+    setTokenPayload((current) => {
+      const next = { ...current, user: userPayload };
+      window.localStorage.setItem("clinical_token_payload", JSON.stringify(next));
+      return next;
+    });
   }
 
-  if (!tokenPayload) return <LoginPanel onLogin={handleLogin} />;
+  if (route === "/logout") {
+    return <LogoutPage onLogout={performLogout} navigate={navigate} />;
+  }
+
+  if (!tokenPayload) {
+    if (route === "/forgot-password") return <ForgotPasswordPage navigate={navigate} />;
+    if (route === "/reset-password") return <ResetPasswordPage navigate={navigate} />;
+    if (route === "/request-access") return <RequestAccessPage navigate={navigate} />;
+    if (route === "/" || route === "/home") return <PublicHome navigate={navigate} />;
+    return <LoginPage onLogin={handleLogin} navigate={navigate} />;
+  }
 
   return (
     <div className="app-shell">
@@ -388,27 +911,43 @@ function App() {
               <button
                 key={section.id}
                 className={cx(active === section.id && "active")}
-                onClick={() => setActive(section.id)}
+                onClick={() => navigate(section.route)}
+                type="button"
               >
                 <Icon size={17} />
                 {section.label}
               </button>
             );
           })}
+          <div className="nav-divider" />
+          <button className={cx(route === "/profile" && "active")} onClick={() => navigate("/profile")} type="button">
+            <User size={17} />
+            Profile
+          </button>
+          <button className={cx(route === "/preferences" && "active")} onClick={() => navigate("/preferences")} type="button">
+            <Bell size={17} />
+            Preferences
+          </button>
         </nav>
       </aside>
       <main>
         <header className="topbar">
           <div>
             <p className="eyebrow">Azure-ready FastAPI + React</p>
-            <h1>{activeSection?.label}</h1>
+            <h1>
+              {route === "/profile"
+                ? "Profile"
+                : route === "/preferences"
+                  ? "Notification Preferences"
+                  : activeSection?.label || "Clinical Operations"}
+            </h1>
           </div>
           <div className="topbar-actions">
-            <button onClick={refresh}>
+            <button type="button" onClick={refresh}>
               <RefreshCw size={16} />
               Refresh
             </button>
-            <button onClick={logout}>
+            <button type="button" onClick={() => navigate("/logout")}>
               <LogOut size={16} />
               Sign Out
             </button>
@@ -420,7 +959,11 @@ function App() {
             {error}
           </div>
         )}
-        <SectionBody active={active} status={status || {}} token={token} refresh={refresh} />
+        {route === "/profile" && <ProfilePage token={token} user={user} onUserUpdate={updateUser} />}
+        {route === "/preferences" && <PreferencesPage token={token} />}
+        {route !== "/profile" && route !== "/preferences" && (
+          <SectionBody active={active || "operations"} status={status || {}} token={token} refresh={refresh} />
+        )}
       </main>
     </div>
   );

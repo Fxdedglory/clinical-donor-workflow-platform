@@ -61,7 +61,7 @@ def _send_account_setup_email(
     db.flush()
     setup_token = create_password_reset_token(subject=target_user.username or "", reset_id=reset.reset_id)
     reset.token_hash = hash_token(setup_token)
-    setup_url = f"{settings.app_base_url.rstrip('/')}/?reset_token={setup_token}"
+    setup_url = f"{settings.app_base_url.rstrip('/')}/reset-password?token={setup_token}"
     send_email(
         db,
         EmailMessage(
