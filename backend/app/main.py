@@ -108,8 +108,12 @@ if settings.serve_frontend and assets_path.exists():
     app.mount("/assets", StaticFiles(directory=assets_path), name="frontend-assets")
 
 
-@app.get("/health", tags=["System"])
-def health() -> dict[str, str]:
+@app.get("/health", tags=["System"], response_model=None)
+def health(request: Request) -> FileResponse | dict[str, str]:
+    if "text/html" in request.headers.get("accept", ""):
+        index_path = _frontend_index()
+        if index_path:
+            return FileResponse(index_path)
     return {"status": "ok", "service": settings.app_name, "version": settings.app_version}
 
 

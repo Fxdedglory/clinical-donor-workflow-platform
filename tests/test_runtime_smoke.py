@@ -17,6 +17,20 @@ def test_auth_experience_routes_serve_frontend_shell() -> None:
     client = TestClient(app)
 
     for path in [
+        "/dashboard",
+        "/referrals",
+        "/screening",
+        "/clinical-review",
+        "/eligibility",
+        "/recovery-cases",
+        "/partner-portal",
+        "/qms",
+        "/capa",
+        "/vendor-sla",
+        "/documents",
+        "/audit",
+        "/data-producer",
+        "/health",
         "/login",
         "/logout",
         "/forgot-password",
@@ -25,7 +39,7 @@ def test_auth_experience_routes_serve_frontend_shell() -> None:
         "/profile",
         "/preferences",
     ]:
-        response = client.get(path)
+        response = client.get(path, headers={"accept": "text/html"})
         assert response.status_code == 200, path
         assert "text/html" in response.headers.get("content-type", ""), path
 

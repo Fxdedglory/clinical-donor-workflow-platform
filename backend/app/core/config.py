@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     smtp_use_ssl: bool = Field(default=False, alias="SMTP_USE_SSL")
     backup_encryption_key: str | None = Field(default=None, alias="BACKUP_ENCRYPTION_KEY")
     database_url: str = Field(
-        default="postgresql+psycopg://clinical_admin:clinical_demo_password@localhost:5432/clinical_donor_workflow",
+        default="postgresql+psycopg://clinical_admin@localhost:5432/clinical_donor_workflow",
         alias="DATABASE_URL",
     )
     port: int = Field(default=8000, alias="PORT")

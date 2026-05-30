@@ -39,14 +39,96 @@ function resolveApiBase() {
 const PUBLIC_BASE = resolvePublicBase();
 const API_BASE = resolveApiBase();
 
+const portfolioLinks = [
+  { label: "Home", href: "https://teemails.com", icon: Home },
+  { label: "ERP", href: "/ERP", icon: Database },
+  { label: "HR", href: "/HR", icon: User },
+  { label: "Clinical", href: "/Clinical", icon: HeartPulse },
+  { label: "Monitor", href: "/Monitor", icon: Activity },
+  { label: "Analytics", href: "/analytics", icon: BarChart3 },
+];
+
 const sections = [
-  { id: "operations", label: "Clinical Operations", route: "/dashboard", icon: HeartPulse },
-  { id: "partner", label: "Partner Portal", route: "/partner-portal", icon: UploadCloud },
-  { id: "qms", label: "QMS", route: "/qms", icon: FileCheck2 },
-  { id: "producer", label: "Data Producer", route: "/data-producer", icon: Activity },
-  { id: "exports", label: "Exports", route: "/exports", icon: Database },
-  { id: "analytics", label: "Analytics", route: "/analytics", icon: BarChart3 },
-  { id: "health", label: "System Health", route: "/health", icon: ShieldCheck },
+  { id: "dashboard", label: "Dashboard", route: "/dashboard", icon: HeartPulse },
+  { id: "referrals", label: "Donor Referrals", route: "/referrals", icon: UserPlus },
+  { id: "screening", label: "Screening Queue", route: "/screening", icon: CheckCircle2 },
+  {
+    id: "clinical_review",
+    label: "Clinical Review",
+    route: "/clinical-review",
+    icon: ShieldCheck,
+    roles: ["System Administrator", "Operations Manager", "Clinical Reviewer", "Quality Assurance Specialist"],
+  },
+  {
+    id: "eligibility",
+    label: "Eligibility",
+    route: "/eligibility",
+    icon: FileCheck2,
+    roles: ["System Administrator", "Operations Manager", "Clinical Reviewer", "Quality Assurance Specialist"],
+  },
+  { id: "recovery_cases", label: "Recovery Cases", route: "/recovery-cases", icon: Database },
+  {
+    id: "partner",
+    label: "Partner Portal",
+    route: "/partner-portal",
+    icon: UploadCloud,
+    roles: [
+      "System Administrator",
+      "Operations Manager",
+      "Partner External User",
+      "Supplier External User",
+      "Donor Intake Coordinator",
+    ],
+  },
+  {
+    id: "qms",
+    label: "QMS Deviations",
+    route: "/qms",
+    icon: AlertTriangle,
+    roles: ["System Administrator", "Operations Manager", "Quality Assurance Specialist"],
+  },
+  {
+    id: "capa",
+    label: "CAPA Aging",
+    route: "/capa",
+    icon: FileCheck2,
+    roles: ["System Administrator", "Operations Manager", "Quality Assurance Specialist"],
+  },
+  {
+    id: "vendor_sla",
+    label: "Vendor SLA",
+    route: "/vendor-sla",
+    icon: Bell,
+    roles: ["System Administrator", "Operations Manager", "Vendor Operations Analyst", "Quality Assurance Specialist"],
+  },
+  {
+    id: "documents",
+    label: "Documents",
+    route: "/documents",
+    icon: UploadCloud,
+    roles: ["System Administrator", "Operations Manager", "Quality Assurance Specialist", "Clinical Reviewer"],
+  },
+  {
+    id: "audit",
+    label: "Audit Events",
+    route: "/audit",
+    icon: ShieldCheck,
+    roles: ["System Administrator", "Operations Manager", "Quality Assurance Specialist"],
+  },
+  {
+    id: "producer",
+    label: "Data Producer",
+    route: "/data-producer",
+    icon: Activity,
+    roles: ["System Administrator", "Business Technology Analyst", "Operations Manager"],
+  },
+  {
+    id: "health",
+    label: "System Health",
+    route: "/health",
+    icon: ShieldCheck,
+    roles: ["System Administrator", "Business Technology Analyst", "Operations Manager"],
+  },
 ];
 
 const routeToSection = Object.fromEntries(sections.map((section) => [section.route, section.id]));
@@ -143,6 +225,17 @@ function AuthShell({ eyebrow, title, lede, children, navigate }) {
     <main className="login-shell">
       <section className="login-panel">
         <div>
+          <div className="portfolio-nav public-nav" aria-label="Portfolio navigation">
+            {portfolioLinks.map((item) => {
+              const Icon = item.icon;
+              return (
+                <a key={item.label} href={item.href} className={item.label === "Clinical" ? "active" : ""}>
+                  <Icon size={15} />
+                  {item.label}
+                </a>
+              );
+            })}
+          </div>
           <button type="button" className="ghost-link" onClick={() => navigate("/")}>
             <Home size={16} />
             Clinical home
@@ -729,13 +822,83 @@ function PreferencesPage({ token }) {
   );
 }
 
+function hasRouteAccess(section, user) {
+  if (!section?.roles?.length) return true;
+  const permissions = new Set(user?.permissions || []);
+  if (permissions.has("system.admin")) return true;
+  return section.roles.includes(user?.role_name);
+}
+
+function AccessDenied({ section, user }) {
+  return (
+    <section className="access-denied">
+      <ShieldCheck size={28} />
+      <h3>Access denied</h3>
+      <p>
+        {section?.label || "This page"} requires one of these roles: {section?.roles?.join(", ") || "restricted role"}.
+      </p>
+      <p className="muted">Current role: {user?.role_name || "Unknown"}</p>
+    </section>
+  );
+}
+
 function SectionBody({ active, status, token, refresh }) {
   const validation = status?.latest_validation || {};
   const manifest = status?.latest_export_manifest || {};
   const freshness = status?.source_freshness?.freshness || [];
   const runs = status?.recent_runs || [];
 
-  if (active === "operations") return <OperationsSection status={status} />;
+  if (active === "dashboard") return <OperationsSection status={status} />;
+  if (active === "referrals") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Referral Sources" value={formatNumber(status?.row_counts?.dim_referral_source)} />
+        <MetricCard label="Donors" value={formatNumber(status?.row_counts?.dim_donor)} />
+        <MetricCard label="Partner Submissions" value={formatNumber(status?.row_counts?.dim_partner_submission)} />
+        <MetricCard label="Workflow Tasks" value={formatNumber(status?.row_counts?.fact_workflow_task)} tone="warning" />
+      </div>
+    );
+  }
+  if (active === "screening") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Screenings" value={formatNumber(status?.row_counts?.fact_donor_screening)} />
+        <MetricCard label="Risk Factors" value={formatNumber(status?.row_counts?.fact_risk_factor)} tone="warning" />
+        <MetricCard label="Lab Results" value={formatNumber(status?.row_counts?.fact_lab_result)} />
+        <MetricCard label="Medical History" value={formatNumber(status?.row_counts?.fact_medical_social_history)} />
+      </div>
+    );
+  }
+  if (active === "clinical_review") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Clinical Reviews" value={formatNumber(status?.row_counts?.fact_donor_screening)} />
+        <MetricCard label="Open Tasks" value={formatNumber(status?.row_counts?.fact_workflow_task)} tone="warning" />
+        <MetricCard label="Document Packets" value={formatNumber(status?.row_counts?.dim_secure_document)} />
+        <MetricCard label="Audit Events" value={formatNumber(status?.row_counts?.fact_audit_log)} />
+      </div>
+    );
+  }
+  if (active === "eligibility") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Eligibility Decisions" value={formatNumber(status?.row_counts?.fact_eligibility_decision)} />
+        <MetricCard label="Eligibility Rules" value={formatNumber(status?.row_counts?.dim_eligibility_rule)} />
+        <MetricCard label="Tissue Suitability" value={formatNumber(status?.row_counts?.fact_tissue_suitability)} />
+        <MetricCard label="Processing Releases" value={formatNumber(status?.row_counts?.fact_processing_release)} />
+      </div>
+    );
+  }
+  if (active === "recovery_cases") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Recovery Cases" value={formatNumber(status?.row_counts?.fact_recovery_case)} />
+        <MetricCard label="Tissue Types" value={formatNumber(status?.row_counts?.dim_tissue_type)} />
+        <MetricCard label="Product Suitability" value={formatNumber(status?.row_counts?.fact_tissue_suitability)} />
+        <MetricCard label="Documents" value={formatNumber(status?.row_counts?.dim_secure_document)} />
+      </div>
+    );
+  }
   if (active === "partner") {
     return (
       <div className="info-list">
@@ -753,6 +916,46 @@ function SectionBody({ active, status, token, refresh }) {
         <MetricCard label="CAPA Records" value={formatNumber(status?.row_counts?.fact_capa)} tone="warning" />
         <MetricCard label="Audit Events" value={formatNumber(status?.row_counts?.fact_audit_log)} />
         <MetricCard label="Training Records" value={formatNumber(status?.row_counts?.dim_training_record)} />
+      </div>
+    );
+  }
+  if (active === "capa") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="CAPA Records" value={formatNumber(status?.row_counts?.fact_capa)} tone="warning" />
+        <MetricCard label="Open Deviations" value={formatNumber(status?.row_counts?.fact_deviation)} tone="warning" />
+        <MetricCard label="Change Controls" value={formatNumber(status?.row_counts?.fact_change_control)} />
+        <MetricCard label="Approval Tasks" value={formatNumber(status?.row_counts?.fact_workflow_task)} />
+      </div>
+    );
+  }
+  if (active === "vendor_sla") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Vendor Incidents" value={formatNumber(status?.row_counts?.fact_vendor_incident)} tone="warning" />
+        <MetricCard label="Vendors" value={formatNumber(status?.row_counts?.dim_vendor)} />
+        <MetricCard label="Partner Messages" value={formatNumber(status?.row_counts?.fact_partner_message)} />
+        <MetricCard label="Escalations" value={formatNumber(status?.row_counts?.fact_escalation)} tone="warning" />
+      </div>
+    );
+  }
+  if (active === "documents") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Secure Documents" value={formatNumber(status?.row_counts?.dim_secure_document)} />
+        <MetricCard label="Partner Documents" value={formatNumber(status?.row_counts?.dim_partner_document)} />
+        <MetricCard label="Document Versions" value={formatNumber(status?.row_counts?.fact_document_version)} />
+        <MetricCard label="Access Events" value={formatNumber(status?.row_counts?.fact_document_access)} />
+      </div>
+    );
+  }
+  if (active === "audit") {
+    return (
+      <div className="content-grid">
+        <MetricCard label="Audit Events" value={formatNumber(status?.row_counts?.fact_audit_log)} />
+        <MetricCard label="Security Events" value={formatNumber(status?.row_counts?.fact_security_event)} />
+        <MetricCard label="Active Sessions" value={formatNumber(status?.row_counts?.fact_user_session)} />
+        <MetricCard label="Notifications" value={formatNumber(status?.row_counts?.fact_notification)} />
       </div>
     );
   }
@@ -783,18 +986,6 @@ function SectionBody({ active, status, token, refresh }) {
       </section>
     );
   }
-  if (active === "analytics") {
-    return (
-      <div className="analytics-panel">
-        <BarChart3 size={28} />
-        <h3>Power BI Service Strategy</h3>
-        <p>
-          Clinical analytics will flow through Snowflake and dbt into Power BI Service, then surface
-          through <strong> teemails.com/analytics</strong>. Production analytics live outside this operational app.
-        </p>
-      </div>
-    );
-  }
   return (
     <div className="split">
       <section>
@@ -820,7 +1011,7 @@ function App() {
   const [error, setError] = useState("");
   const token = tokenPayload?.access_token;
   const user = tokenPayload?.user;
-  const active = routeToSection[route] || (route === "/" && token ? "operations" : "");
+  const active = routeToSection[route] || (route === "/" && token ? "dashboard" : "");
   const activeSection = useMemo(() => sectionById[active], [active]);
 
   useEffect(() => {
@@ -831,9 +1022,10 @@ function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  function navigate(nextRoute) {
+  function navigate(nextRoute, options = {}) {
     const normalized = normalizeRoute(nextRoute);
-    window.history.pushState({}, "", appPath(normalized));
+    const method = options.replace ? "replaceState" : "pushState";
+    window.history[method]({}, "", appPath(normalized));
     setRoute(normalized);
   }
 
@@ -868,10 +1060,17 @@ function App() {
     if (token && active) refresh();
   }, [token, active]);
 
+  useEffect(() => {
+    if (token && route === "/") {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [token, route]);
+
   function handleLogin(payload) {
     setTokenPayload(payload);
     window.localStorage.setItem("clinical_token_payload", JSON.stringify(payload));
-    navigate("/dashboard");
+    const nextRoute = route === "/login" || route === "/" ? "/dashboard" : route;
+    navigate(nextRoute, { replace: true });
   }
 
   function updateUser(userPayload) {
@@ -901,8 +1100,19 @@ function App() {
           <HeartPulse size={24} />
           <div>
             <strong>Clinical Donor</strong>
-            <span>Source System</span>
+            <span>Current app: Clinical</span>
           </div>
+        </div>
+        <div className="portfolio-nav" aria-label="Portfolio navigation">
+          {portfolioLinks.map((item) => {
+            const Icon = item.icon;
+            return (
+              <a key={item.label} href={item.href} className={item.label === "Clinical" ? "active" : ""}>
+                <Icon size={15} />
+                {item.label}
+              </a>
+            );
+          })}
         </div>
         <nav>
           {sections.map((section) => {
@@ -947,6 +1157,10 @@ function App() {
               <RefreshCw size={16} />
               Refresh
             </button>
+            <button type="button" onClick={() => navigate("/profile")}>
+              <User size={16} />
+              {user?.display_name || user?.username || "Profile"}
+            </button>
             <button type="button" onClick={() => navigate("/logout")}>
               <LogOut size={16} />
               Sign Out
@@ -961,8 +1175,11 @@ function App() {
         )}
         {route === "/profile" && <ProfilePage token={token} user={user} onUserUpdate={updateUser} />}
         {route === "/preferences" && <PreferencesPage token={token} />}
-        {route !== "/profile" && route !== "/preferences" && (
-          <SectionBody active={active || "operations"} status={status || {}} token={token} refresh={refresh} />
+        {route !== "/profile" && route !== "/preferences" && !hasRouteAccess(activeSection, user) && (
+          <AccessDenied section={activeSection} user={user} />
+        )}
+        {route !== "/profile" && route !== "/preferences" && hasRouteAccess(activeSection, user) && (
+          <SectionBody active={active || "dashboard"} status={status || {}} token={token} refresh={refresh} />
         )}
       </main>
     </div>
