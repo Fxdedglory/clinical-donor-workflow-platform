@@ -24,3 +24,12 @@ data/exports/*
 !data/exports/.gitkeep
 data/backups/*
 !data/backups/.gitkeep
+backups/*
+!backups/.gitkeep
+data/synthetic/*
+!data/synthetic/.gitkeep
+data/monitoring/*
+!data/monitoring/.gitkeep
+*.sqlite
+*.sqlite3
+*.db
