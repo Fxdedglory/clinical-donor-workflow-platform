@@ -26,6 +26,9 @@ data/backups/*
 !data/backups/.gitkeep
 backups/*
 !backups/.gitkeep
+datalake/
+data/datalake/
+data/lake/
 data/synthetic/*
 !data/synthetic/.gitkeep
 data/monitoring/*
