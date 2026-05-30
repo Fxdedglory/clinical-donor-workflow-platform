@@ -55,9 +55,51 @@ The command writes:
 - one manifest JSON per batch
 - one schema JSON per table
 
+## ADLS Gen2 Upload
+
+Azure App Service uses managed identity for uploads. Storage account keys are intentionally unsupported by the upload script.
+
+Required app settings:
+
+```text
+DATA_LAKE_ACCOUNT_NAME=stteemailslakewcus
+DATA_LAKE_CONTAINER=datalake
+DATA_LAKE_AUTH_MODE=managed_identity
+DATA_LAKE_BASE_PATH=bronze
+```
+
+Dry-run locally:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\upload_parquet_lake_to_adls.py `
+  --lake-root $lakeRoot `
+  --source-system clinical `
+  --batch-id clinical_fixture_parquet `
+  --account-name stteemailslakewcus `
+  --dry-run
+```
+
+Upload from Azure App Service after a local lake batch exists on the app filesystem:
+
+```powershell
+python scripts/upload_parquet_lake_to_adls.py \
+  --lake-root /home/site/wwwroot/data/datalake \
+  --source-system clinical \
+  --batch-id <batch_id>
+```
+
+The script uploads the existing lake layout unchanged:
+
+- `bronze/...`
+- `manifests/...`
+- `_schemas/...`
+
+`--delete-local-after-upload` is available but defaults to false.
+
 ## Troubleshooting
 
 - `pyarrow is required`: install dependencies from `requirements.txt`.
 - Database connection failure: confirm the redacted `DATABASE_URL` pattern and use fixture mode if the database is not available.
 - Permission denied: confirm the runtime database role has `SELECT` on the exported tables.
 - `No manifest files found`: confirm `--lake-root`, `--source-system`, and `--batch-id`.
+- Upload permission failure: confirm the App Service managed identity has `Storage Blob Data Contributor` on the `datalake` container scope.
