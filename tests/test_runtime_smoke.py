@@ -1,5 +1,14 @@
+from pathlib import Path
+
+import pytest
+from app import main as clinical_main
 from app.database import get_db
 from app.main import app
+from app.services.adls_smoke import (
+    CONFIRMATION_PHRASE,
+    create_tiny_adls_smoke_batch,
+    run_adls_smoke_upload,
+)
 from app.services.data_producer import CONFORMED_SITES, EXPORT_METADATA_FIELDS, _product_context
 from app.services.data_scale_profiles import profile_as_dict, resolve_profile
 from fastapi.testclient import TestClient
@@ -255,3 +264,75 @@ def test_clinical_data_scale_profiles_are_defined() -> None:
     assert demo["incremental_scale"] == 1
     assert enterprise["records"] == 50000
     assert enterprise["incremental_scale"] == 25
+
+
+def test_adls_smoke_upload_requires_confirmation() -> None:
+    response = TestClient(app).post("/api/operations/adls-smoke-upload", json={})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["status"] == "confirmation_required"
+
+
+def test_adls_smoke_batch_uses_expected_layout(tmp_path: Path) -> None:
+    batch = create_tiny_adls_smoke_batch(
+        tmp_path,
+        source_system="clinical",
+        batch_id="clinical_smoke_test",
+    )
+
+    assert batch["row_count"] == 1
+    assert set(batch["uploaded_paths"]) == {
+        "bronze/source_system=clinical/source_table=adls_smoke/"
+        "extraction_date="
+        + batch["extraction_date"]
+        + "/extraction_batch_id=clinical_smoke_test/part-00000.parquet",
+        "manifests/source_system=clinical/extraction_date="
+        + batch["extraction_date"]
+        + "/clinical_smoke_test.json",
+        "_schemas/source_system=clinical/adls_smoke.json",
+    }
+
+
+def test_adls_smoke_endpoint_returns_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*, source_system: str) -> dict[str, object]:
+        return {
+            "source_system": source_system,
+            "status": "uploaded",
+            "file_count": 3,
+            "row_count": 1,
+            "uploaded_paths": ["bronze/source_system=clinical/source_table=adls_smoke/x.parquet"],
+            "batch_id": "clinical_smoke_test",
+            "auth_mode": "managed_identity",
+            "account_name": "stteemailslakewcus",
+            "container": "datalake",
+            "error": None,
+        }
+
+    monkeypatch.setattr(clinical_main, "run_adls_smoke_upload", fake_run)
+    response = TestClient(app).post(
+        "/api/operations/adls-smoke-upload",
+        json={"confirm": CONFIRMATION_PHRASE},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_system"] == "clinical"
+    assert payload["auth_mode"] == "managed_identity"
+    assert payload["file_count"] == 3
+    assert payload["row_count"] == 1
+
+
+def test_adls_smoke_runner_accepts_fake_uploader(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_LAKE_ACCOUNT_NAME", "stteemailslakewcus")
+
+    def fake_upload(plan, account_name, container, auth_mode):
+        assert account_name == "stteemailslakewcus"
+        assert container == "datalake"
+        assert auth_mode == "managed_identity"
+        return [{"path": item["blob_name"], "status": "uploaded"} for item in plan]
+
+    result = run_adls_smoke_upload(source_system="clinical", uploader=fake_upload)
+
+    assert result["status"] == "uploaded"
+    assert result["file_count"] == 3
+    assert result["row_count"] == 1

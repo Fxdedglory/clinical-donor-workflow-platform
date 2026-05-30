@@ -1,11 +1,13 @@
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -37,9 +39,14 @@ from app.routes import (
     workflow_tasks,
     workspaces,
 )
+from app.services.adls_smoke import CONFIRMATION_PHRASE, run_adls_smoke_upload
 
 APP_NAME = "clinical-donor-platform"
 APP_STARTED_MONOTONIC = time.monotonic()
+
+
+class AdlsSmokeUploadRequest(BaseModel):
+    confirm: str = Field(default="")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -170,6 +177,36 @@ def monitoring_health() -> dict[str, str | float | None]:
         "database_ssl_status": database_ssl_status,
         "uptime_seconds": round(time.monotonic() - APP_STARTED_MONOTONIC, 3),
     }
+
+
+@app.post("/api/operations/adls-smoke-upload", tags=["Operations"], response_model=None)
+def adls_smoke_upload(payload: AdlsSmokeUploadRequest) -> object:
+    if payload.confirm != CONFIRMATION_PHRASE:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "confirmation_required",
+                "message": f'Send {{"confirm":"{CONFIRMATION_PHRASE}"}} to upload the tiny ADLS smoke batch.',
+            },
+        )
+    try:
+        return run_adls_smoke_upload(source_system="clinical")
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "source_system": "clinical",
+                "status": "failed",
+                "file_count": 0,
+                "row_count": 0,
+                "uploaded_paths": [],
+                "batch_id": None,
+                "auth_mode": os.getenv("DATA_LAKE_AUTH_MODE", "managed_identity"),
+                "account_name": os.getenv("DATA_LAKE_ACCOUNT_NAME", ""),
+                "container": os.getenv("DATA_LAKE_CONTAINER", "datalake"),
+                "error": str(exc),
+            },
+        )
 
 
 @app.get("/", tags=["System"], response_model=None)
