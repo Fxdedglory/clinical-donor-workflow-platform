@@ -124,6 +124,31 @@ textarea {
   margin: 0;
 }
 
+.access-actions {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.access-policy {
+  background: #f5f8fb;
+  border: 1px solid #dce6ee;
+  border-radius: 8px;
+  color: #43515f;
+  display: grid;
+  gap: 0.25rem;
+  line-height: 1.4;
+  padding: 0.85rem;
+}
+
+.access-policy strong {
+  color: #17212b;
+  font-size: 0.88rem;
+}
+
+.access-policy span {
+  font-size: 0.82rem;
+}
+
 .secondary-button,
 .login-form .secondary-button,
 .stacked-form .secondary-button,

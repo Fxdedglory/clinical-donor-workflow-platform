@@ -39,12 +39,29 @@ function resolveApiBase() {
 const PUBLIC_BASE = resolvePublicBase();
 const API_BASE = resolveApiBase();
 
+const PASSWORD_RESET_NOTICE = "If the email matches an account in our system, a reset link will be sent.";
+const INTERNAL_ADMIN_ASSIGNED_ROLES = [
+  "Operations Manager",
+  "Clinical Reviewer",
+  "QA Specialist",
+  "Vendor Operations Analyst",
+  "Donor Intake Coordinator",
+];
+const MONITOR_LINK_ROLES = ["System Administrator", "Business Technology Analyst", "Operations Manager"];
+const EXTERNAL_REQUEST_TYPES = [
+  { value: "Partner", label: "Partner", assignedRole: "Partner External User" },
+  { value: "Supplier", label: "Supplier", assignedRole: "Supplier External User" },
+];
+const EXTERNAL_ROLE_BY_REQUEST_TYPE = Object.fromEntries(
+  EXTERNAL_REQUEST_TYPES.map((requestType) => [requestType.value, requestType.assignedRole]),
+);
+
 const portfolioLinks = [
   { label: "Home", href: "https://teemails.com", icon: Home },
   { label: "ERP", href: "/ERP", icon: Database },
   { label: "HR", href: "/HR", icon: User },
   { label: "Clinical", href: "/Clinical", icon: HeartPulse },
-  { label: "Monitor", href: "/Monitor", icon: Activity },
+  { label: "Monitor", href: "/Monitor", icon: Activity, requiresMonitorAccess: true },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
 ];
 
@@ -149,6 +166,15 @@ function appPath(route) {
   return `${PUBLIC_BASE}${normalized === "/" ? "" : normalized}` || "/";
 }
 
+function canSeeMonitor(user) {
+  const permissions = new Set(user?.permissions || []);
+  return permissions.has("system.admin") || MONITOR_LINK_ROLES.includes(user?.role_name);
+}
+
+function visiblePortfolioLinks(user) {
+  return portfolioLinks.filter((item) => !item.requiresMonitorAccess || canSeeMonitor(user));
+}
+
 function browserRoute() {
   let path = window.location.pathname || "/";
   if (PUBLIC_BASE && (path === PUBLIC_BASE || path.startsWith(`${PUBLIC_BASE}/`))) {
@@ -226,7 +252,7 @@ function AuthShell({ eyebrow, title, lede, children, navigate }) {
       <section className="login-panel">
         <div>
           <div className="portfolio-nav public-nav" aria-label="Portfolio navigation">
-            {portfolioLinks.map((item) => {
+            {visiblePortfolioLinks(null).map((item) => {
               const Icon = item.icon;
               return (
                 <a key={item.label} href={item.href} className={item.label === "Clinical" ? "active" : ""}>
@@ -243,20 +269,6 @@ function AuthShell({ eyebrow, title, lede, children, navigate }) {
           <p className="eyebrow">{eyebrow}</p>
           <h1>{title}</h1>
           <p className="lede">{lede}</p>
-          <div className="auth-links">
-            <button type="button" onClick={() => navigate("/login")}>
-              <LogIn size={16} />
-              Sign in
-            </button>
-            <button type="button" onClick={() => navigate("/request-access")}>
-              <UserPlus size={16} />
-              Request access
-            </button>
-            <button type="button" onClick={() => navigate("/forgot-password")}>
-              <KeyRound size={16} />
-              Reset password
-            </button>
-          </div>
         </div>
         {children}
       </section>
@@ -274,21 +286,24 @@ function PublicHome({ navigate }) {
     >
       <div className="login-form">
         <h2>Access center</h2>
-        <p className="muted">
-          Choose a sign-in path, request partner access, or recover a native demo account. Analytics remain planned for Power BI through the platform analytics route.
-        </p>
-        <button type="button" onClick={() => navigate("/login")}>
-          <ShieldCheck size={16} />
-          Continue to sign in
-        </button>
-        <button type="button" className="secondary-button" onClick={() => navigate("/request-access")}>
-          <UserPlus size={16} />
-          Request partner or internal access
-        </button>
-        <button type="button" className="secondary-button" onClick={() => navigate("/forgot-password")}>
-          <Mail size={16} />
-          Forgot password
-        </button>
+        <div className="access-actions" aria-label="Clinical access actions">
+          <button type="button" onClick={() => navigate("/login")}>
+            <ShieldCheck size={16} />
+            Sign in
+          </button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/request-access")}>
+            <UserPlus size={16} />
+            Request partner or supplier access
+          </button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/forgot-password")}>
+            <Mail size={16} />
+            Forgot password
+          </button>
+        </div>
+        <div className="access-policy">
+          <strong>Internal access</strong>
+          <span>{INTERNAL_ADMIN_ASSIGNED_ROLES.join(", ")} roles are assigned by administrators.</span>
+        </div>
       </div>
     </AuthShell>
   );
@@ -369,23 +384,21 @@ function LoginPage({ onLogin, navigate }) {
 function ForgotPasswordPage({ navigate }) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
-    setError("");
     setMessage("");
     try {
-      const result = await apiRequest("/api/auth/password-reset/request", {
+      await apiRequest("/api/auth/password-reset/request", {
         method: "POST",
         body: { email },
       });
-      setMessage(result?.status || "If the account exists, a reset link has been sent.");
-    } catch (err) {
-      setError(err.message);
+    } catch {
+      // Account recovery must not reveal whether an account exists or expose backend details.
     } finally {
+      setMessage(PASSWORD_RESET_NOTICE);
       setBusy(false);
     }
   }
@@ -403,7 +416,6 @@ function ForgotPasswordPage({ navigate }) {
           <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" />
         </label>
         {message && <div className="notice-state">{message}</div>}
-        {error && <div className="error-state">{error}</div>}
         <button type="submit" disabled={busy}>
           {busy ? <RefreshCw size={16} /> : <Mail size={16} />}
           Send reset link
@@ -479,8 +491,7 @@ function RequestAccessPage({ navigate }) {
     full_name: "",
     email: "",
     organization_name: "",
-    organization_type: "Partner",
-    requested_role: "Partner External User",
+    request_type: "Partner",
     business_reason: "",
   });
   const [message, setMessage] = useState("");
@@ -497,9 +508,16 @@ function RequestAccessPage({ navigate }) {
     setError("");
     setMessage("");
     try {
+      const requestType = EXTERNAL_REQUEST_TYPES.some((item) => item.value === form.request_type)
+        ? form.request_type
+        : "Partner";
       const result = await apiRequest("/api/auth/access-request", {
         method: "POST",
-        body: form,
+        body: {
+          ...form,
+          organization_type: requestType,
+          requested_role: EXTERNAL_ROLE_BY_REQUEST_TYPE[requestType],
+        },
       });
       setMessage(result?.message || "Access request received.");
     } catch (err) {
@@ -513,7 +531,7 @@ function RequestAccessPage({ navigate }) {
     <AuthShell
       eyebrow="Partner onboarding"
       title="Request access"
-      lede="Submit an internal or external access request for administrator review. This creates an auditable event for the Monitoring Platform and preserves future Entra B2B compatibility."
+      lede="Partner and supplier requests are reviewed before any account, organization, invitation, or role assignment is created."
       navigate={navigate}
     >
       <form onSubmit={submit} className="login-form">
@@ -529,28 +547,21 @@ function RequestAccessPage({ navigate }) {
           Organization
           <input value={form.organization_name} onChange={(event) => update("organization_name", event.target.value)} />
         </label>
-        <div className="form-grid">
-          <label>
-            Organization type
-            <select value={form.organization_type} onChange={(event) => update("organization_type", event.target.value)}>
-              <option>Partner</option>
-              <option>Recovery Organization</option>
-              <option>Supplier</option>
-              <option>Internal</option>
-            </select>
-          </label>
-          <label>
-            Requested role
-            <select value={form.requested_role} onChange={(event) => update("requested_role", event.target.value)}>
-              <option>Partner External User</option>
-              <option>Supplier External User</option>
-              <option>Donor Intake Coordinator</option>
-              <option>Clinical Reviewer</option>
-              <option>Quality Assurance Specialist</option>
-              <option>Vendor Operations Analyst</option>
-              <option>Operations Manager</option>
-            </select>
-          </label>
+        <label>
+          Request type
+          <select value={form.request_type} onChange={(event) => update("request_type", event.target.value)}>
+            {EXTERNAL_REQUEST_TYPES.map((requestType) => (
+              <option key={requestType.value} value={requestType.value}>
+                {requestType.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="access-policy">
+          <strong>Role assignment</strong>
+          <span>
+            {form.request_type} requests are reviewed and assigned the appropriate external access role by an administrator.
+          </span>
         </div>
         <label>
           Business reason
@@ -1104,7 +1115,7 @@ function App() {
           </div>
         </div>
         <div className="portfolio-nav" aria-label="Portfolio navigation">
-          {portfolioLinks.map((item) => {
+          {visiblePortfolioLinks(user).map((item) => {
             const Icon = item.icon;
             return (
               <a key={item.label} href={item.href} className={item.label === "Clinical" ? "active" : ""}>

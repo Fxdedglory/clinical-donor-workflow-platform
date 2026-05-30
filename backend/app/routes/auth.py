@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
@@ -82,8 +83,9 @@ class AccessRequest(BaseModel):
     full_name: str
     email: str
     organization_name: str
-    organization_type: str = "Partner"
-    requested_role: str = "Partner External User"
+    request_type: Literal["Partner", "Supplier"] = "Partner"
+    organization_type: str | None = None
+    requested_role: str | None = None
     business_reason: str
 
 
@@ -688,12 +690,19 @@ def request_password_reset(
             request=request,
         )
     db.commit()
-    response = {"status": "If the account exists, a reset link has been sent."}
+    response = {"status": "If the email matches an account in our system, a reset link will be sent."}
     if demo_token and settings.app_env != "prod":
         response["demo_reset_token"] = demo_token
     return response
 
 
+EXTERNAL_ACCESS_ROLE_BY_REQUEST_TYPE = {
+    "Partner": "Partner External User",
+    "Supplier": "Supplier External User",
+}
+
+
+@router.post("/access-request/")
 @router.post("/access-request")
 def request_access(
     payload: AccessRequest,
@@ -701,17 +710,22 @@ def request_access(
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    request_type = payload.request_type
+    auto_assigned_role = EXTERNAL_ACCESS_ROLE_BY_REQUEST_TYPE[request_type]
     log_security_event(
         db,
         event_type="ACCESS_REQUEST_SUBMITTED",
         user_id=existing.user_id if existing else None,
         request=request,
+        route="/api/auth/access-request",
         details={
             "full_name": payload.full_name,
             "email": payload.email,
             "organization_name": payload.organization_name,
-            "organization_type": payload.organization_type,
-            "requested_role": payload.requested_role,
+            "request_type": request_type,
+            "organization_type": request_type,
+            "auto_assigned_role": auto_assigned_role,
+            "requested_role_ignored": payload.requested_role if payload.requested_role != auto_assigned_role else None,
             "business_reason": payload.business_reason,
             "existing_user": bool(existing),
             "future_identity_provider": "Microsoft Entra ID / Entra B2B",
@@ -720,7 +734,7 @@ def request_access(
     db.commit()
     return {
         "status": "access_request_received",
-        "message": "Your access request has been recorded for administrator review.",
+        "message": f"Your {request_type.lower()} access request has been recorded for administrator review.",
     }
 
 

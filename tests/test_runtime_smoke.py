@@ -1,7 +1,38 @@
+from app.database import get_db
 from app.main import app
 from app.services.data_producer import CONFORMED_SITES, EXPORT_METADATA_FIELDS, _product_context
 from app.services.data_scale_profiles import profile_as_dict, resolve_profile
 from fastapi.testclient import TestClient
+
+
+class _ScalarResult:
+    def scalar_one_or_none(self):
+        return None
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.added = []
+        self.committed = False
+
+    def execute(self, *_args, **_kwargs):
+        return _ScalarResult()
+
+    def add(self, value):
+        self.added.append(value)
+
+    def flush(self) -> None:
+        return None
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+def _override_db(fake_session):
+    def _dependency():
+        yield fake_session
+
+    return _dependency
 
 
 def test_api_health_returns_runtime_metadata() -> None:
@@ -43,6 +74,89 @@ def test_auth_experience_routes_serve_frontend_shell() -> None:
         response = client.get(path, headers={"accept": "text/html"})
         assert response.status_code == 200, path
         assert "text/html" in response.headers.get("content-type", ""), path
+
+
+def test_public_access_request_accepts_partner_supplier_only_and_audits() -> None:
+    fake_session = _FakeSession()
+    app.dependency_overrides[get_db] = _override_db(fake_session)
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/api/auth/access-request",
+            json={
+                "full_name": "ADLS Smoke Partner",
+                "email": "adls.smoke.partner@example.com",
+                "organization_name": "Example Recovery Partner",
+                "request_type": "Supplier",
+                "requested_role": "Operations Manager",
+                "business_reason": "Partner portal qualification review",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "access_request_received"
+    assert "supplier access request" in payload["message"]
+    assert fake_session.committed is True
+    event = fake_session.added[-1]
+    assert event.event_type == "ACCESS_REQUEST_SUBMITTED"
+    assert event.route == "/api/auth/access-request"
+    assert event.details["request_type"] == "Supplier"
+    assert event.details["auto_assigned_role"] == "Supplier External User"
+    assert event.details["requested_role_ignored"] == "Operations Manager"
+
+
+def test_prefixed_access_request_api_accepts_post() -> None:
+    fake_session = _FakeSession()
+    app.dependency_overrides[get_db] = _override_db(fake_session)
+    try:
+        response = TestClient(app).post(
+            "/Clinical/api/auth/access-request",
+            json={
+                "full_name": "Prefixed Partner",
+                "email": "prefixed.partner@example.com",
+                "organization_name": "Prefixed Partner Org",
+                "request_type": "Partner",
+                "business_reason": "Direct prefixed route smoke",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "access_request_received"
+
+
+def test_public_access_request_rejects_internal_request_type() -> None:
+    response = TestClient(app).post(
+        "/api/auth/access-request",
+        json={
+            "full_name": "Internal Request",
+            "email": "internal.request@example.com",
+            "organization_name": "Internal",
+            "request_type": "Clinical Reviewer",
+            "business_reason": "Should be admin assigned",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_forgot_password_response_is_enumeration_safe() -> None:
+    fake_session = _FakeSession()
+    app.dependency_overrides[get_db] = _override_db(fake_session)
+    try:
+        response = TestClient(app).post(
+            "/api/auth/password-reset/request",
+            json={"email": "not-a-real-clinical-user@example.com"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "If the email matches an account in our system, a reset link will be sent."
 
 
 def test_standard_monitoring_endpoints_return_required_fields() -> None:

@@ -28,6 +28,13 @@ New API route:
 
 The access request endpoint records an auditable `ACCESS_REQUEST_SUBMITTED` event. It does not automatically create a user, organization, invitation, or role assignment.
 
+The public form accepts only a `request_type` of `Partner` or `Supplier`. The backend maps the request type to the appropriate external role for audit context:
+
+- `Partner` -> `Partner External User`
+- `Supplier` -> `Supplier External User`
+
+Client-supplied internal role names are ignored. Internal Clinical roles remain administrator-assigned only.
+
 ## Recommended Review Workflow
 
 1. Partner user submits request.

@@ -37,6 +37,19 @@ The React app now has route-aware native auth screens:
 
 The frontend infers `/Clinical` as its API base when served through Cloudflare path routing.
 
+The public Access Center exposes only external request types:
+
+- Partner
+- Supplier
+
+Internal roles are administrator-assigned only and are not available on the public request form:
+
+- Operations Manager
+- Clinical Reviewer
+- QA Specialist
+- Vendor Operations Analyst
+- Donor Intake Coordinator
+
 ## Native Auth Flow
 
 1. User opens `/Clinical/login`.
@@ -88,7 +101,7 @@ Future Entra work should preserve these route contracts:
 - `/Clinical/login` can become the native/SSO choice page.
 - `/Clinical/auth/callback` should be added when Entra is implemented.
 - `/Clinical/logout` should revoke local app session and initiate Entra logout when applicable.
-- `/Clinical/request-access` can route internal users to Entra group assignment and external users to Entra B2B/External ID onboarding.
+- `/Clinical/request-access` should remain partner/supplier only. Internal users should be handled through admin assignment and, later, Entra group assignment.
 
 ## Open Items
 
