@@ -3,7 +3,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,8 +13,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.auth.dependencies import require_permission
 from app.core.config import settings
 from app.database import engine
+from app.models import User
 from app.routes import (
     admin,
     ai_governance,
@@ -39,6 +41,10 @@ from app.routes import (
     workflow_tasks,
     workspaces,
 )
+from app.services.adls_historical import (
+    HISTORICAL_CONFIRMATION_PHRASE,
+    run_clinical_historical_adls_upload,
+)
 from app.services.adls_smoke import CONFIRMATION_PHRASE, run_adls_smoke_upload
 
 APP_NAME = "clinical-donor-platform"
@@ -47,6 +53,11 @@ APP_STARTED_MONOTONIC = time.monotonic()
 
 class AdlsSmokeUploadRequest(BaseModel):
     confirm: str = Field(default="")
+
+
+class HistoricalAdlsUploadRequest(BaseModel):
+    confirm: str = Field(default="")
+    batch_id: str | None = Field(default=None)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -201,6 +212,39 @@ def adls_smoke_upload(payload: AdlsSmokeUploadRequest) -> object:
                 "row_count": 0,
                 "uploaded_paths": [],
                 "batch_id": None,
+                "auth_mode": os.getenv("DATA_LAKE_AUTH_MODE", "managed_identity"),
+                "account_name": os.getenv("DATA_LAKE_ACCOUNT_NAME", ""),
+                "container": os.getenv("DATA_LAKE_CONTAINER", "datalake"),
+                "error": str(exc),
+            },
+        )
+
+
+@app.post("/api/operations/clinical-historical-adls-upload", tags=["Operations"], response_model=None)
+def clinical_historical_adls_upload(
+    payload: HistoricalAdlsUploadRequest,
+    _: User = Depends(require_permission("system.admin")),
+) -> object:
+    if payload.confirm != HISTORICAL_CONFIRMATION_PHRASE:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "confirmation_required",
+                "message": f'Send {{"confirm":"{HISTORICAL_CONFIRMATION_PHRASE}"}} to upload the Clinical historical ADLS batch.',
+            },
+        )
+    try:
+        return run_clinical_historical_adls_upload(batch_id=payload.batch_id)
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "source_system": "clinical",
+                "status": "failed",
+                "batch_id": payload.batch_id,
+                "file_count": 0,
+                "row_count": 0,
+                "uploaded_paths": [],
                 "auth_mode": os.getenv("DATA_LAKE_AUTH_MODE", "managed_identity"),
                 "account_name": os.getenv("DATA_LAKE_ACCOUNT_NAME", ""),
                 "container": os.getenv("DATA_LAKE_CONTAINER", "datalake"),

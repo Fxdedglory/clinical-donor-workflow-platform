@@ -4,6 +4,7 @@ import pytest
 from app import main as clinical_main
 from app.database import get_db
 from app.main import app
+from app.services.adls_historical import run_clinical_historical_adls_upload
 from app.services.adls_smoke import (
     CONFIRMATION_PHRASE,
     create_tiny_adls_smoke_batch,
@@ -336,3 +337,59 @@ def test_adls_smoke_runner_accepts_fake_uploader(monkeypatch: pytest.MonkeyPatch
     assert result["status"] == "uploaded"
     assert result["file_count"] == 3
     assert result["row_count"] == 1
+
+
+def test_clinical_historical_adls_upload_uses_managed_identity(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATA_LAKE_ACCOUNT_NAME", "stteemailslakewcus")
+    monkeypatch.setenv("DATA_LAKE_CONTAINER", "datalake")
+    monkeypatch.setenv("DATA_LAKE_AUTH_MODE", "managed_identity")
+
+    def fake_export(**kwargs):
+        return {
+            "manifest_path": str(tmp_path / "manifest.json"),
+            "row_count": 2,
+            "files": [
+                {"source_table": "dim_donor", "row_count": 1, "extraction_date": "2026-05-30"},
+                {"source_table": "fact_donor_screening", "row_count": 1, "extraction_date": "2026-05-30"},
+            ],
+        }
+
+    def fake_upload(**kwargs):
+        assert kwargs["auth_mode"] == "managed_identity"
+        assert kwargs["account_name"] == "stteemailslakewcus"
+        assert kwargs["container"] == "datalake"
+        return {
+            "file_count": 3,
+            "files": [
+                {
+                    "blob_name": "bronze/source_system=clinical/source_table=dim_donor/"
+                    "extraction_date=2026-05-30/extraction_batch_id=clinical_small_test/part-00000.parquet",
+                    "status": "uploaded",
+                },
+                {
+                    "blob_name": "bronze/source_system=clinical/source_table=fact_donor_screening/"
+                    "extraction_date=2026-05-30/extraction_batch_id=clinical_small_test/part-00000.parquet",
+                    "status": "uploaded",
+                },
+                {
+                    "blob_name": "manifests/source_system=clinical/extraction_date=2026-05-30/clinical_small_test.json",
+                    "status": "uploaded",
+                },
+            ],
+        }
+
+    result = run_clinical_historical_adls_upload(
+        batch_id="clinical_small_test",
+        lake_root=tmp_path,
+        export_fn=fake_export,
+        upload_fn=fake_upload,
+    )
+
+    assert result["status"] == "uploaded"
+    assert result["auth_mode"] == "managed_identity"
+    assert result["source_system"] == "clinical"
+    assert result["batch_id"] == "clinical_small_test"
+    assert result["row_count"] == 2
+    assert result["file_count"] == 3
+    assert result["source_table_count"] == 2
+    assert any("source_table=dim_donor" in path for path in result["uploaded_paths"])
