@@ -55,6 +55,11 @@ const EXTERNAL_REQUEST_TYPES = [
 const EXTERNAL_ROLE_BY_REQUEST_TYPE = Object.fromEntries(
   EXTERNAL_REQUEST_TYPES.map((requestType) => [requestType.value, requestType.assignedRole]),
 );
+const DEMO_LOGIN_PROFILES = [
+  { label: "Demo User", username: "clinical", role: "Clinical Reviewer", icon: Play },
+  { label: "Demo QA", username: "qa", role: "Quality Assurance Specialist", icon: ShieldCheck },
+  { label: "Demo Operations", username: "opsmanager", role: "Operations Manager", icon: User },
+];
 
 const portfolioLinks = [
   { label: "Home", href: "https://teemails.com", icon: Home },
@@ -336,12 +341,12 @@ function LoginPage({ onLogin, navigate }) {
     }
   }
 
-  function prepareDemoLogin() {
-    setUsername("clinical");
+  function prepareDemoLogin(profile) {
+    setUsername(profile.username);
     setPassword("");
     setMfaToken("");
     setMfaCode("");
-    setError("Demo username loaded. Use the approved demo password to sign in.");
+    setError(`${profile.label} username loaded for ${profile.role}. Use the approved demo password to sign in.`);
   }
 
   return (
@@ -385,10 +390,20 @@ function LoginPage({ onLogin, navigate }) {
           </button>
         )}
         <div className="access-actions login-shortcuts" aria-label="Clinical login access links">
-          <button type="button" className="secondary-button" onClick={prepareDemoLogin}>
-            <Play size={16} />
-            Demo login
-          </button>
+          {DEMO_LOGIN_PROFILES.map((profile) => {
+            const Icon = profile.icon;
+            return (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => prepareDemoLogin(profile)}
+                key={profile.label}
+              >
+                <Icon size={16} />
+                {profile.label}
+              </button>
+            );
+          })}
           <button type="button" className="secondary-button" onClick={() => navigate("/request-access")}>
             <UserPlus size={16} />
             Request access
