@@ -60,6 +60,7 @@ const DEMO_LOGIN_PROFILES = [
   { label: "Demo QA", username: "qa", role: "Quality Assurance Specialist", icon: ShieldCheck },
   { label: "Demo Operations", username: "opsmanager", role: "Operations Manager", icon: User },
 ];
+const DEMO_LOGIN_PASSWORD = "ClinicalDemo!2026";
 
 const portfolioLinks = [
   { label: "Home", href: "https://teemails.com", icon: Home },
@@ -343,10 +344,10 @@ function LoginPage({ onLogin, navigate }) {
 
   function prepareDemoLogin(profile) {
     setUsername(profile.username);
-    setPassword("");
+    setPassword(DEMO_LOGIN_PASSWORD);
     setMfaToken("");
     setMfaCode("");
-    setError(`${profile.label} username loaded for ${profile.role}. Use the approved demo password to sign in.`);
+    setError(`${profile.label} credentials loaded for ${profile.role}. Sign in to continue.`);
   }
 
   return (
