@@ -129,6 +129,11 @@ textarea {
   gap: 0.7rem;
 }
 
+.login-shortcuts {
+  border-top: 1px solid #dce6ee;
+  padding-top: 1rem;
+}
+
 .access-policy {
   background: #f5f8fb;
   border: 1px solid #dce6ee;

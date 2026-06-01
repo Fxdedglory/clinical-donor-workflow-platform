@@ -336,6 +336,14 @@ function LoginPage({ onLogin, navigate }) {
     }
   }
 
+  function prepareDemoLogin() {
+    setUsername("clinical");
+    setPassword("");
+    setMfaToken("");
+    setMfaCode("");
+    setError("Demo username loaded. Use the approved demo password to sign in.");
+  }
+
   return (
     <AuthShell
       eyebrow="Clinical authentication"
@@ -376,6 +384,20 @@ function LoginPage({ onLogin, navigate }) {
             Use different account
           </button>
         )}
+        <div className="access-actions login-shortcuts" aria-label="Clinical login access links">
+          <button type="button" className="secondary-button" onClick={prepareDemoLogin}>
+            <Play size={16} />
+            Demo login
+          </button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/request-access")}>
+            <UserPlus size={16} />
+            Request access
+          </button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/forgot-password")}>
+            <Mail size={16} />
+            Forgot password
+          </button>
+        </div>
       </form>
     </AuthShell>
   );
