@@ -1,5 +1,7 @@
+import logging
 import os
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -49,6 +51,7 @@ from app.services.adls_smoke import CONFIRMATION_PHRASE, run_adls_smoke_upload
 
 APP_NAME = "clinical-donor-platform"
 APP_STARTED_MONOTONIC = time.monotonic()
+PERFORMANCE_LOGGER = logging.getLogger("clinical.performance")
 
 
 class AdlsSmokeUploadRequest(BaseModel):
@@ -91,6 +94,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+@app.middleware("http")
+async def add_timing_headers(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        PERFORMANCE_LOGGER.exception(
+            "request_timing_failed method=%s path=%s duration_ms=%.2f request_id=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            request_id,
+        )
+        raise
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Response-Time-Ms"] = f"{duration_ms:.2f}"
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.2f}"
+    PERFORMANCE_LOGGER.info(
+        "request_timing method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    return response
+
 
 app.include_router(donors.router)
 app.include_router(reviews.router)

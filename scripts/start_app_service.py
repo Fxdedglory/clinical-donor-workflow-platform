@@ -5,12 +5,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
+PACKAGED_SITE_PACKAGES = ROOT / "python_packages" / "lib" / "site-packages"
 
 
 def _base_env() -> dict[str, str]:
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
     paths = [str(BACKEND)]
+    if PACKAGED_SITE_PACKAGES.exists():
+        paths.insert(0, str(PACKAGED_SITE_PACKAGES))
     if existing_pythonpath:
         paths.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(paths)
@@ -19,6 +22,8 @@ def _base_env() -> dict[str, str]:
 
 def check() -> None:
     sys.path.insert(0, str(BACKEND))
+    if PACKAGED_SITE_PACKAGES.exists():
+        sys.path.insert(0, str(PACKAGED_SITE_PACKAGES))
     from app.core.config import settings
 
     print("Clinical Donor App Service startup check")
@@ -31,12 +36,14 @@ def check() -> None:
 
 
 def run() -> int:
-    import uvicorn
-
     env = _base_env()
     os.environ.update(env)
+    for path in reversed(env["PYTHONPATH"].split(os.pathsep)):
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
+    import uvicorn
+
     port = int(env.get("PORT", "8000"))
-    sys.path.insert(0, str(BACKEND))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port)
     return 0
 

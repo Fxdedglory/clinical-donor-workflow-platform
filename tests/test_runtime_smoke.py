@@ -15,6 +15,14 @@ from app.services.data_scale_profiles import profile_as_dict, resolve_profile
 from fastapi.testclient import TestClient
 
 
+def test_app_service_startup_uses_packaged_dependencies_without_runtime_install() -> None:
+    startup_script = Path("scripts/start_app_service.py").read_text(encoding="utf-8")
+
+    assert "python_packages" in startup_script
+    assert "pip install" not in startup_script
+    assert "--check" in startup_script
+
+
 class _ScalarResult:
     def scalar_one_or_none(self):
         return None
@@ -53,6 +61,15 @@ def test_api_health_returns_runtime_metadata() -> None:
     assert payload["status"] == "ok"
     assert payload["startup_mode"] == "fastapi_react"
     assert payload["version"]
+
+
+def test_api_health_includes_timing_headers() -> None:
+    response = TestClient(app).get("/api/health")
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"]
+    assert float(response.headers["x-response-time-ms"]) >= 0
+    assert response.headers["server-timing"].startswith("app;dur=")
 
 
 def test_auth_experience_routes_serve_frontend_shell() -> None:
