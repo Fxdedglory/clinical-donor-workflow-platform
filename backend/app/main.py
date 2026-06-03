@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 import time
 import uuid
 from datetime import UTC, datetime
@@ -18,7 +17,7 @@ from starlette.responses import Response
 
 from app.auth.dependencies import require_permission
 from app.core.config import settings
-from app.database import SessionLocal, engine
+from app.database import engine
 from app.models import User
 from app.routes import (
     admin,
@@ -49,13 +48,10 @@ from app.services.adls_historical import (
     run_clinical_historical_adls_upload,
 )
 from app.services.adls_smoke import CONFIRMATION_PHRASE, run_adls_smoke_upload
-from app.services.data_producer import export_database_batch, run_incremental_generation, validate_database
-from app.services.monitor_publisher import MonitorPublisher
 
 APP_NAME = "clinical-donor-platform"
 APP_STARTED_MONOTONIC = time.monotonic()
 PERFORMANCE_LOGGER = logging.getLogger("clinical.performance")
-SCHEDULED_GENERATION_TASK: asyncio.Task | None = None
 
 
 class AdlsSmokeUploadRequest(BaseModel):
@@ -98,53 +94,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    global SCHEDULED_GENERATION_TASK
-    if settings.scheduled_generation_enabled and SCHEDULED_GENERATION_TASK is None:
-        SCHEDULED_GENERATION_TASK = asyncio.create_task(_scheduled_generation_loop())
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    if SCHEDULED_GENERATION_TASK is not None:
-        SCHEDULED_GENERATION_TASK.cancel()
-        try:
-            await SCHEDULED_GENERATION_TASK
-        except asyncio.CancelledError:
-            pass
-
-
-async def _scheduled_generation_loop() -> None:
-    interval = max(settings.scheduled_generation_interval_seconds, 300)
-    if settings.scheduled_generation_run_on_startup:
-        await asyncio.to_thread(_run_scheduled_generation_cycle)
-    while True:
-        await asyncio.sleep(interval)
-        await asyncio.to_thread(_run_scheduled_generation_cycle)
-
-
-def _run_scheduled_generation_cycle() -> None:
-    publisher = MonitorPublisher()
-    run: dict[str, object] = {
-        "run_id": f"clinical-scheduled-{uuid.uuid4().hex[:12]}",
-        "run_type": "scheduled_incremental",
-        "started_at": datetime.now(UTC).isoformat(),
-    }
-    manifest: dict | None = None
-    try:
-        with SessionLocal() as db:
-            run = run_incremental_generation(db, seed=42, scale=1)
-            validation = validate_database(db)
-            manifest = export_database_batch(db)
-        run["validation_status"] = validation.get("status") or validation.get("validation_status")
-        run["finished_at"] = datetime.now(UTC).isoformat()
-        publisher.publish_cycle(run=run, manifest=manifest, status="completed")
-    except Exception as exc:
-        publisher.publish_cycle(run=run, manifest=manifest, status="failed", error=str(exc))
-        PERFORMANCE_LOGGER.exception("scheduled_generation_failed source=clinical")
 
 
 @app.middleware("http")
