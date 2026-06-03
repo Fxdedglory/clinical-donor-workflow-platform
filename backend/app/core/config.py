@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     data_producer_max_cycles: int = Field(default=1000, alias="DATA_PRODUCER_MAX_CYCLES")
     data_producer_allow_infinite: bool = Field(default=False, alias="DATA_PRODUCER_ALLOW_INFINITE")
     enable_data_producer_api: bool = Field(default=True, alias="ENABLE_DATA_PRODUCER_API")
+    scheduled_generation_enabled: bool = Field(default=False, alias="DATA_PRODUCER_SCHEDULED_GENERATION_ENABLED")
+    scheduled_generation_interval_seconds: int = Field(default=3600, alias="DATA_PRODUCER_SCHEDULED_GENERATION_INTERVAL_SECONDS")
+    scheduled_generation_run_on_startup: bool = Field(default=False, alias="DATA_PRODUCER_SCHEDULED_GENERATION_RUN_ON_STARTUP")
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
