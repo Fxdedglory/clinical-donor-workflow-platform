@@ -61,6 +61,8 @@ const DEMO_LOGIN_PROFILES = [
   { label: "Demo Operations", username: "opsmanager", role: "Operations Manager", icon: User },
 ];
 const DEMO_LOGIN_PASSWORD = "ClinicalDemo!2026";
+const DEMO_LOGIN_MFA_CODE = "000000";
+const DEMO_LOGIN_USERNAMES = new Set(DEMO_LOGIN_PROFILES.map((profile) => profile.username));
 
 const portfolioLinks = [
   { label: "Home", href: "https://teemails.com", icon: Home },
@@ -320,6 +322,7 @@ function LoginPage({ onLogin, navigate }) {
   const [password, setPassword] = useState("");
   const [mfaToken, setMfaToken] = useState("");
   const [mfaCode, setMfaCode] = useState("");
+  const [demoUsername, setDemoUsername] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -330,7 +333,13 @@ function LoginPage({ onLogin, navigate }) {
     try {
       const payload = mfaToken ? await verifyMfa(mfaToken, mfaCode) : await login(username, password);
       if (payload.mfa_required) {
+        if (demoUsername && DEMO_LOGIN_USERNAMES.has(username)) {
+          const demoPayload = await verifyMfa(payload.mfa_token, DEMO_LOGIN_MFA_CODE);
+          onLogin(demoPayload);
+          return;
+        }
         setMfaToken(payload.mfa_token);
+        setMfaCode(demoUsername ? DEMO_LOGIN_MFA_CODE : "");
         setError("MFA verification is required. Enter the approved verification code to continue.");
         return;
       }
@@ -346,8 +355,9 @@ function LoginPage({ onLogin, navigate }) {
     setUsername(profile.username);
     setPassword(DEMO_LOGIN_PASSWORD);
     setMfaToken("");
-    setMfaCode("");
-    setError(`${profile.label} credentials loaded for ${profile.role}. Sign in to continue.`);
+    setMfaCode(DEMO_LOGIN_MFA_CODE);
+    setDemoUsername(profile.username);
+    setError(`${profile.label} credentials loaded for ${profile.role}. Demo MFA will be completed automatically if required.`);
   }
 
   return (
@@ -360,7 +370,14 @@ function LoginPage({ onLogin, navigate }) {
       <form onSubmit={submit} className="login-form">
         <label>
           Username or email
-          <input value={username} onChange={(event) => setUsername(event.target.value)} disabled={Boolean(mfaToken)} />
+          <input
+            value={username}
+            onChange={(event) => {
+              setUsername(event.target.value);
+              setDemoUsername("");
+            }}
+            disabled={Boolean(mfaToken)}
+          />
         </label>
         {!mfaToken && (
           <label>
@@ -379,13 +396,26 @@ function LoginPage({ onLogin, navigate }) {
             <input value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} autoComplete="one-time-code" />
           </label>
         )}
+        {demoUsername && (
+          <div className="access-policy">
+            <strong>Demo MFA</strong>
+            <span>Demo accounts use approved code {DEMO_LOGIN_MFA_CODE}; non-demo accounts keep normal MFA behavior.</span>
+          </div>
+        )}
         {error && <div className="error-state">{error}</div>}
         <button type="submit" disabled={busy}>
           {busy ? <RefreshCw size={16} /> : <ShieldCheck size={16} />}
           {mfaToken ? "Verify MFA" : "Sign in"}
         </button>
         {mfaToken && (
-          <button type="button" className="secondary-button" onClick={() => setMfaToken("")}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setMfaToken("");
+              setDemoUsername("");
+            }}
+          >
             <ArrowLeft size={16} />
             Use different account
           </button>
