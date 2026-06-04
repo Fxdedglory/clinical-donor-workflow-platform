@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,6 +27,12 @@ def _safe_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
+def _short_error(error: str | None) -> str | None:
+    if not error:
+        return None
+    return str(error)[:500]
+
+
 class MonitorPublisher:
     def __init__(self) -> None:
         self.base_url = os.getenv("MONITOR_BASE_URL", "https://teemails.com/Monitor").rstrip("/")
@@ -40,13 +47,23 @@ class MonitorPublisher:
     def post(self, path: str, payload: dict[str, Any]) -> None:
         if not self.configured:
             return
-        response = requests.post(
-            f"{self.base_url}{path}",
-            json=payload,
-            headers={"Authorization": f"Bearer {self.token}"},
-            timeout=self.timeout_seconds,
-        )
-        response.raise_for_status()
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = requests.post(
+                    f"{self.base_url}{path}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"},
+                    timeout=self.timeout_seconds,
+                )
+                response.raise_for_status()
+                return
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt < 3:
+                    time.sleep(attempt * 2)
+        if last_error:
+            raise last_error
 
     def publish_cycle(self, *, run: dict[str, Any], manifest: dict[str, Any] | None, status: str, error: str | None = None) -> None:
         started_at = str(run.get("started_at") or _now())
@@ -78,7 +95,7 @@ class MonitorPublisher:
                 "rows_processed": rows,
                 "files_processed": files,
                 "error_count": 1 if error else 0,
-                "error_message": error,
+                "error_message": _short_error(error),
                 "metadata_json": metadata,
             },
         )
@@ -91,7 +108,7 @@ class MonitorPublisher:
                 "status": "healthy" if not error else "failed",
                 "severity": "info" if not error else "error",
                 "message": "Clinical scheduled PostgreSQL refresh/export completed." if not error else "Clinical scheduled PostgreSQL refresh/export failed.",
-                "related_resource_id": "azure://app-service/app-teemails-clinical-dev",
+                "related_resource_id": "azure://subscription/27369a6a-a680-44e3-b04f-244b3e920d6c/resourceGroups/rg-teemails-portfolio-dev-wcus/providers/Microsoft.App/jobs/job-teemails-clinical-gen-dev",
                 "related_job_run_id": job_run_id,
                 "event_time": ended_at,
                 "metadata_json": metadata,
@@ -101,9 +118,9 @@ class MonitorPublisher:
             "/api/infrastructure/active-edges",
             {
                 "active_edge_id": f"{job_run_id}-edge",
-                "edge_id": "clinical.postgresql.publishes_to.monitor",
-                "source_node_id": "clinical",
-                "target_node_id": "monitor",
+                "edge_id": "job-teemails-clinical-gen-dev|publishes_to|app-teemails-monitor-dev",
+                "source_node_id": "azure://subscription/27369a6a-a680-44e3-b04f-244b3e920d6c/resourceGroups/rg-teemails-portfolio-dev-wcus/providers/Microsoft.App/jobs/job-teemails-clinical-gen-dev",
+                "target_node_id": "azure://subscription/27369a6a-a680-44e3-b04f-244b3e920d6c/resourceGroups/rg-teemails-portfolio-dev-wcus/providers/Microsoft.Web/sites/app-teemails-monitor-dev",
                 "job_run_id": job_run_id,
                 "state": "completed" if not error else "failed",
                 "started_at": started_at,

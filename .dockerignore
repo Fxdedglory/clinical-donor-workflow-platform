@@ -4,5 +4,17 @@ __pycache__/
 .git/
 .pytest_cache/
 .ruff_cache/
+.env
+.env.*
+!.env.example
+data/
+logs/
+build/
+test-results/
+tree/
+*.pem
+*.pfx
+*.key
+*rsa*
 docs/screenshots/rendered-dashboard*.png
 

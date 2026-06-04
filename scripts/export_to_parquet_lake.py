@@ -28,6 +28,20 @@ REQUIRED_METADATA_COLUMNS = [
     "operation_type",
 ]
 
+SENSITIVE_COLUMN_MARKERS = [
+    "password",
+    "token",
+    "secret",
+    "hash",
+    "mfa",
+    "session",
+]
+
+
+def _is_sensitive_column(column_name: str) -> bool:
+    lowered = column_name.lower()
+    return any(marker in lowered for marker in SENSITIVE_COLUMN_MARKERS)
+
 
 def _pyarrow() -> tuple[Any, Any]:
     try:
@@ -80,7 +94,7 @@ def _normalize_rows(
 ) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
     for idx, row in enumerate(rows, start=1):
-        item = {key: "" if value is None else str(value) for key, value in row.items()}
+        item = {key: "" if value is None else str(value) for key, value in row.items() if not _is_sensitive_column(key)}
         original_source = item.get("source_system", "")
         if original_source and original_source != source_system:
             item.setdefault("source_subsystem", original_source)
@@ -113,7 +127,7 @@ def _db_rows(selected_tables: set[str] | None, limit_per_table: int | None) -> l
         for table_name, model in EXPORT_MODELS:
             if selected_tables and table_name not in selected_tables:
                 continue
-            columns = [column.name for column in model.__table__.columns]
+            columns = [column.name for column in model.__table__.columns if not _is_sensitive_column(column.name)]
             statement = select(model)
             if limit_per_table:
                 statement = statement.limit(limit_per_table)
@@ -135,7 +149,9 @@ def _fixture_rows(fixture_root: Path, selected_tables: set[str] | None) -> list[
         if selected_tables and table_name not in selected_tables:
             continue
         rows, headers = _read_fixture_csv(path)
-        tables.append((table_name, rows, headers))
+        safe_headers = [header for header in headers if not _is_sensitive_column(header)]
+        safe_rows = [{key: value for key, value in row.items() if not _is_sensitive_column(key)} for row in rows]
+        tables.append((table_name, safe_rows, safe_headers))
     return tables
 
 
