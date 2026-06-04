@@ -195,7 +195,7 @@ async function apiRequest(path, { token, method = "GET", body } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body) headers["Content-Type"] = "application/json";
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(apiUrl(path), {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -213,13 +213,27 @@ async function login(username, password) {
   const form = new URLSearchParams();
   form.set("username", username);
   form.set("password", password);
-  const response = await fetch(`${API_BASE}/api/auth/login`, {
+  const response = await fetch(apiUrl("/api/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form,
   });
   if (!response.ok) throw new Error("Login failed");
   return response.json();
+}
+
+function apiUrl(path) {
+  const cleanPath = `/${String(path || "").replace(/^\/+/, "")}`;
+  if (/^https?:\/\//i.test(API_BASE)) {
+    return `${API_BASE}${cleanPath}`;
+  }
+  const normalizedBase = (API_BASE || PUBLIC_BASE).replace(/\/+$/, "");
+  if (!normalizedBase) return cleanPath;
+  if (cleanPath === normalizedBase || cleanPath.startsWith(`${normalizedBase}/api/`)) {
+    return cleanPath;
+  }
+  const withoutDuplicateBase = cleanPath.replace(new RegExp(`^${normalizedBase}/+`, "i"), "/");
+  return `${normalizedBase}${withoutDuplicateBase}`;
 }
 
 async function verifyMfa(mfaToken, code) {
@@ -231,6 +245,38 @@ async function verifyMfa(mfaToken, code) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat().format(Number(value || 0));
+}
+
+function sumCounts(rows, field = "count") {
+  return (rows || []).reduce((total, row) => total + Number(row?.[field] || 0), 0);
+}
+
+function normalizeDashboardStatus(dashboard, enterprise) {
+  const donorTotal = sumCounts(dashboard?.status_distribution);
+  const riskTotal = sumCounts(dashboard?.risk_distribution);
+  const vendorIncidentTotal = sumCounts(dashboard?.vendor_health, "incident_count");
+  return {
+    row_counts: {
+      dim_donor: donorTotal,
+      fact_donor_screening: riskTotal || donorTotal,
+      fact_eligibility_decision: donorTotal,
+      fact_workflow_task: enterprise?.kpis?.open_tasks ?? 0,
+      dim_partner_submission: sumCounts(dashboard?.partner_activity),
+      dim_secure_document: enterprise?.kpis?.audit_events ?? 0,
+      fact_deviation: dashboard?.kpis?.open_investigations ?? 0,
+      fact_vendor_incident: enterprise?.kpis?.open_vendor_incidents ?? vendorIncidentTotal,
+      fact_risk_factor: riskTotal,
+      fact_lab_result: sumCounts(dashboard?.daily_review_trend),
+      fact_audit_log: enterprise?.kpis?.audit_events ?? 0,
+      fact_capa: enterprise?.kpis?.open_change_controls ?? 0,
+      fact_change_control: enterprise?.kpis?.open_change_controls ?? 0,
+      fact_notification: enterprise?.kpis?.unread_notifications ?? 0,
+      fact_escalation: enterprise?.kpis?.escalated_tasks ?? 0,
+      dim_vendor: dashboard?.vendor_health?.length ?? 0,
+    },
+    dashboard,
+    enterprise_dashboard: enterprise,
+  };
 }
 
 function MetricCard({ label, value, tone = "neutral" }) {
@@ -1125,11 +1171,21 @@ function App() {
     if (!token) return;
     setError("");
     try {
-      const [generationStatus, runs] = await Promise.all([
-        apiRequest("/api/generation/status", { token }),
-        apiRequest("/api/generation/runs?limit=25", { token }),
+      const [dashboard, enterprise] = await Promise.all([
+        apiRequest("/api/dashboard", { token }),
+        apiRequest("/api/enterprise-dashboard", { token }),
       ]);
-      setStatus({ ...generationStatus, recent_runs: runs });
+      const nextStatus = normalizeDashboardStatus(dashboard, enterprise);
+      const permissions = new Set(user?.permissions || []);
+      if (permissions.has("system.admin")) {
+        const [generationStatus, runs] = await Promise.all([
+          apiRequest("/api/generation/status", { token }),
+          apiRequest("/api/generation/runs?limit=25", { token }),
+        ]);
+        setStatus({ ...nextStatus, ...generationStatus, recent_runs: runs });
+        return;
+      }
+      setStatus(nextStatus);
     } catch (err) {
       setError(err.message);
     }
