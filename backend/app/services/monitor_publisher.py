@@ -61,7 +61,7 @@ class MonitorPublisher:
                 "run_type": run.get("run_type"),
                 "validation_status": run.get("validation_status"),
                 "export_batch_id": (manifest or {}).get("extraction_batch_id") or (manifest or {}).get("batch_id"),
-                "scheduler": "clinical_app_service_background",
+                "scheduler": "azure_container_apps_job",
             }
         )
         self.post(
