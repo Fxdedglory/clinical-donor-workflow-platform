@@ -858,6 +858,7 @@ class Patient(Base):
         back_populates="patient", cascade="all, delete-orphan"
     )
     consents: Mapped[list["PatientConsent"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="patient")
 
 
 class PatientContact(Base):
@@ -963,6 +964,212 @@ class PatientConsent(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     patient: Mapped[Patient] = relationship(back_populates="consents")
+
+
+class ClinicalProvider(Base):
+    __tablename__ = "clinical_providers"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    provider_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(80), nullable=False, default="Clinician")
+    specialty: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="provider")
+
+
+class ClinicalRoom(Base):
+    __tablename__ = "clinical_rooms"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    room_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    room_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    room_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    location: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="room")
+
+
+class ClinicalEquipment(Base):
+    __tablename__ = "clinical_equipment"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    equipment_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    equipment_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    equipment_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    equipment_type: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    appointment_resources: Mapped[list["AppointmentResource"]] = relationship(back_populates="equipment")
+
+
+class AppointmentType(Base):
+    __tablename__ = "appointment_types"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    appointment_type_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    type_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    default_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    requires_room: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="appointment_type")
+
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    appointment_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    appointment_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    provider_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_providers.provider_id"), nullable=False, index=True
+    )
+    room_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_rooms.room_id"), nullable=True, index=True
+    )
+    appointment_type_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.appointment_types.appointment_type_id"), nullable=False, index=True
+    )
+    scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="scheduled", index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    no_show_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    check_in_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_scheduling")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient] = relationship(back_populates="appointments")
+    provider: Mapped[ClinicalProvider] = relationship(back_populates="appointments")
+    room: Mapped[ClinicalRoom | None] = relationship(back_populates="appointments")
+    appointment_type: Mapped[AppointmentType] = relationship(back_populates="appointments")
+    resources: Mapped[list["AppointmentResource"]] = relationship(
+        back_populates="appointment", cascade="all, delete-orphan"
+    )
+    status_history: Mapped[list["AppointmentStatusHistory"]] = relationship(
+        back_populates="appointment", cascade="all, delete-orphan"
+    )
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        parts = [self.patient.first_name, self.patient.middle_name, self.patient.last_name]
+        return " ".join(part for part in parts if part)
+
+    @property
+    def provider_name(self) -> str:
+        return self.provider.full_name if self.provider else ""
+
+    @property
+    def room_name(self) -> str | None:
+        return self.room.room_name if self.room else None
+
+    @property
+    def appointment_type_name(self) -> str:
+        return self.appointment_type.name if self.appointment_type else ""
+
+    @property
+    def equipment_ids(self) -> list[int]:
+        return [resource.equipment_id for resource in self.resources]
+
+
+class AppointmentResource(Base):
+    __tablename__ = "appointment_resources"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    appointment_resource_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.appointments.appointment_id"), nullable=False, index=True
+    )
+    equipment_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_equipment.equipment_id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    appointment: Mapped[Appointment] = relationship(back_populates="resources")
+    equipment: Mapped[ClinicalEquipment] = relationship(back_populates="appointment_resources")
+
+
+class AppointmentStatusHistory(Base):
+    __tablename__ = "appointment_status_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.appointments.appointment_id"), nullable=False, index=True
+    )
+    from_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    appointment: Mapped[Appointment] = relationship(back_populates="status_history")
 
 
 class DonorScreening(Base):

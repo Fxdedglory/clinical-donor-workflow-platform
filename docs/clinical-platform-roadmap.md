@@ -19,7 +19,7 @@ Important repository state from Sprint 0:
 | Module | Current State | Remaining Gap |
 | --- | --- | --- |
 | Patient / Donor Management | Sprint 2 adds canonical patient/donor registration, contacts, insurance, consents, duplicate warnings, preview/commit APIs, UI workflows, and workflow operation audit. | Add merge/review queue, richer identity conflict review, patient/donor linkage to downstream modules, and production duplicate-resolution policy. |
-| Scheduling | No clinical appointment module. | Add appointments, provider/resource calendars, rooms, equipment, conflict checks, cancellation, check-in, and no-show transitions. |
+| Scheduling | Sprint 3 adds appointment booking, resources, appointment types, conflict previews, status transitions, UI workflows, RBAC, and audit. | Add full calendar visualization, recurring availability templates, capacity rules, waitlists, reminders, and completed-appointment handoff into encounters. |
 | Donor Screening / Eligibility | Donor eligibility engine and staged outcomes exist. | Add first-class screening sessions, questionnaire templates, vitals capture, preview/commit result flow, and deferral registry. |
 | EMR / Encounters | No generic encounter documentation module. | Add encounters, notes, diagnoses, allergies, medications, signing, locking, and amendments. |
 | Orders / Results | Infectious disease results exist for donor eligibility. | Add generic order catalog, lab/test orders, result entry, abnormal/critical flags, acknowledgement, and cancellation. |
@@ -99,17 +99,70 @@ Implemented patient registration:
 - Modal workflows now follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success for create, edit, contact, insurance, and consent capture.
 - Focused tests cover confirmation header enforcement, duplicate warnings, create/update/consent audit events, and external partner mutation rejection.
 
+## Sprint 3 Implemented Scope
+
+Sprint 3 implements Clinical Scheduling linked to the canonical Patient / Donor Registration foundation.
+
+Implemented scheduling foundation:
+
+- Persistent scheduling entities:
+  - `operational.clinical_providers`
+  - `operational.clinical_rooms`
+  - `operational.clinical_equipment`
+  - `operational.appointment_types`
+  - `operational.appointments`
+  - `operational.appointment_resources`
+  - `operational.appointment_status_history`
+- Alembic migration `202606120002_clinical_scheduling`.
+- Scheduling RBAC permissions:
+  - `scheduling.read`
+  - `scheduling.manage`
+- Backend `/api/clinical/scheduling` endpoints:
+  - `GET /api/clinical/scheduling/appointments`
+  - `GET /api/clinical/scheduling/appointments/{appointment_id}`
+  - `POST /api/clinical/scheduling/appointments/preview`
+  - `POST /api/clinical/scheduling/appointments`
+  - `POST /api/clinical/scheduling/{appointment_id}/reschedule/preview`
+  - `POST /api/clinical/scheduling/{appointment_id}/reschedule`
+  - `POST /api/clinical/scheduling/{appointment_id}/cancel/preview`
+  - `POST /api/clinical/scheduling/{appointment_id}/cancel`
+  - `POST /api/clinical/scheduling/{appointment_id}/check-in/preview`
+  - `POST /api/clinical/scheduling/{appointment_id}/check-in`
+  - `POST /api/clinical/scheduling/{appointment_id}/no-show/preview`
+  - `POST /api/clinical/scheduling/{appointment_id}/no-show`
+  - `GET /api/clinical/scheduling/resources`
+  - `GET /api/clinical/scheduling/appointment-types`
+- Preview conflict detection covers:
+  - Provider overlap
+  - Room overlap
+  - Equipment/resource overlap
+  - Patient overlap
+  - Invalid scheduled start/end
+  - Missing required room
+  - Unknown patient/provider/room/equipment/type references
+- Preview warnings cover appointment type duration mismatch and outside-normal-hours scheduling.
+- Commit endpoints require authenticated internal users, scheduling mutation permission, and `X-Confirm-Generation: true`.
+- External partner/supplier users are rejected from scheduling mutation.
+- Successful commits append workflow operations for:
+  - `appointment.book`
+  - `appointment.reschedule`
+  - `appointment.cancel`
+  - `appointment.check_in`
+  - `appointment.no_show`
+- Frontend `/clinical/scheduling` is now an operational appointment workspace with filters, appointment table, detail panel, status chips, resource/type/patient loading, and actions for book, reschedule, cancel, check-in, and no-show.
+- Scheduling modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover confirmation guard behavior, audit creation and append preservation, overlap conflicts, status history, audit events, invalid transitions, cancellation reason validation, check-in/no-show transitions, and external partner rejection.
+
 ## Future Sprint Sequence
 
-1. Scheduling: appointment booking, resource conflict checks, reschedule, cancellation, check-in, no-show, and audit.
-2. Donor Screening / Eligibility: questionnaire sessions, vitals, eligibility preview, deferrals, supervisor overrides, and audit.
-3. EMR / Encounters: encounter creation, note templates, draft notes, signing, locking, amendments, and version history.
-4. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
-5. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
-6. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
-7. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-8. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-9. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Donor Screening / Eligibility: questionnaire sessions, vitals, eligibility preview, deferrals, supervisor overrides, and audit.
+2. EMR / Encounters: encounter creation, note templates, draft notes, signing, locking, amendments, and version history.
+3. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
+4. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
+5. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
+6. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
+7. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
+8. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
 
 ## Validation Commands
 

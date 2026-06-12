@@ -399,11 +399,59 @@ section,
   padding: 0.6rem 0.85rem;
 }
 
-.patient-filter {
+.patient-filter,
+.scheduling-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
   grid-template-columns: minmax(220px, 1fr) minmax(150px, 220px) auto;
+}
+
+.scheduling-filter {
+  grid-template-columns: minmax(200px, 1fr) minmax(140px, 180px) minmax(140px, 180px) minmax(180px, 240px) auto;
+}
+
+.schedule-layout {
+  align-items: start;
+}
+
+.appointment-detail-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.detail-actions {
+  margin-top: 1rem;
+}
+
+.conflict-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.conflict-row {
+  align-items: center;
+  border: 1px solid #d9e3eb;
+  border-radius: 7px;
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.conflict-row.blocking {
+  background: #fff1f1;
+  border-color: #ffc9c9;
+  color: #9b2c2c;
+}
+
+.conflict-row.warning {
+  background: #fff8e8;
+  border-color: #f0c98a;
+  color: #8a5b0e;
+}
+
+.workflow-modal select[multiple] {
+  min-height: 7rem;
 }
 
 .table-action,
@@ -644,8 +692,13 @@ pre {
   .login-panel,
   .split,
   .form-grid,
-  .patient-filter {
+  .patient-filter,
+  .scheduling-filter {
     grid-template-columns: 1fr;
+  }
+
+  .appointment-detail-panel {
+    position: static;
   }
 
   aside {

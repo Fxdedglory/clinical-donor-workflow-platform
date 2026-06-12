@@ -39,9 +39,15 @@ CLINICAL_MODULES = [
         module_id="scheduling",
         label="Scheduling",
         route="/clinical/scheduling",
-        api_namespace="/api/clinical/appointments",
-        status="planned_workflow",
-        workflows=["Book appointment", "Reschedule appointment", "Check in appointment"],
+        api_namespace="/api/clinical/scheduling",
+        status="active",
+        workflows=[
+            "Book appointment",
+            "Reschedule appointment",
+            "Cancel appointment",
+            "Check in appointment",
+            "Mark no-show",
+        ],
     ),
     ClinicalModuleRead(
         module_id="screening",

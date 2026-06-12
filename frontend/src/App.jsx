@@ -4,7 +4,9 @@ import {
   ArrowLeft,
   BarChart3,
   Bell,
+  CalendarDays,
   CheckCircle2,
+  Clock,
   Database,
   FileCheck2,
   HeartPulse,
@@ -20,6 +22,7 @@ import {
   UploadCloud,
   User,
   UserPlus,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -170,16 +173,16 @@ const clinicalSections = [
     label: "Patients / Donors",
     route: "/clinical/patients",
     icon: UserPlus,
-    status: "Planned workflow",
+    status: "Active",
     workflows: ["Create patient/donor", "Edit demographics", "Capture consent"],
   },
   {
     id: "clinical_scheduling",
     label: "Scheduling",
     route: "/clinical/scheduling",
-    icon: Bell,
-    status: "Planned workflow",
-    workflows: ["Book appointment", "Reschedule appointment", "Check in appointment"],
+    icon: CalendarDays,
+    status: "Active",
+    workflows: ["Book appointment", "Reschedule appointment", "Cancel appointment", "Check in appointment", "Mark no-show"],
   },
   {
     id: "clinical_screening",
@@ -936,7 +939,7 @@ function Table({ rows, columns }) {
 
 const patientStatusOptions = ["active", "inactive", "deferred", "deceased"];
 const futurePatientWorkflows = [
-  { label: "Schedule Visit", route: "/clinical/scheduling", status: "Planned" },
+  { label: "Schedule Visit", route: "/clinical/scheduling", status: "Active" },
   { label: "Start Screening", route: "/clinical/screening", status: "Planned" },
   { label: "Open Encounter", route: "/clinical/encounters", status: "Foundation pending" },
   { label: "Create Order", route: "/clinical/orders", status: "Planned" },
@@ -1414,9 +1417,647 @@ function ClinicalPatientDetailPage({ token, route, navigate }) {
   );
 }
 
+const appointmentStatusOptions = ["scheduled", "rescheduled", "checked_in", "cancelled", "no_show"];
+
+function toDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function defaultDateTimeLocal(minutesAhead = 60) {
+  const date = new Date(Date.now() + minutesAhead * 60000);
+  const roundedMinutes = Math.ceil(date.getMinutes() / 15) * 15;
+  date.setMinutes(roundedMinutes, 0, 0);
+  return toDateTimeLocal(date.toISOString());
+}
+
+function localDateTimeToIso(value) {
+  return value ? new Date(value).toISOString() : undefined;
+}
+
+function appointmentLabel(appointment) {
+  return appointment?.appointment_number || `Appointment ${appointment?.appointment_id || ""}`;
+}
+
+function patientOptionLabel(patient) {
+  const name = patientDisplayName(patient);
+  return `${patient.patient_id} - ${name}`;
+}
+
+function defaultSchedulingForm(type, appointment, resources, appointmentTypes, patients) {
+  const firstProvider = resources?.providers?.[0]?.id || "";
+  const firstRoom = resources?.rooms?.[0]?.id || "";
+  const firstAppointmentType = appointmentTypes?.[0]?.appointment_type_id || "";
+  const firstPatient = patients?.[0]?.patient_id || "";
+  if (type === "reschedule") {
+    return {
+      provider_id: appointment?.provider_id || firstProvider,
+      room_id: appointment?.room_id || firstRoom,
+      appointment_type_id: appointment?.appointment_type_id || firstAppointmentType,
+      scheduled_start: toDateTimeLocal(appointment?.scheduled_start) || defaultDateTimeLocal(60),
+      scheduled_end: toDateTimeLocal(appointment?.scheduled_end) || defaultDateTimeLocal(120),
+      equipment_ids: appointment?.equipment_ids || [],
+      reason: "Reschedule appointment",
+    };
+  }
+  if (type === "cancel") return { cancellation_reason: "" };
+  if (type === "checkin") return { check_in_time: defaultDateTimeLocal(0), reason: "Check in appointment" };
+  if (type === "noshow") return { no_show_reason: "" };
+  return {
+    patient_id: appointment?.patient_id || firstPatient,
+    provider_id: appointment?.provider_id || firstProvider,
+    room_id: appointment?.room_id || firstRoom,
+    appointment_type_id: appointment?.appointment_type_id || firstAppointmentType,
+    scheduled_start: defaultDateTimeLocal(60),
+    scheduled_end: defaultDateTimeLocal(120),
+    reason: "Donor intake visit",
+    equipment_ids: [],
+  };
+}
+
+function schedulingWorkflowTitle(type) {
+  return {
+    book: "Book Appointment",
+    reschedule: "Reschedule Appointment",
+    cancel: "Cancel Appointment",
+    checkin: "Check In Appointment",
+    noshow: "Mark No-show",
+  }[type];
+}
+
+function validateSchedulingWorkflow(type, form) {
+  const issues = [];
+  if (["book", "reschedule"].includes(type)) {
+    for (const field of ["provider_id", "appointment_type_id", "scheduled_start", "scheduled_end"]) {
+      if (!form[field]) issues.push(`${field.replaceAll("_", " ")} is required.`);
+    }
+    if (type === "book" && !form.patient_id) issues.push("patient id is required.");
+    if (!form.reason) issues.push("reason is required.");
+    if (form.scheduled_start && form.scheduled_end && new Date(form.scheduled_end) <= new Date(form.scheduled_start)) {
+      issues.push("scheduled end must be after scheduled start.");
+    }
+  }
+  if (type === "cancel" && !form.cancellation_reason) issues.push("cancellation reason is required.");
+  if (type === "noshow" && !form.no_show_reason) issues.push("no-show reason is required.");
+  return issues;
+}
+
+function schedulingPreviewEndpoint(type, appointmentId) {
+  if (type === "book") return "/api/clinical/scheduling/appointments/preview";
+  if (type === "reschedule") return `/api/clinical/scheduling/${appointmentId}/reschedule/preview`;
+  if (type === "cancel") return `/api/clinical/scheduling/${appointmentId}/cancel/preview`;
+  if (type === "checkin") return `/api/clinical/scheduling/${appointmentId}/check-in/preview`;
+  return `/api/clinical/scheduling/${appointmentId}/no-show/preview`;
+}
+
+function schedulingCommitEndpoint(type, appointmentId) {
+  if (type === "book") return { path: "/api/clinical/scheduling/appointments", method: "POST" };
+  if (type === "reschedule") return { path: `/api/clinical/scheduling/${appointmentId}/reschedule`, method: "POST" };
+  if (type === "cancel") return { path: `/api/clinical/scheduling/${appointmentId}/cancel`, method: "POST" };
+  if (type === "checkin") return { path: `/api/clinical/scheduling/${appointmentId}/check-in`, method: "POST" };
+  return { path: `/api/clinical/scheduling/${appointmentId}/no-show`, method: "POST" };
+}
+
+function schedulingPayload(type, form) {
+  if (["book", "reschedule"].includes(type)) {
+    const payload = {
+      provider_id: Number(form.provider_id),
+      appointment_type_id: Number(form.appointment_type_id),
+      scheduled_start: localDateTimeToIso(form.scheduled_start),
+      scheduled_end: localDateTimeToIso(form.scheduled_end),
+      reason: form.reason,
+      equipment_ids: (form.equipment_ids || []).map(Number),
+    };
+    if (type === "book") payload.patient_id = form.patient_id;
+    if (form.room_id) payload.room_id = Number(form.room_id);
+    return payload;
+  }
+  if (type === "cancel") return { cancellation_reason: form.cancellation_reason };
+  if (type === "checkin") {
+    return {
+      check_in_time: form.check_in_time ? localDateTimeToIso(form.check_in_time) : undefined,
+      reason: form.reason || "Check in appointment",
+    };
+  }
+  return { no_show_reason: form.no_show_reason };
+}
+
+function SchedulingWorkflowModal({
+  type,
+  appointment,
+  token,
+  resources,
+  appointmentTypes,
+  patients,
+  onClose,
+  onSuccess,
+}) {
+  const [form, setForm] = useState(() => defaultSchedulingForm(type, appointment, resources, appointmentTypes, patients));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validateSchedulingWorkflow(type, form);
+  const appointmentId = appointment?.appointment_id;
+  const hasBlockingConflicts = preview?.conflicts?.some((conflict) => conflict.blocking);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(schedulingPreviewEndpoint(type, appointmentId), {
+        token,
+        method: "POST",
+        body: schedulingPayload(type, form),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    setBusy(true);
+    setError("");
+    const { path, method } = schedulingCommitEndpoint(type, appointmentId);
+    try {
+      const payload = await apiRequest(path, {
+        token,
+        method,
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...schedulingPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess(payload);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={schedulingWorkflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{schedulingWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            {["book", "reschedule"].includes(type) && (
+              <div className="form-grid">
+                {type === "book" && (
+                  <label>
+                    Patient / donor
+                    <select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}>
+                      <option value="">Select patient</option>
+                      {patients.map((patient) => (
+                        <option key={patient.patient_id} value={patient.patient_id}>
+                          {patientOptionLabel(patient)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label>
+                  Provider
+                  <select value={form.provider_id} onChange={(event) => updateField("provider_id", event.target.value)}>
+                    <option value="">Select provider</option>
+                    {resources.providers.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Room
+                  <select value={form.room_id} onChange={(event) => updateField("room_id", event.target.value)}>
+                    <option value="">No room</option>
+                    {resources.rooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Appointment type
+                  <select value={form.appointment_type_id} onChange={(event) => updateField("appointment_type_id", event.target.value)}>
+                    <option value="">Select type</option>
+                    {appointmentTypes.map((appointmentType) => (
+                      <option key={appointmentType.appointment_type_id} value={appointmentType.appointment_type_id}>
+                        {appointmentType.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Start
+                  <input type="datetime-local" value={form.scheduled_start} onChange={(event) => updateField("scheduled_start", event.target.value)} />
+                </label>
+                <label>
+                  End
+                  <input type="datetime-local" value={form.scheduled_end} onChange={(event) => updateField("scheduled_end", event.target.value)} />
+                </label>
+                <label>
+                  Equipment
+                  <select
+                    multiple
+                    value={(form.equipment_ids || []).map(String)}
+                    onChange={(event) =>
+                      updateField(
+                        "equipment_ids",
+                        Array.from(event.target.selectedOptions).map((option) => Number(option.value)),
+                      )
+                    }
+                  >
+                    {resources.equipment.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Reason
+                  <textarea value={form.reason} rows="3" onChange={(event) => updateField("reason", event.target.value)} />
+                </label>
+              </div>
+            )}
+            {type === "cancel" && (
+              <div className="form-grid">
+                <label>
+                  Cancellation reason
+                  <textarea value={form.cancellation_reason} rows="4" onChange={(event) => updateField("cancellation_reason", event.target.value)} />
+                </label>
+              </div>
+            )}
+            {type === "checkin" && (
+              <div className="form-grid">
+                <label>
+                  Check-in time
+                  <input type="datetime-local" value={form.check_in_time} onChange={(event) => updateField("check_in_time", event.target.value)} />
+                </label>
+                <label>
+                  Reason
+                  <input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} />
+                </label>
+              </div>
+            )}
+            {type === "noshow" && (
+              <div className="form-grid">
+                <label>
+                  No-show reason
+                  <textarea value={form.no_show_reason} rows="4" onChange={(event) => updateField("no_show_reason", event.target.value)} />
+                </label>
+              </div>
+            )}
+            {appointment && (
+              <div className="notice-state">
+                Workflow target: {appointmentLabel(appointment)} for {appointment.patient_name || appointment.patient_id}.
+              </div>
+            )}
+            <button type="button" onClick={() => setStep("validation")}>
+              Continue to validation
+            </button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? (
+              <div className="error-state">{validationIssues.join(" ")}</div>
+            ) : (
+              <div className="notice-state">Required fields are complete. Preview will check patient, provider, room, equipment, and transition rules.</div>
+            )}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>
+              Back to form
+            </button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>
+              {busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}
+              Generate preview
+            </button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className={hasBlockingConflicts ? "error-state" : "notice-state"}>{preview.summary}</div>
+            <Table
+              rows={[
+                { field: "Preview hash", value: preview.preview_hash },
+                { field: "Validation", value: preview.validation_status },
+                { field: "Patient", value: preview.selected_patient || "" },
+                { field: "Provider", value: preview.selected_provider || "" },
+                { field: "Room", value: preview.selected_room || "No room" },
+                { field: "Start", value: formatDateTime(preview.scheduled_start) },
+                { field: "End", value: formatDateTime(preview.scheduled_end) },
+              ]}
+              columns={["field", "value"]}
+            />
+            {!!preview.selected_equipment?.length && (
+              <Table rows={preview.selected_equipment.map((name) => ({ equipment: name }))} columns={["equipment"]} />
+            )}
+            {!!preview.conflicts?.length && (
+              <div className="conflict-list">
+                {preview.conflicts.map((conflict) => (
+                  <div className="conflict-row blocking" key={`${conflict.conflict_type}-${conflict.entity_id}`}>
+                    <XCircle size={16} />
+                    <span>{conflict.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!!preview.warnings?.length && (
+              <div className="conflict-list">
+                {preview.warnings.map((warning) => (
+                  <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}>
+                    <AlertTriangle size={16} />
+                    <span>{warning.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>
+              Back to form
+            </button>
+            <button type="button" disabled={hasBlockingConflicts} onClick={() => setStep("confirm")}>
+              Continue to commit confirmation
+            </button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">Commit will send X-Confirm-Generation: true and append a scheduling workflow audit entry.</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>
+              Back to preview
+            </button>
+            <button type="button" disabled={busy} onClick={runCommit}>
+              {busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}
+              Commit workflow
+            </button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Scheduling workflow committed successfully.</div>
+            <button type="button" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ClinicalSchedulingPage({ token, navigate }) {
+  const [appointments, setAppointments] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [resources, setResources] = useState({ providers: [], rooms: [], equipment: [] });
+  const [appointmentTypes, setAppointmentTypes] = useState([]);
+  const [query, setQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [providerFilter, setProviderFilter] = useState("");
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadScheduling() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (dateFilter) params.set("date", dateFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (providerFilter) params.set("provider_id", providerFilter);
+    try {
+      const [appointmentPayload, resourcePayload, typePayload, patientPayload] = await Promise.all([
+        apiRequest(`/api/clinical/scheduling/appointments${params.toString() ? `?${params}` : ""}`, { token }),
+        apiRequest("/api/clinical/scheduling/resources", { token }),
+        apiRequest("/api/clinical/scheduling/appointment-types", { token }),
+        apiRequest("/api/clinical/patients?limit=500", { token }),
+      ]);
+      const nextAppointments = appointmentPayload?.appointments || [];
+      setAppointments(nextAppointments);
+      setResources(resourcePayload || { providers: [], rooms: [], equipment: [] });
+      setAppointmentTypes(typePayload || []);
+      setPatients(patientPayload?.patients || []);
+      setSelectedAppointment((current) => {
+        if (!nextAppointments.length) return null;
+        if (!current) return nextAppointments[0];
+        return nextAppointments.find((appointment) => appointment.appointment_id === current.appointment_id) || nextAppointments[0];
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadScheduling();
+  }, [token]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    loadScheduling();
+  }
+
+  function workflowSuccess(payload) {
+    if (payload?.appointment) setSelectedAppointment(payload.appointment);
+    loadScheduling();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Clinical scheduling</p>
+          <h2>Appointments</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("book")}>
+            <CalendarDays size={16} />
+            Book Appointment
+          </button>
+          <button type="button" className="secondary-button" onClick={loadScheduling}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients")}>
+            <UserPlus size={16} />
+            Patients
+          </button>
+        </div>
+      </section>
+      <section>
+        <form className="scheduling-filter" onSubmit={submitSearch}>
+          <label>
+            Search
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Appointment, patient, or donor" />
+          </label>
+          <label>
+            Date
+            <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
+          </label>
+          <label>
+            Status
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="">All</option>
+              {appointmentStatusOptions.map((statusName) => (
+                <option key={statusName} value={statusName}>
+                  {statusName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Provider
+            <select value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)}>
+              <option value="">All</option>
+              {resources.providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit">
+            <FileCheck2 size={16} />
+            Apply
+          </button>
+        </form>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="notice-state">Loading appointment schedule...</div>}
+      {!loading && !appointments.length && <div className="empty-state">No appointments match the current filters.</div>}
+      {!!appointments.length && (
+        <div className="split schedule-layout">
+          <section>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Appointment</th>
+                    <th>Patient / Donor</th>
+                    <th>Provider</th>
+                    <th>Start</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {appointments.map((appointment) => (
+                    <tr key={appointment.appointment_id}>
+                      <td>{appointment.appointment_number}</td>
+                      <td>{appointment.patient_name || appointment.patient_id}</td>
+                      <td>{appointment.provider_name}</td>
+                      <td>{formatDateTime(appointment.scheduled_start)}</td>
+                      <td>
+                        <StatusPill status={appointment.status} />
+                      </td>
+                      <td>
+                        <button type="button" className="table-action" onClick={() => setSelectedAppointment(appointment)}>
+                          Open
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="appointment-detail-panel">
+            {selectedAppointment ? (
+              <>
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">{selectedAppointment.appointment_number}</p>
+                    <h3>{selectedAppointment.patient_name || selectedAppointment.patient_id}</h3>
+                  </div>
+                  <StatusPill status={selectedAppointment.status} />
+                </div>
+                <Table
+                  rows={[
+                    { field: "Provider", value: selectedAppointment.provider_name },
+                    { field: "Room", value: selectedAppointment.room_name || "No room" },
+                    { field: "Type", value: selectedAppointment.appointment_type_name },
+                    { field: "Start", value: formatDateTime(selectedAppointment.scheduled_start) },
+                    { field: "End", value: formatDateTime(selectedAppointment.scheduled_end) },
+                    { field: "Reason", value: selectedAppointment.reason },
+                    { field: "Cancellation reason", value: selectedAppointment.cancellation_reason || "" },
+                    { field: "No-show reason", value: selectedAppointment.no_show_reason || "" },
+                    { field: "Check-in", value: formatDateTime(selectedAppointment.check_in_time) },
+                  ]}
+                  columns={["field", "value"]}
+                />
+                <div className="clinical-actions detail-actions">
+                  <button type="button" onClick={() => setModalType("reschedule")}>
+                    <Clock size={16} />
+                    Reschedule
+                  </button>
+                  <button type="button" onClick={() => setModalType("checkin")}>
+                    <CheckCircle2 size={16} />
+                    Check In
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("cancel")}>
+                    <XCircle size={16} />
+                    Cancel
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("noshow")}>
+                    <AlertTriangle size={16} />
+                    No-show
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">Select an appointment to review details.</div>
+            )}
+          </section>
+        </div>
+      )}
+      {modalType && (
+        <SchedulingWorkflowModal
+          type={modalType}
+          appointment={modalType === "book" ? null : selectedAppointment}
+          token={token}
+          resources={resources}
+          appointmentTypes={appointmentTypes}
+          patients={patients}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
   if (section.id === "clinical_patients") {
     return <ClinicalPatientsPage token={token} navigate={navigate} />;
+  }
+  if (section.id === "clinical_scheduling") {
+    return <ClinicalSchedulingPage token={token} navigate={navigate} />;
   }
   if (section.id === "clinical_patient_detail") {
     return <ClinicalPatientDetailPage token={token} route={route} navigate={navigate} />;
