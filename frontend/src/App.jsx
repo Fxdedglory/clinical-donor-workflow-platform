@@ -156,8 +156,111 @@ const sections = [
   },
 ];
 
-const routeToSection = Object.fromEntries(sections.map((section) => [section.route, section.id]));
-const sectionById = Object.fromEntries(sections.map((section) => [section.id, section]));
+const clinicalSections = [
+  {
+    id: "clinical_dashboard",
+    label: "Clinical Dashboard",
+    route: "/clinical/dashboard",
+    icon: HeartPulse,
+    status: "Foundation pending",
+    workflows: ["Operational overview", "Workflow operation activity"],
+  },
+  {
+    id: "clinical_patients",
+    label: "Patients / Donors",
+    route: "/clinical/patients",
+    icon: UserPlus,
+    status: "Planned workflow",
+    workflows: ["Create patient/donor", "Edit demographics", "Capture consent"],
+  },
+  {
+    id: "clinical_scheduling",
+    label: "Scheduling",
+    route: "/clinical/scheduling",
+    icon: Bell,
+    status: "Planned workflow",
+    workflows: ["Book appointment", "Reschedule appointment", "Check in appointment"],
+  },
+  {
+    id: "clinical_screening",
+    label: "Donor Screening",
+    route: "/clinical/screening",
+    icon: CheckCircle2,
+    status: "Planned workflow",
+    workflows: ["Start screening", "Preview eligibility", "Commit screening result"],
+  },
+  {
+    id: "clinical_encounters",
+    label: "Encounters",
+    route: "/clinical/encounters",
+    icon: FileCheck2,
+    status: "Planned workflow",
+    workflows: ["Create encounter", "Sign note", "Amend signed note"],
+  },
+  {
+    id: "clinical_orders",
+    label: "Orders / Results",
+    route: "/clinical/orders",
+    icon: UploadCloud,
+    status: "Planned workflow",
+    workflows: ["Create order", "Receive result", "Acknowledge critical result"],
+  },
+  {
+    id: "clinical_care_plans",
+    label: "Care Plans",
+    route: "/clinical/care-plans",
+    icon: Activity,
+    status: "Planned workflow",
+    workflows: ["Create care plan", "Update progress", "Close care plan"],
+  },
+  {
+    id: "clinical_billing",
+    label: "Billing",
+    route: "/clinical/billing",
+    icon: Database,
+    status: "Planned workflow",
+    workflows: ["Capture charges", "Preview claim", "Commit claim"],
+  },
+  {
+    id: "clinical_quality",
+    label: "Quality",
+    route: "/clinical/quality",
+    icon: AlertTriangle,
+    status: "Planned workflow",
+    workflows: ["Create quality event", "Create CAPA", "Export audit evidence"],
+  },
+  {
+    id: "clinical_reports",
+    label: "Reports",
+    route: "/clinical/reports",
+    icon: BarChart3,
+    status: "Planned workflow",
+    workflows: ["Screening outcomes", "Audit activity", "Operational exports"],
+  },
+  {
+    id: "clinical_admin",
+    label: "Clinical Admin",
+    route: "/clinical/admin",
+    icon: ShieldCheck,
+    status: "Planned workflow",
+    workflows: ["Manage templates", "Manage rules", "Manage approval paths"],
+  },
+];
+
+const clinicalPatientDetailSection = {
+  id: "clinical_patient_detail",
+  label: "Patient / Donor Detail",
+  route: "/clinical/patients/:id",
+  icon: User,
+  status: "Foundation pending",
+  workflows: ["Profile review", "Consent timeline", "Workflow audit"],
+};
+
+const navigationSections = [...sections, ...clinicalSections];
+const routeToSection = Object.fromEntries(navigationSections.map((section) => [section.route, section.id]));
+const sectionById = Object.fromEntries(
+  [...navigationSections, clinicalPatientDetailSection].map((section) => [section.id, section]),
+);
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -189,6 +292,11 @@ function browserRoute() {
     path = path.slice(PUBLIC_BASE.length) || "/";
   }
   return normalizeRoute(path);
+}
+
+function clinicalPatientId(route) {
+  const match = normalizeRoute(route).match(/^\/clinical\/patients\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : "";
 }
 
 async function apiRequest(path, { token, method = "GET", body } = {}) {
@@ -826,6 +934,80 @@ function Table({ rows, columns }) {
   );
 }
 
+function ClinicalModuleSection({ section, route, navigate }) {
+  const patientId = clinicalPatientId(route);
+  const moduleRoute = patientId ? "/clinical/patients" : section.route;
+  const detailRows = patientId
+    ? [
+        { field: "Record", value: patientId },
+        { field: "Status", value: "Foundation pending" },
+        { field: "Commit Guard", value: "X-Confirm-Generation: true" },
+      ]
+    : [
+        { field: "Route", value: moduleRoute },
+        { field: "Status", value: section.status },
+        { field: "API", value: "/api/clinical" },
+      ];
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Clinical platform shell</p>
+          <h2>{section.label}</h2>
+          <StatusPill status={section.status} />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => navigate("/clinical/dashboard")}>
+            <HeartPulse size={16} />
+            Dashboard
+          </button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients")}>
+            <UserPlus size={16} />
+            Patients
+          </button>
+          {section.id === "clinical_patients" && (
+            <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients/PT-000001")}>
+              <User size={16} />
+              Sample Detail
+            </button>
+          )}
+        </div>
+      </section>
+      <div className="split">
+        <section>
+          <h3>Workflow Readiness</h3>
+          <div className="workflow-list">
+            {section.workflows.map((workflow) => (
+              <div className="workflow-row" key={workflow}>
+                <span>{workflow}</span>
+                <StatusPill status="Planned workflow" />
+              </div>
+            ))}
+          </div>
+        </section>
+        <section>
+          <h3>Foundation Contract</h3>
+          <Table rows={detailRows} columns={["field", "value"]} />
+        </section>
+      </div>
+      {patientId && (
+        <section>
+          <h3>Patient / Donor Snapshot</h3>
+          <Table
+            rows={[
+              { field: "Demographics", value: "Foundation pending" },
+              { field: "Consent", value: "Planned workflow" },
+              { field: "Duplicate Review", value: "Planned workflow" },
+            ]}
+            columns={["field", "value"]}
+          />
+        </section>
+      )}
+    </div>
+  );
+}
+
 function ProfilePage({ token, user, onUserUpdate }) {
   const [form, setForm] = useState({
     full_name: user?.full_name || "",
@@ -967,12 +1149,15 @@ function AccessDenied({ section, user }) {
   );
 }
 
-function SectionBody({ active, status, token, refresh }) {
+function SectionBody({ active, activeSection, route, status, token, refresh, navigate }) {
   const validation = status?.latest_validation || {};
   const manifest = status?.latest_export_manifest || {};
   const freshness = status?.source_freshness?.freshness || [];
   const runs = status?.recent_runs || [];
 
+  if (active?.startsWith("clinical_")) {
+    return <ClinicalModuleSection section={activeSection} route={route} navigate={navigate} />;
+  }
   if (active === "dashboard") return <OperationsSection status={status} />;
   if (active === "referrals") {
     return (
@@ -1136,7 +1321,8 @@ function App() {
   const [error, setError] = useState("");
   const token = tokenPayload?.access_token;
   const user = tokenPayload?.user;
-  const active = routeToSection[route] || (route === "/" && token ? "dashboard" : "");
+  const active =
+    routeToSection[route] || (clinicalPatientId(route) ? "clinical_patient_detail" : route === "/" && token ? "dashboard" : "");
   const activeSection = useMemo(() => sectionById[active], [active]);
 
   useEffect(() => {
@@ -1265,6 +1451,22 @@ function App() {
             );
           })}
           <div className="nav-divider" />
+          <span className="nav-label">Clinical Platform</span>
+          {clinicalSections.map((section) => {
+            const Icon = section.icon;
+            return (
+              <button
+                key={section.id}
+                className={cx(active === section.id && "active")}
+                onClick={() => navigate(section.route)}
+                type="button"
+              >
+                <Icon size={17} />
+                {section.label}
+              </button>
+            );
+          })}
+          <div className="nav-divider" />
           <button className={cx(route === "/profile" && "active")} onClick={() => navigate("/profile")} type="button">
             <User size={17} />
             Profile
@@ -1314,7 +1516,15 @@ function App() {
           <AccessDenied section={activeSection} user={user} />
         )}
         {route !== "/profile" && route !== "/preferences" && hasRouteAccess(activeSection, user) && (
-          <SectionBody active={active || "dashboard"} status={status || {}} token={token} refresh={refresh} />
+          <SectionBody
+            active={active || "dashboard"}
+            activeSection={activeSection}
+            route={route}
+            status={status || {}}
+            token={token}
+            refresh={refresh}
+            navigate={navigate}
+          />
         )}
       </main>
     </div>

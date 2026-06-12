@@ -25,6 +25,7 @@ from app.routes import (
     audit_logs,
     auth,
     change_control,
+    clinical,
     dashboard,
     documents,
     donors,
@@ -132,6 +133,7 @@ app.include_router(reviews.router)
 app.include_router(risk_analysis.router)
 app.include_router(audit_logs.router)
 app.include_router(change_control.router)
+app.include_router(clinical.router)
 app.include_router(vendors.router)
 app.include_router(dashboard.router)
 app.include_router(documents.router)

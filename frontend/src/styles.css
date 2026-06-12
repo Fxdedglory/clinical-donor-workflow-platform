@@ -275,6 +275,15 @@ nav button:hover {
   margin: 0.6rem 0;
 }
 
+.nav-label {
+  color: #91b8c3;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.25rem 0.75rem;
+  text-transform: uppercase;
+}
+
 main {
   min-width: 0;
   padding: 1.3rem;
@@ -357,6 +366,59 @@ section,
 
 .operation-panel button:nth-child(5) {
   background: #9b2c2c;
+}
+
+.clinical-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.clinical-hero {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.clinical-hero h2 {
+  font-size: 1.45rem;
+  letter-spacing: 0;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.clinical-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.clinical-actions button {
+  background: #127c75;
+  color: white;
+  min-height: 2.45rem;
+  padding: 0.6rem 0.85rem;
+}
+
+.workflow-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.workflow-row {
+  align-items: center;
+  background: #f7fafc;
+  border: 1px solid #e0e8ef;
+  border-radius: 7px;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-height: 3.1rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.workflow-row .status-pill {
+  margin-bottom: 0;
+  white-space: nowrap;
 }
 
 .split {
@@ -543,6 +605,7 @@ pre {
   }
 
   .topbar,
+  .clinical-hero,
   .topbar-actions {
     align-items: stretch;
     flex-direction: column;

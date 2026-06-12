@@ -1,5 +1,15 @@
 from app.schemas.audit import AuditLogRead
 from app.schemas.change_control import ChangeControlCreate, ChangeControlRead, ChangeControlUpdate
+from app.schemas.clinical import (
+    ClinicalModuleRead,
+    ClinicalStatusRead,
+    WorkflowCommitRequest,
+    WorkflowCommitResponse,
+    WorkflowOperation,
+    WorkflowPreviewRequest,
+    WorkflowPreviewResponse,
+    WorkflowValidationIssue,
+)
 from app.schemas.donors import DonorDecision, DonorReviewCreate, DonorReviewRead, DonorReviewUpdate
 from app.schemas.enterprise import (
     AIDecisionRead,
@@ -54,6 +64,8 @@ __all__ = [
     "ChangeControlCreate",
     "ChangeControlRead",
     "ChangeControlUpdate",
+    "ClinicalModuleRead",
+    "ClinicalStatusRead",
     "DonorDecision",
     "DonorReviewCreate",
     "DonorReviewRead",
@@ -81,6 +93,11 @@ __all__ = [
     "VendorIncidentUpdate",
     "VendorRead",
     "WorkflowRouteResponse",
+    "WorkflowCommitRequest",
+    "WorkflowCommitResponse",
+    "WorkflowOperation",
+    "WorkflowPreviewRequest",
+    "WorkflowPreviewResponse",
     "WorkflowStateMachineRead",
     "WorkflowTaskCreate",
     "WorkflowTaskRead",
@@ -89,6 +106,7 @@ __all__ = [
     "WorkflowTransitionRead",
     "WorkflowTransitionRequest",
     "WorkflowTimelineEventRead",
+    "WorkflowValidationIssue",
     "WorkspaceResponse",
 ]
 
