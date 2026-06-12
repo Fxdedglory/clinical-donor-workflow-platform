@@ -859,6 +859,7 @@ class Patient(Base):
     )
     consents: Mapped[list["PatientConsent"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="patient")
+    screening_sessions: Mapped[list["ClinicalScreeningSession"]] = relationship(back_populates="patient")
 
 
 class PatientContact(Base):
@@ -1099,6 +1100,7 @@ class Appointment(Base):
     status_history: Mapped[list["AppointmentStatusHistory"]] = relationship(
         back_populates="appointment", cascade="all, delete-orphan"
     )
+    screening_sessions: Mapped[list["ClinicalScreeningSession"]] = relationship(back_populates="appointment")
 
     @property
     def patient_id(self) -> str:
@@ -1170,6 +1172,217 @@ class AppointmentStatusHistory(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     appointment: Mapped[Appointment] = relationship(back_populates="status_history")
+
+
+class ClinicalScreeningSession(Base):
+    __tablename__ = "clinical_screening_sessions"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    session_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    donor_pk: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=True, index=True
+    )
+    appointment_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.appointments.appointment_id"), nullable=True, index=True
+    )
+    template_id: Mapped[str] = mapped_column(String(80), nullable=False, default="minimal_donor_screening_v1")
+    status: Mapped[str] = mapped_column(String(60), nullable=False, default="not_started", index=True)
+    current_outcome: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    supervisor_review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_screening")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient] = relationship(back_populates="screening_sessions")
+    donor: Mapped["Donor | None"] = relationship()
+    appointment: Mapped[Appointment | None] = relationship(back_populates="screening_sessions")
+    answers: Mapped[list["ClinicalScreeningAnswer"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    vitals: Mapped[list["ClinicalScreeningVitals"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    outcomes: Mapped[list["ClinicalScreeningOutcome"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    deferrals: Mapped[list["ClinicalDeferral"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    status_history: Mapped[list["ClinicalScreeningStatusHistory"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        parts = [self.patient.first_name, self.patient.middle_name, self.patient.last_name]
+        return " ".join(part for part in parts if part)
+
+    @property
+    def appointment_number(self) -> str | None:
+        return self.appointment.appointment_number if self.appointment else None
+
+
+class ClinicalScreeningAnswer(Base):
+    __tablename__ = "clinical_screening_answers"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    answer_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=False, index=True
+    )
+    question_key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    answer_value: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    session: Mapped[ClinicalScreeningSession] = relationship(back_populates="answers")
+
+
+class ClinicalScreeningVitals(Base):
+    __tablename__ = "clinical_screening_vitals"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    vitals_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=False, index=True
+    )
+    height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_kg: Mapped[float] = mapped_column(Float, nullable=False)
+    temperature_c: Mapped[float] = mapped_column(Float, nullable=False)
+    blood_pressure_systolic: Mapped[int] = mapped_column(Integer, nullable=False)
+    blood_pressure_diastolic: Mapped[int] = mapped_column(Integer, nullable=False)
+    pulse: Mapped[int] = mapped_column(Integer, nullable=False)
+    respiration_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    oxygen_saturation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    captured_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    session: Mapped[ClinicalScreeningSession] = relationship(back_populates="vitals")
+
+
+class ClinicalScreeningOutcome(Base):
+    __tablename__ = "clinical_screening_outcomes"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    outcome_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=False, index=True
+    )
+    proposed_outcome: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    committed_outcome: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    original_outcome: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    override_outcome: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    deferral_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    supervisor_review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    blocking_issues: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    warnings: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    rule_results: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    session: Mapped[ClinicalScreeningSession] = relationship(back_populates="outcomes")
+
+
+class ClinicalDeferral(Base):
+    __tablename__ = "clinical_deferrals"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    deferral_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    deferral_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=False, index=True
+    )
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    donor_pk: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_donor.donor_pk"), nullable=True, index=True
+    )
+    deferral_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    session: Mapped[ClinicalScreeningSession] = relationship(back_populates="deferrals")
+    patient: Mapped[Patient] = relationship()
+    donor: Mapped["Donor | None"] = relationship()
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+
+class ClinicalScreeningStatusHistory(Base):
+    __tablename__ = "clinical_screening_status_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=False, index=True
+    )
+    from_status: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    session: Mapped[ClinicalScreeningSession] = relationship(back_populates="status_history")
 
 
 class DonorScreening(Base):

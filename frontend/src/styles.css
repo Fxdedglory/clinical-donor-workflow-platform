@@ -400,19 +400,36 @@ section,
 }
 
 .patient-filter,
-.scheduling-filter {
+.scheduling-filter,
+.screening-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
   grid-template-columns: minmax(220px, 1fr) minmax(150px, 220px) auto;
 }
 
-.scheduling-filter {
+.scheduling-filter,
+.screening-filter {
   grid-template-columns: minmax(200px, 1fr) minmax(140px, 180px) minmax(140px, 180px) minmax(180px, 240px) auto;
 }
 
-.schedule-layout {
+.schedule-layout,
+.screening-layout {
   align-items: start;
+}
+
+.screening-detail-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.screening-question-row {
+  align-items: center;
+}
+
+.screening-question-row select {
+  max-width: 140px;
 }
 
 .appointment-detail-panel {
@@ -693,7 +710,9 @@ pre {
   .split,
   .form-grid,
   .patient-filter,
-  .scheduling-filter {
+  .scheduling-filter,
+  .screening-filter,
+  .screening-detail-grid {
     grid-template-columns: 1fr;
   }
 

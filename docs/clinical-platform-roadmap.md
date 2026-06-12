@@ -20,7 +20,7 @@ Important repository state from Sprint 0:
 | --- | --- | --- |
 | Patient / Donor Management | Sprint 2 adds canonical patient/donor registration, contacts, insurance, consents, duplicate warnings, preview/commit APIs, UI workflows, and workflow operation audit. | Add merge/review queue, richer identity conflict review, patient/donor linkage to downstream modules, and production duplicate-resolution policy. |
 | Scheduling | Sprint 3 adds appointment booking, resources, appointment types, conflict previews, status transitions, UI workflows, RBAC, and audit. | Add full calendar visualization, recurring availability templates, capacity rules, waitlists, reminders, and completed-appointment handoff into encounters. |
-| Donor Screening / Eligibility | Donor eligibility engine and staged outcomes exist. | Add first-class screening sessions, questionnaire templates, vitals capture, preview/commit result flow, and deferral registry. |
+| Donor Screening / Eligibility | Sprint 4 adds patient-linked screening sessions, questionnaire/vitals capture, eligibility preview, result commit, deferrals, supervisor override, UI workflow, RBAC, and audit while reusing the existing donor eligibility engine. | Add richer screening templates, infectious disease result entry, deferral expiration workflows, medical director queues, and deeper donor-to-patient identity reconciliation. |
 | EMR / Encounters | No generic encounter documentation module. | Add encounters, notes, diagnoses, allergies, medications, signing, locking, and amendments. |
 | Orders / Results | Infectious disease results exist for donor eligibility. | Add generic order catalog, lab/test orders, result entry, abnormal/critical flags, acknowledgement, and cancellation. |
 | Care Plans | No care plan module. | Add care plans, goals, interventions, tasks, care team assignment, progress updates, and closure. |
@@ -153,16 +153,74 @@ Implemented scheduling foundation:
 - Scheduling modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover confirmation guard behavior, audit creation and append preservation, overlap conflicts, status history, audit events, invalid transitions, cancellation reason validation, check-in/no-show transitions, and external partner rejection.
 
+## Sprint 4 Implemented Scope
+
+Sprint 4 implements Donor Screening / Eligibility as an operational clinical module linked to canonical Patient / Donor Registration and Scheduling.
+
+Existing assets reused:
+
+- Existing `dim_donor` bridge by patient `donor_reference` when present.
+- Existing donor eligibility engine in `app.services.eligibility_engine`.
+- Existing eligibility rules in `operational.dim_eligibility_rule`.
+- Existing donor screening facts in `operational.fact_donor_screening`.
+- Existing infectious disease, medical/social history, recovery suitability, QMS deviation, CAPA, and release context consumed by the existing engine.
+- Existing clinical workflow commit guard and append-only workflow audit writer.
+
+Implemented screening foundation:
+
+- Persistent clinical screening entities:
+  - `operational.clinical_screening_sessions`
+  - `operational.clinical_screening_answers`
+  - `operational.clinical_screening_vitals`
+  - `operational.clinical_screening_outcomes`
+  - `operational.clinical_deferrals`
+  - `operational.clinical_screening_status_history`
+- Alembic migration `202606120003_clinical_screening`.
+- Screening RBAC permissions:
+  - `screening.read`
+  - `screening.manage`
+  - `screening.override`
+- Backend `/api/clinical/screening` endpoints:
+  - `GET /api/clinical/screening/sessions`
+  - `GET /api/clinical/screening/sessions/{session_id}`
+  - `POST /api/clinical/screening/sessions/preview`
+  - `POST /api/clinical/screening/sessions`
+  - `POST /api/clinical/screening/sessions/{session_id}/questionnaire/preview`
+  - `POST /api/clinical/screening/sessions/{session_id}/questionnaire`
+  - `POST /api/clinical/screening/sessions/{session_id}/vitals/preview`
+  - `POST /api/clinical/screening/sessions/{session_id}/vitals`
+  - `POST /api/clinical/screening/sessions/{session_id}/eligibility/preview`
+  - `POST /api/clinical/screening/sessions/{session_id}/result`
+  - `POST /api/clinical/screening/sessions/{session_id}/override/preview`
+  - `POST /api/clinical/screening/sessions/{session_id}/override`
+  - `GET /api/clinical/screening/deferrals`
+  - `GET /api/clinical/screening/templates`
+  - `GET /api/clinical/screening/rules`
+- Minimal donor screening questionnaire template with required identity, authorization, infectious symptom, transmissible disease, IV drug use, incarceration, travel exposure, and high-risk behavior questions.
+- Vitals capture for height, weight, temperature, blood pressure, pulse, respiration rate, oxygen saturation, and notes.
+- Eligibility preview returns proposed outcome, blocking issues, warnings, rules evaluated, missing answers, missing vitals, deferral recommendation, supervisor review flag, and existing engine outcome when linked donor context is available.
+- Result commits reject missing required questionnaire/vitals data.
+- Temporary and permanent deferrals create `clinical_deferrals` records and append deferral audit events.
+- Supervisor override requires elevated/internal permission, reason, original outcome, override outcome, and audit.
+- Successful commits append workflow operations for:
+  - `screening.session_create`
+  - `screening.questionnaire_commit`
+  - `screening.vitals_commit`
+  - `screening.result_commit`
+  - `screening.override_commit`
+  - `screening.deferral_create`
+- Frontend `/clinical/screening` is now an operational screening workspace with queue filters, patient identity summary, appointment context, questionnaire, vitals, eligibility preview, deferrals, override history, recent audit activity, templates/rules, and modal workflows.
+- Focused tests cover session preview/commit guard, questionnaire validation/audit, vitals validation/audit, explainable eligibility preview, result commit blocking behavior, eligible result commit, temporary/permanent deferrals, supervisor override, and external partner rejection.
+
 ## Future Sprint Sequence
 
-1. Donor Screening / Eligibility: questionnaire sessions, vitals, eligibility preview, deferrals, supervisor overrides, and audit.
-2. EMR / Encounters: encounter creation, note templates, draft notes, signing, locking, amendments, and version history.
-3. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
-4. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
-5. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
-6. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-7. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-8. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. EMR / Encounters: encounter creation, note templates, draft notes, signing, locking, amendments, and version history.
+2. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
+3. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
+4. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
+5. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
+6. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
+7. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
 
 ## Validation Commands
 

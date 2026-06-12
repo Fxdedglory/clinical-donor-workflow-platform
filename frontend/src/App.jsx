@@ -189,8 +189,8 @@ const clinicalSections = [
     label: "Donor Screening",
     route: "/clinical/screening",
     icon: CheckCircle2,
-    status: "Planned workflow",
-    workflows: ["Start screening", "Preview eligibility", "Commit screening result"],
+    status: "Active",
+    workflows: ["Start screening", "Commit questionnaire", "Capture vitals", "Preview eligibility", "Commit result", "Supervisor override"],
   },
   {
     id: "clinical_encounters",
@@ -940,7 +940,7 @@ function Table({ rows, columns }) {
 const patientStatusOptions = ["active", "inactive", "deferred", "deceased"];
 const futurePatientWorkflows = [
   { label: "Schedule Visit", route: "/clinical/scheduling", status: "Active" },
-  { label: "Start Screening", route: "/clinical/screening", status: "Planned" },
+  { label: "Start Screening", route: "/clinical/screening", status: "Active" },
   { label: "Open Encounter", route: "/clinical/encounters", status: "Foundation pending" },
   { label: "Create Order", route: "/clinical/orders", status: "Planned" },
   { label: "Billing Review", route: "/clinical/billing", status: "Planned" },
@@ -2052,12 +2052,535 @@ function ClinicalSchedulingPage({ token, navigate }) {
   );
 }
 
+const screeningStatusOptions = [
+  "not_started",
+  "in_progress",
+  "pending_eligibility",
+  "requires_supervisor_review",
+  "eligible",
+  "eligible_with_conditions",
+  "temporarily_deferred",
+  "permanently_deferred",
+  "cancelled",
+];
+const screeningOutcomeOptions = [
+  "eligible",
+  "eligible_with_conditions",
+  "temporarily_deferred",
+  "permanently_deferred",
+  "requires_supervisor_review",
+];
+
+function answerMapFromSession(session) {
+  return Object.fromEntries(
+    (session?.answers || []).map((answer) => [answer.question_key, answer.answer_value?.value ?? ""]),
+  );
+}
+
+function latestSessionVitals(session) {
+  return [...(session?.vitals || [])].sort((left, right) => new Date(right.captured_at) - new Date(left.captured_at))[0] || null;
+}
+
+function defaultScreeningForm(type, session, patients, appointments) {
+  if (type === "start") {
+    return {
+      patient_id: patients?.[0]?.patient_id || "",
+      appointment_id: appointments?.[0]?.appointment_id || "",
+      reason: "Start donor screening session",
+    };
+  }
+  if (type === "questionnaire") {
+    return { answers: answerMapFromSession(session), notes: "" };
+  }
+  if (type === "vitals") {
+    const vitals = latestSessionVitals(session);
+    return {
+      height_cm: vitals?.height_cm || "",
+      weight_kg: vitals?.weight_kg || "",
+      temperature_c: vitals?.temperature_c || "",
+      blood_pressure_systolic: vitals?.blood_pressure_systolic || "",
+      blood_pressure_diastolic: vitals?.blood_pressure_diastolic || "",
+      pulse: vitals?.pulse || "",
+      respiration_rate: vitals?.respiration_rate || "",
+      oxygen_saturation: vitals?.oxygen_saturation || "",
+      notes: "",
+    };
+  }
+  if (type === "eligibility") return { category: "", reason: "Preview donor eligibility" };
+  if (type === "result") {
+    return {
+      outcome: session?.current_outcome || "eligible",
+      reason: "Commit screening result",
+      deferral_type: "",
+      deferral_ends_at: "",
+    };
+  }
+  return {
+    original_outcome: session?.current_outcome || "requires_supervisor_review",
+    override_outcome: "eligible_with_conditions",
+    reason: "",
+  };
+}
+
+function screeningWorkflowTitle(type) {
+  return {
+    start: "Start Screening Session",
+    questionnaire: "Complete Questionnaire",
+    vitals: "Capture Vitals",
+    eligibility: "Preview Eligibility",
+    result: "Commit Screening Result",
+    override: "Supervisor Override",
+  }[type];
+}
+
+function validateScreeningWorkflow(type, form, template) {
+  const issues = [];
+  if (type === "start" && !form.patient_id) issues.push("patient/donor is required.");
+  if (type === "questionnaire") {
+    const required = template?.questions?.filter((question) => question.required) || [];
+    for (const question of required) {
+      const value = form.answers?.[question.question_key];
+      if (value === "" || value === undefined || value === null) issues.push(`${question.label} is required.`);
+    }
+  }
+  if (type === "vitals") {
+    for (const field of ["weight_kg", "temperature_c", "blood_pressure_systolic", "blood_pressure_diastolic", "pulse"]) {
+      if (!form[field]) issues.push(`${field.replaceAll("_", " ")} is required.`);
+    }
+  }
+  if (type === "result" && !form.reason) issues.push("result reason is required.");
+  if (type === "override") {
+    if (!form.reason) issues.push("override reason is required.");
+    if (!form.original_outcome || !form.override_outcome) issues.push("original and override outcomes are required.");
+  }
+  return issues;
+}
+
+function screeningPreviewEndpoint(type, sessionId) {
+  if (type === "start") return "/api/clinical/screening/sessions/preview";
+  if (type === "questionnaire") return `/api/clinical/screening/sessions/${sessionId}/questionnaire/preview`;
+  if (type === "vitals") return `/api/clinical/screening/sessions/${sessionId}/vitals/preview`;
+  if (type === "override") return `/api/clinical/screening/sessions/${sessionId}/override/preview`;
+  return `/api/clinical/screening/sessions/${sessionId}/eligibility/preview`;
+}
+
+function screeningCommitEndpoint(type, sessionId) {
+  if (type === "start") return { path: "/api/clinical/screening/sessions", method: "POST" };
+  if (type === "questionnaire") return { path: `/api/clinical/screening/sessions/${sessionId}/questionnaire`, method: "POST" };
+  if (type === "vitals") return { path: `/api/clinical/screening/sessions/${sessionId}/vitals`, method: "POST" };
+  if (type === "result") return { path: `/api/clinical/screening/sessions/${sessionId}/result`, method: "POST" };
+  return { path: `/api/clinical/screening/sessions/${sessionId}/override`, method: "POST" };
+}
+
+function numericOrUndefined(value) {
+  return value === "" || value === null || value === undefined ? undefined : Number(value);
+}
+
+function screeningPayload(type, form) {
+  if (type === "start") {
+    const payload = { patient_id: form.patient_id, reason: form.reason || "Start donor screening session" };
+    if (form.appointment_id) payload.appointment_id = Number(form.appointment_id);
+    return payload;
+  }
+  if (type === "questionnaire") return { answers: form.answers || {}, notes: form.notes || "" };
+  if (type === "vitals") {
+    return {
+      height_cm: numericOrUndefined(form.height_cm),
+      weight_kg: numericOrUndefined(form.weight_kg),
+      temperature_c: numericOrUndefined(form.temperature_c),
+      blood_pressure_systolic: numericOrUndefined(form.blood_pressure_systolic),
+      blood_pressure_diastolic: numericOrUndefined(form.blood_pressure_diastolic),
+      pulse: numericOrUndefined(form.pulse),
+      respiration_rate: numericOrUndefined(form.respiration_rate),
+      oxygen_saturation: numericOrUndefined(form.oxygen_saturation),
+      notes: form.notes || "",
+    };
+  }
+  if (type === "eligibility") return compactPayload(form);
+  if (type === "result") {
+    const payload = { outcome: form.outcome, reason: form.reason };
+    if (form.deferral_type) payload.deferral_type = form.deferral_type;
+    if (form.deferral_ends_at) payload.deferral_ends_at = localDateTimeToIso(form.deferral_ends_at);
+    return payload;
+  }
+  return {
+    original_outcome: form.original_outcome,
+    override_outcome: form.override_outcome,
+    reason: form.reason,
+  };
+}
+
+function ScreeningWorkflowModal({
+  type,
+  session,
+  token,
+  template,
+  patients,
+  appointments,
+  onClose,
+  onSuccess,
+}) {
+  const [form, setForm] = useState(() => defaultScreeningForm(type, session, patients, appointments));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validateScreeningWorkflow(type, form, template);
+  const blockingIssues = preview?.blocking_issues || [];
+  const sessionId = session?.session_id;
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateAnswer(key, value) {
+    setForm((current) => ({ ...current, answers: { ...(current.answers || {}), [key]: value } }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(screeningPreviewEndpoint(type === "result" ? "eligibility" : type, sessionId), {
+        token,
+        method: "POST",
+        body: screeningPayload(type === "result" ? "eligibility" : type, form),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    if (type === "eligibility") {
+      setStep("success");
+      onSuccess({ eligibilityPreview: preview });
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const { path, method } = screeningCommitEndpoint(type, sessionId);
+    try {
+      const payload = await apiRequest(path, {
+        token,
+        method,
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...screeningPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess(payload);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={screeningWorkflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{screeningWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            {type === "start" && (
+              <div className="form-grid">
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+                <label>Appointment context<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {appointment.patient_name || appointment.patient_id}</option>)}</select></label>
+                <label>Reason<textarea value={form.reason} rows="3" onChange={(event) => updateField("reason", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "questionnaire" && (
+              <div className="workflow-list">
+                {(template?.questions || []).map((question) => (
+                  <label className="workflow-row screening-question-row" key={question.question_key}>
+                    <span>{question.label}</span>
+                    <select value={String(form.answers?.[question.question_key] ?? "")} onChange={(event) => updateAnswer(question.question_key, event.target.value === "" ? "" : event.target.value === "true")}>
+                      <option value="">Select</option>
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                  </label>
+                ))}
+                <label>Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "vitals" && (
+              <div className="form-grid">
+                <label>Height cm<input type="number" value={form.height_cm} onChange={(event) => updateField("height_cm", event.target.value)} /></label>
+                <label>Weight kg<input type="number" value={form.weight_kg} onChange={(event) => updateField("weight_kg", event.target.value)} /></label>
+                <label>Temperature C<input type="number" step="0.1" value={form.temperature_c} onChange={(event) => updateField("temperature_c", event.target.value)} /></label>
+                <label>Systolic<input type="number" value={form.blood_pressure_systolic} onChange={(event) => updateField("blood_pressure_systolic", event.target.value)} /></label>
+                <label>Diastolic<input type="number" value={form.blood_pressure_diastolic} onChange={(event) => updateField("blood_pressure_diastolic", event.target.value)} /></label>
+                <label>Pulse<input type="number" value={form.pulse} onChange={(event) => updateField("pulse", event.target.value)} /></label>
+                <label>Respiration rate<input type="number" value={form.respiration_rate} onChange={(event) => updateField("respiration_rate", event.target.value)} /></label>
+                <label>Oxygen saturation<input type="number" value={form.oxygen_saturation} onChange={(event) => updateField("oxygen_saturation", event.target.value)} /></label>
+                <label>Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "eligibility" && (
+              <div className="form-grid">
+                <label>Rule category<input value={form.category} onChange={(event) => updateField("category", event.target.value)} placeholder="Optional existing engine category" /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "result" && (
+              <div className="form-grid">
+                <label>Outcome<select value={form.outcome} onChange={(event) => updateField("outcome", event.target.value)}>{screeningOutcomeOptions.map((outcome) => <option key={outcome}>{outcome}</option>)}</select></label>
+                <label>Reason<textarea value={form.reason} rows="3" onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label>Deferral type<select value={form.deferral_type} onChange={(event) => updateField("deferral_type", event.target.value)}><option value="">None</option><option value="temporary">temporary</option><option value="permanent">permanent</option></select></label>
+                <label>Temporary deferral ends<input type="datetime-local" value={form.deferral_ends_at} onChange={(event) => updateField("deferral_ends_at", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "override" && (
+              <div className="form-grid">
+                <label>Original outcome<select value={form.original_outcome} onChange={(event) => updateField("original_outcome", event.target.value)}>{screeningOutcomeOptions.map((outcome) => <option key={outcome}>{outcome}</option>)}</select></label>
+                <label>Override outcome<select value={form.override_outcome} onChange={(event) => updateField("override_outcome", event.target.value)}>{screeningOutcomeOptions.map((outcome) => <option key={outcome}>{outcome}</option>)}</select></label>
+                <label>Reason<textarea value={form.reason} rows="4" onChange={(event) => updateField("reason", event.target.value)} /></label>
+              </div>
+            )}
+            {session && <div className="notice-state">Workflow target: {session.session_number} for {session.patient_name || session.patient_id}.</div>}
+            <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run clinical screening checks.</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className={blockingIssues.length ? "error-state" : "notice-state"}>{preview.summary}</div>
+            <Table rows={[
+              { field: "Preview hash", value: preview.preview_hash },
+              { field: "Validation", value: preview.validation_status },
+              { field: "Proposed outcome", value: preview.proposed_outcome || "" },
+              { field: "Supervisor review", value: preview.supervisor_review_required ? "Required" : "Not required" },
+              { field: "Deferral recommendation", value: preview.recommended_deferral_type || "" },
+            ]} columns={["field", "value"]} />
+            {!!preview.blocking_issues?.length && <div className="conflict-list">{preview.blocking_issues.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}><XCircle size={16} /><span>{issue.message}</span></div>)}</div>}
+            {!!preview.warnings?.length && <div className="conflict-list">{preview.warnings.map((warning) => <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}><AlertTriangle size={16} /><span>{warning.message}</span></div>)}</div>}
+            {!!preview.rules_evaluated?.length && <Table rows={preview.rules_evaluated.map((rule) => ({ rule: rule.rule_name, category: rule.rule_category, outcome: rule.outcome, explanation: rule.explanation }))} columns={["rule", "category", "outcome", "explanation"]} />}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={blockingIssues.length > 0 && type !== "eligibility"} onClick={() => setStep("confirm")}>Continue to commit confirmation</button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">{type === "eligibility" ? "Eligibility preview is non-mutating; the durable action is Commit Screening Result." : "Commit will send X-Confirm-Generation: true and append a screening workflow audit entry."}</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>Back to preview</button>
+            <button type="button" disabled={busy} onClick={runCommit}>{busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}{type === "eligibility" ? "Use preview" : "Commit workflow"}</button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Screening workflow completed successfully.</div>
+            <button type="button" onClick={onClose}>Done</button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ClinicalScreeningPage({ token, navigate }) {
+  const [sessions, setSessions] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [rules, setRules] = useState([]);
+  const [deferrals, setDeferrals] = useState([]);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [eligibilityPreview, setEligibilityPreview] = useState(null);
+  const [query, setQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [appointmentContext, setAppointmentContext] = useState("");
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const template = templates[0] || { questions: [] };
+
+  async function loadScreening() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (dateFilter) params.set("date", dateFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (appointmentContext) params.set("appointment_context", appointmentContext);
+    try {
+      const [sessionPayload, templatePayload, rulePayload, deferralPayload, patientPayload, appointmentPayload] = await Promise.all([
+        apiRequest(`/api/clinical/screening/sessions${params.toString() ? `?${params}` : ""}`, { token }),
+        apiRequest("/api/clinical/screening/templates", { token }),
+        apiRequest("/api/clinical/screening/rules", { token }),
+        apiRequest("/api/clinical/screening/deferrals", { token }),
+        apiRequest("/api/clinical/patients?limit=500", { token }),
+        apiRequest("/api/clinical/scheduling/appointments?limit=500", { token }).catch(() => ({ appointments: [] })),
+      ]);
+      const nextSessions = sessionPayload?.sessions || [];
+      setSessions(nextSessions);
+      setTemplates(templatePayload || []);
+      setRules(rulePayload || []);
+      setDeferrals(deferralPayload || []);
+      setPatients(patientPayload?.patients || []);
+      setAppointments(appointmentPayload?.appointments || []);
+      setSelectedSession((current) => {
+        if (!nextSessions.length) return null;
+        if (!current) return nextSessions[0];
+        return nextSessions.find((session) => session.session_id === current.session_id) || nextSessions[0];
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadScreening();
+  }, [token]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    loadScreening();
+  }
+
+  function workflowSuccess(payload) {
+    if (payload?.eligibilityPreview) setEligibilityPreview(payload.eligibilityPreview);
+    if (payload?.session) setSelectedSession(payload.session);
+    loadScreening();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Donor screening / eligibility</p>
+          <h2>Screening Queue</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("start")}><CheckCircle2 size={16} />Start Screening</button>
+          <button type="button" className="secondary-button" onClick={loadScreening}><RefreshCw size={16} />Refresh</button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/encounters")}><FileCheck2 size={16} />Encounters Planned</button>
+        </div>
+      </section>
+      <section>
+        <form className="screening-filter" onSubmit={submitSearch}>
+          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Session, patient, or donor" /></label>
+          <label>Date<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
+          <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{screeningStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
+          <label>Appointment<select value={appointmentContext} onChange={(event) => setAppointmentContext(event.target.value)}><option value="">All</option><option value="true">With appointment</option><option value="false">Without appointment</option></select></label>
+          <button type="submit"><FileCheck2 size={16} />Apply</button>
+        </form>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="notice-state">Loading screening queue...</div>}
+      {!loading && !sessions.length && <div className="empty-state">No screening sessions match the current filters.</div>}
+      {!!sessions.length && (
+        <div className="split screening-layout">
+          <section>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Session</th><th>Patient / Donor</th><th>Appointment</th><th>Outcome</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  {sessions.map((session) => (
+                    <tr key={session.session_id}>
+                      <td>{session.session_number}</td>
+                      <td>{session.patient_name || session.patient_id}</td>
+                      <td>{session.appointment_number || "No appointment"}</td>
+                      <td>{session.current_outcome || ""}</td>
+                      <td><StatusPill status={session.status} /></td>
+                      <td><button type="button" className="table-action" onClick={() => setSelectedSession(session)}>Open</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="appointment-detail-panel">
+            {selectedSession ? (
+              <>
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">{selectedSession.session_number}</p>
+                    <h3>{selectedSession.patient_name || selectedSession.patient_id}</h3>
+                  </div>
+                  <StatusPill status={selectedSession.status} />
+                </div>
+                <Table rows={[
+                  { field: "Patient ID", value: selectedSession.patient_id },
+                  { field: "Appointment", value: selectedSession.appointment_number || "No appointment" },
+                  { field: "Template", value: selectedSession.template_id },
+                  { field: "Current outcome", value: selectedSession.current_outcome || "" },
+                  { field: "Supervisor review", value: selectedSession.supervisor_review_required ? "Required" : "Not required" },
+                  { field: "Started", value: formatDateTime(selectedSession.started_at) },
+                  { field: "Completed", value: formatDateTime(selectedSession.completed_at) },
+                ]} columns={["field", "value"]} />
+                <div className="clinical-actions detail-actions">
+                  <button type="button" onClick={() => setModalType("questionnaire")}><FileCheck2 size={16} />Questionnaire</button>
+                  <button type="button" onClick={() => setModalType("vitals")}><HeartPulse size={16} />Vitals</button>
+                  <button type="button" onClick={() => setModalType("eligibility")}><ShieldCheck size={16} />Preview Eligibility</button>
+                  <button type="button" onClick={() => setModalType("result")}><CheckCircle2 size={16} />Commit Result</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("override")}><AlertTriangle size={16} />Override</button>
+                </div>
+              </>
+            ) : <div className="empty-state">Select a screening session to review details.</div>}
+          </section>
+        </div>
+      )}
+      {selectedSession && (
+        <div className="screening-detail-grid">
+          <section><h3>Questionnaire</h3><Table rows={(selectedSession.answers || []).map((answer) => ({ question: answer.question_key, answer: String(answer.answer_value?.value ?? ""), notes: answer.notes }))} columns={["question", "answer", "notes"]} /></section>
+          <section><h3>Vitals</h3><Table rows={(selectedSession.vitals || []).map((vitals) => ({ captured_at: formatDateTime(vitals.captured_at), weight_kg: vitals.weight_kg, temperature_c: vitals.temperature_c, bp: `${vitals.blood_pressure_systolic}/${vitals.blood_pressure_diastolic}`, pulse: vitals.pulse }))} columns={["captured_at", "weight_kg", "temperature_c", "bp", "pulse"]} /></section>
+          <section><h3>Eligibility Preview</h3>{eligibilityPreview ? <Table rows={[{ field: "Proposed outcome", value: eligibilityPreview.proposed_outcome }, { field: "Supervisor review", value: eligibilityPreview.supervisor_review_required ? "Required" : "Not required" }, { field: "Deferral", value: eligibilityPreview.recommended_deferral_type || "" }]} columns={["field", "value"]} /> : <div className="empty-state">No eligibility preview generated in this session view.</div>}</section>
+          <section><h3>Deferrals</h3><Table rows={(selectedSession.deferrals || []).map((deferral) => ({ deferral: deferral.deferral_number, type: deferral.deferral_type, status: deferral.status, reason: deferral.reason }))} columns={["deferral", "type", "status", "reason"]} /></section>
+          <section><h3>Supervisor Override</h3><Table rows={(selectedSession.outcomes || []).filter((outcome) => outcome.override_outcome).map((outcome) => ({ original: outcome.original_outcome, override: outcome.override_outcome, reason: outcome.reason, at: formatDateTime(outcome.created_at) }))} columns={["original", "override", "reason", "at"]} /></section>
+          <section><h3>Recent Audit Activity</h3><Table rows={(selectedSession.outcomes || []).map((outcome) => ({ event: outcome.override_outcome ? "Override" : "Result", outcome: outcome.committed_outcome || outcome.override_outcome || outcome.proposed_outcome, at: formatDateTime(outcome.created_at) }))} columns={["event", "outcome", "at"]} /></section>
+        </div>
+      )}
+      <div className="split">
+        <section><h3>Screening Rules</h3><Table rows={rules.map((rule) => ({ rule: rule.rule_name, category: rule.rule_category, outcome: rule.outcome, explanation: rule.explanation }))} columns={["rule", "category", "outcome", "explanation"]} /></section>
+        <section><h3>Active Deferrals</h3><Table rows={deferrals.map((deferral) => ({ deferral: deferral.deferral_number, patient: deferral.patient_id, type: deferral.deferral_type, status: deferral.status }))} columns={["deferral", "patient", "type", "status"]} /></section>
+      </div>
+      {modalType && (
+        <ScreeningWorkflowModal
+          type={modalType}
+          session={modalType === "start" ? null : selectedSession}
+          token={token}
+          template={template}
+          patients={patients}
+          appointments={appointments}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
   if (section.id === "clinical_patients") {
     return <ClinicalPatientsPage token={token} navigate={navigate} />;
   }
   if (section.id === "clinical_scheduling") {
     return <ClinicalSchedulingPage token={token} navigate={navigate} />;
+  }
+  if (section.id === "clinical_screening") {
+    return <ClinicalScreeningPage token={token} navigate={navigate} />;
   }
   if (section.id === "clinical_patient_detail") {
     return <ClinicalPatientDetailPage token={token} route={route} navigate={navigate} />;
