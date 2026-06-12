@@ -101,8 +101,8 @@ CLINICAL_MODULES = [
         label="Billing",
         route="/clinical/billing",
         api_namespace="/api/clinical/billing",
-        status="planned_workflow",
-        workflows=["Capture charges", "Preview claim", "Commit claim"],
+        status="active",
+        workflows=["Verify insurance", "Capture charge", "Create claim draft", "Post payment", "Capture denial"],
     ),
     ClinicalModuleRead(
         module_id="quality",

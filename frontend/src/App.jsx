@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  CreditCard,
   Database,
   FileCheck2,
   HeartPulse,
@@ -17,6 +18,7 @@ import {
   Mail,
   Play,
   RefreshCw,
+  ReceiptText,
   ShieldCheck,
   Square,
   UploadCloud,
@@ -221,8 +223,8 @@ const clinicalSections = [
     label: "Billing",
     route: "/clinical/billing",
     icon: Database,
-    status: "Planned workflow",
-    workflows: ["Capture charges", "Preview claim", "Commit claim"],
+    status: "Active",
+    workflows: ["Verify insurance", "Capture charge", "Create claim draft", "Post payment", "Capture denial"],
   },
   {
     id: "clinical_quality",
@@ -356,6 +358,10 @@ async function verifyMfa(mfaToken, code) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat().format(Number(value || 0));
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(Number(value || 0));
 }
 
 function sumCounts(rows, field = "count") {
@@ -4176,7 +4182,643 @@ function ClinicalCarePlansPage({ token, navigate }) {
   );
 }
 
+const billingStatusOptions = ["open", "closed"];
+const billingClaimStatusOptions = ["ready_for_review", "partially_paid", "paid", "denied"];
+const billingDenialStatusOptions = ["open", "resolved"];
+
+function billingWorkflowTitle(type) {
+  return {
+    verify: "Verify Insurance",
+    charge: "Capture Charge",
+    claim: "Create Claim Draft",
+    payment: "Post Payment",
+    denial: "Capture Denial",
+  }[type];
+}
+
+function defaultBillingForm(type, account, patients, queue) {
+  const patient = account?.patient_id || patients[0]?.patient_id || "";
+  const insurance = patients.find((item) => item.patient_id === patient)?.insurance_profiles?.[0]?.insurance_id || "";
+  if (type === "verify") {
+    return { patient_id: patient, patient_insurance_id: insurance, verification_status: "verified", notes: "" };
+  }
+  if (type === "charge") {
+    return {
+      patient_id: patient,
+      encounter_id: "",
+      order_id: "",
+      order_result_id: "",
+      care_plan_id: "",
+      care_plan_task_id: "",
+      service_date: defaultDateInput(),
+      code: "",
+      code_type: "internal",
+      description: "",
+      quantity: "1",
+      unit_amount: "",
+      status: "captured",
+    };
+  }
+  if (type === "claim") {
+    return { patient_id: patient, patient_insurance_id: insurance, charge_ids: [], status: "ready_for_review", diagnosis_code: "" };
+  }
+  if (type === "payment") {
+    return { claim_id: queue?.claims?.[0]?.claim_id || "", payment_amount: "", adjustment_amount: "0", payment_method: "eft", payer_type: "insurance", reference_number: "", notes: "" };
+  }
+  return { claim_id: queue?.claims?.[0]?.claim_id || "", claim_line_id: "", denial_code: "", denial_reason: "", status: "open", assigned_to: "", due_date: "" };
+}
+
+function billingPreviewEndpoint(type) {
+  return {
+    verify: "/api/clinical/billing/insurance-verifications/preview",
+    charge: "/api/clinical/billing/charges/preview",
+    claim: "/api/clinical/billing/claims/preview",
+    payment: "/api/clinical/billing/payments/preview",
+    denial: "/api/clinical/billing/denials/preview",
+  }[type];
+}
+
+function billingCommitEndpoint(type) {
+  return {
+    verify: "/api/clinical/billing/insurance-verifications",
+    charge: "/api/clinical/billing/charges",
+    claim: "/api/clinical/billing/claims",
+    payment: "/api/clinical/billing/payments",
+    denial: "/api/clinical/billing/denials",
+  }[type];
+}
+
+function numberOrUndefined(value) {
+  return value === "" || value === null || value === undefined ? undefined : Number(value);
+}
+
+function billingPayload(type, form) {
+  if (type === "verify") {
+    return compactPayload({
+      patient_id: form.patient_id,
+      patient_insurance_id: numberOrUndefined(form.patient_insurance_id),
+      verification_status: form.verification_status,
+      notes: form.notes,
+    });
+  }
+  if (type === "charge") {
+    return compactPayload({
+      patient_id: form.patient_id,
+      encounter_id: numberOrUndefined(form.encounter_id),
+      order_id: numberOrUndefined(form.order_id),
+      order_result_id: numberOrUndefined(form.order_result_id),
+      care_plan_id: numberOrUndefined(form.care_plan_id),
+      care_plan_task_id: numberOrUndefined(form.care_plan_task_id),
+      service_date: form.service_date,
+      code: form.code,
+      code_type: form.code_type,
+      description: form.description,
+      quantity: Number(form.quantity || 0),
+      unit_amount: Number(form.unit_amount || 0),
+      status: form.status,
+    });
+  }
+  if (type === "claim") {
+    return compactPayload({
+      patient_id: form.patient_id,
+      patient_insurance_id: numberOrUndefined(form.patient_insurance_id),
+      charge_ids: form.charge_ids.map((chargeId) => Number(chargeId)),
+      status: form.status,
+      diagnosis_code: form.diagnosis_code,
+    });
+  }
+  if (type === "payment") {
+    return compactPayload({
+      claim_id: Number(form.claim_id),
+      payment_amount: Number(form.payment_amount || 0),
+      adjustment_amount: Number(form.adjustment_amount || 0),
+      payment_method: form.payment_method,
+      payer_type: form.payer_type,
+      reference_number: form.reference_number,
+      notes: form.notes,
+    });
+  }
+  return compactPayload({
+    claim_id: Number(form.claim_id),
+    claim_line_id: numberOrUndefined(form.claim_line_id),
+    denial_code: form.denial_code,
+    denial_reason: form.denial_reason,
+    status: form.status,
+    assigned_to: form.assigned_to,
+    due_date: form.due_date,
+  });
+}
+
+function validateBillingWorkflow(type, form) {
+  const issues = [];
+  if (["verify", "charge", "claim"].includes(type) && !form.patient_id) issues.push("Patient is required.");
+  if (type === "charge") {
+    if (!form.service_date) issues.push("Service date is required.");
+    if (!form.code) issues.push("Code is required.");
+    if (!form.description) issues.push("Description is required.");
+    if (Number(form.quantity || 0) <= 0) issues.push("Quantity must be greater than zero.");
+    if (form.unit_amount === "" || Number(form.unit_amount) < 0) issues.push("Unit amount is required.");
+  }
+  if (type === "claim" && !form.charge_ids.length) issues.push("Select at least one charge.");
+  if (type === "payment") {
+    if (!form.claim_id) issues.push("Claim is required.");
+    if (Number(form.payment_amount || 0) + Number(form.adjustment_amount || 0) <= 0) issues.push("Payment or adjustment amount is required.");
+  }
+  if (type === "denial") {
+    if (!form.claim_id) issues.push("Claim is required.");
+    if (!form.denial_reason) issues.push("Denial reason is required.");
+  }
+  return issues;
+}
+
+function patientInsuranceOptions(patients, patientId) {
+  return patients.find((patient) => patient.patient_id === patientId)?.insurance_profiles || [];
+}
+
+function claimLineOptions(queue, claimId) {
+  return queue?.claims?.find((claim) => String(claim.claim_id) === String(claimId))?.lines || [];
+}
+
+function BillingWorkflowModal({ type, token, account, patients, encounters, orders, carePlans, queue, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultBillingForm(type, account, patients, queue));
+  const [preview, setPreview] = useState(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const validationIssues = validateBillingWorkflow(type, form);
+  const insuranceOptions = patientInsuranceOptions(patients, form.patient_id);
+  const patientEncounters = encounters.filter((encounter) => encounter.patient_id === form.patient_id);
+  const patientOrders = orders.filter((order) => order.patient_id === form.patient_id);
+  const patientCarePlans = carePlans.filter((carePlan) => carePlan.patient_id === form.patient_id);
+  const eligibleCharges = (queue?.charges || []).filter(
+    (charge) => charge.patient_id === form.patient_id && !["voided", "cancelled", "claimed"].includes(charge.status),
+  );
+  const selectedClaimLines = claimLineOptions(queue, form.claim_id);
+
+  async function previewWorkflow(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    if (validationIssues.length) return;
+    try {
+      const payload = await apiRequest(billingPreviewEndpoint(type), {
+        token,
+        method: "POST",
+        body: billingPayload(type, form),
+      });
+      setPreview(payload);
+      setMessage(payload.validation_status === "failed" ? "Preview has blocking issues." : "Preview ready for confirmation.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function commitWorkflow() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await apiRequest(billingCommitEndpoint(type), {
+        token,
+        method: "POST",
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...billingPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setMessage(`Committed ${result.operation_id}.`);
+      onSuccess(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function toggleCharge(chargeId) {
+    const value = String(chargeId);
+    setForm((current) => ({
+      ...current,
+      charge_ids: current.charge_ids.includes(value)
+        ? current.charge_ids.filter((item) => item !== value)
+        : [...current.charge_ids, value],
+    }));
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="workflow-modal billing-modal">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Billing workflow</p>
+            <h3>{billingWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        <form className="stacked-form" onSubmit={previewWorkflow}>
+          {["verify", "charge", "claim"].includes(type) && (
+            <label>
+              Patient
+              <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value, patient_insurance_id: "", charge_ids: [] })}>
+                <option value="">Select patient</option>
+                {patients.map((patient) => (
+                  <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id} - {patientDisplayName(patient)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {["verify", "claim"].includes(type) && (
+            <label>
+              Insurance
+              <select value={form.patient_insurance_id} onChange={(event) => setForm({ ...form, patient_insurance_id: event.target.value })}>
+                <option value="">Manual or self-pay</option>
+                {insuranceOptions.map((insurance) => (
+                  <option key={insurance.insurance_id} value={insurance.insurance_id}>{insurance.payer_name} - {insurance.member_id || "member pending"}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {type === "verify" && (
+            <>
+              <label>
+                Verification status
+                <select value={form.verification_status} onChange={(event) => setForm({ ...form, verification_status: event.target.value })}>
+                  {["verified", "not_verified", "needs_review", "inactive"].map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </label>
+              <label>
+                Notes
+                <textarea rows="3" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+              </label>
+            </>
+          )}
+          {type === "charge" && (
+            <>
+              <div className="form-grid">
+                <label>
+                  Encounter
+                  <select value={form.encounter_id} onChange={(event) => setForm({ ...form, encounter_id: event.target.value })}>
+                    <option value="">None</option>
+                    {patientEncounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {encounter.status}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Order
+                  <select value={form.order_id} onChange={(event) => setForm({ ...form, order_id: event.target.value, order_result_id: "" })}>
+                    <option value="">None</option>
+                    {patientOrders.map((order) => <option key={order.order_id} value={order.order_id}>{order.order_number} - {order.status}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Order result
+                  <select value={form.order_result_id} onChange={(event) => setForm({ ...form, order_result_id: event.target.value })}>
+                    <option value="">None</option>
+                    {patientOrders.find((order) => String(order.order_id) === String(form.order_id))?.results?.map((result) => (
+                      <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_status}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Care plan
+                  <select value={form.care_plan_id} onChange={(event) => setForm({ ...form, care_plan_id: event.target.value, care_plan_task_id: "" })}>
+                    <option value="">None</option>
+                    {patientCarePlans.map((carePlan) => <option key={carePlan.care_plan_id} value={carePlan.care_plan_id}>{carePlan.care_plan_number} - {carePlan.status}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Care plan task
+                  <select value={form.care_plan_task_id} onChange={(event) => setForm({ ...form, care_plan_task_id: event.target.value })}>
+                    <option value="">None</option>
+                    {patientCarePlans.find((carePlan) => String(carePlan.care_plan_id) === String(form.care_plan_id))?.tasks?.map((task) => (
+                      <option key={task.task_id} value={task.task_id}>{task.title} - {task.status}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Service date
+                  <input type="date" value={form.service_date} onChange={(event) => setForm({ ...form, service_date: event.target.value })} />
+                </label>
+              </div>
+              <div className="form-grid">
+                <label>
+                  Code
+                  <input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} />
+                </label>
+                <label>
+                  Code type
+                  <select value={form.code_type} onChange={(event) => setForm({ ...form, code_type: event.target.value })}>
+                    {["internal", "cpt", "hcpcs"].map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Quantity
+                  <input type="number" min="0.01" step="0.01" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} />
+                </label>
+                <label>
+                  Unit amount
+                  <input type="number" min="0" step="0.01" value={form.unit_amount} onChange={(event) => setForm({ ...form, unit_amount: event.target.value })} />
+                </label>
+              </div>
+              <label>
+                Description
+                <textarea rows="3" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+              </label>
+            </>
+          )}
+          {type === "claim" && (
+            <>
+              <label>
+                Claim status
+                <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+                  {["ready_for_review", "draft"].map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </label>
+              <label>
+                Diagnosis code
+                <input value={form.diagnosis_code} onChange={(event) => setForm({ ...form, diagnosis_code: event.target.value })} />
+              </label>
+              <div className="charge-picker">
+                {eligibleCharges.length ? eligibleCharges.map((charge) => (
+                  <label key={charge.charge_id} className="checkbox-row">
+                    <input type="checkbox" checked={form.charge_ids.includes(String(charge.charge_id))} onChange={() => toggleCharge(charge.charge_id)} />
+                    {charge.charge_number} - {charge.code} - {formatMoney(charge.total_amount)}
+                  </label>
+                )) : <div className="empty-state">No eligible captured charges for this patient.</div>}
+              </div>
+            </>
+          )}
+          {type === "payment" && (
+            <div className="form-grid">
+              <label>
+                Claim
+                <select value={form.claim_id} onChange={(event) => setForm({ ...form, claim_id: event.target.value })}>
+                  <option value="">Select claim</option>
+                  {(queue?.claims || []).map((claim) => <option key={claim.claim_id} value={claim.claim_id}>{claim.claim_number} - {formatMoney(claim.balance)}</option>)}
+                </select>
+              </label>
+              <label>
+                Payment amount
+                <input type="number" min="0" step="0.01" value={form.payment_amount} onChange={(event) => setForm({ ...form, payment_amount: event.target.value })} />
+              </label>
+              <label>
+                Adjustment
+                <input type="number" min="0" step="0.01" value={form.adjustment_amount} onChange={(event) => setForm({ ...form, adjustment_amount: event.target.value })} />
+              </label>
+              <label>
+                Method
+                <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value })}>
+                  {["eft", "check", "card", "cash"].map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                Payer type
+                <select value={form.payer_type} onChange={(event) => setForm({ ...form, payer_type: event.target.value })}>
+                  {["insurance", "patient", "adjustment"].map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                Reference
+                <input value={form.reference_number} onChange={(event) => setForm({ ...form, reference_number: event.target.value })} />
+              </label>
+            </div>
+          )}
+          {type === "denial" && (
+            <>
+              <div className="form-grid">
+                <label>
+                  Claim
+                  <select value={form.claim_id} onChange={(event) => setForm({ ...form, claim_id: event.target.value, claim_line_id: "" })}>
+                    <option value="">Select claim</option>
+                    {(queue?.claims || []).map((claim) => <option key={claim.claim_id} value={claim.claim_id}>{claim.claim_number} - {claim.status}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Claim line
+                  <select value={form.claim_line_id} onChange={(event) => setForm({ ...form, claim_line_id: event.target.value })}>
+                    <option value="">Whole claim</option>
+                    {selectedClaimLines.map((line) => <option key={line.line_id} value={line.line_id}>Line {line.line_number} - {line.code}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Denial code
+                  <input value={form.denial_code} onChange={(event) => setForm({ ...form, denial_code: event.target.value })} />
+                </label>
+                <label>
+                  Assigned to
+                  <input value={form.assigned_to} onChange={(event) => setForm({ ...form, assigned_to: event.target.value })} />
+                </label>
+                <label>
+                  Due date
+                  <input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
+                </label>
+              </div>
+              <label>
+                Denial reason
+                <textarea rows="3" value={form.denial_reason} onChange={(event) => setForm({ ...form, denial_reason: event.target.value })} />
+              </label>
+            </>
+          )}
+          {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
+          {preview && (
+            <div className="preview-panel">
+              <StatusPill status={preview.validation_status} />
+              <p>{preview.summary}</p>
+              {preview.blocking_issues?.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}>{issue.message}</div>)}
+              {preview.warnings?.map((warning) => <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}>{warning.message}</div>)}
+            </div>
+          )}
+          {message && <div className="notice-state">{message}</div>}
+          {error && <div className="error-state">{error}</div>}
+          <div className="modal-actions">
+            <button type="submit" disabled={Boolean(validationIssues.length)}>
+              <FileCheck2 size={16} />
+              Preview
+            </button>
+            <button type="button" className="secondary-button" disabled={!preview || preview.validation_status === "failed" || submitting} onClick={commitWorkflow}>
+              <CheckCircle2 size={16} />
+              Confirm
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function ClinicalBillingPage({ token, navigate }) {
+  const [queue, setQueue] = useState({ accounts: [], charges: [], claims: [], payments: [], denials: [], insurance_verifications: [] });
+  const [patients, setPatients] = useState([]);
+  const [encounters, setEncounters] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [carePlans, setCarePlans] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  const [filters, setFilters] = useState({ q: "", status: "", patient_id: "", payer: "", date: "", claim_status: "", denial_status: "" });
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const selectedAccount = queue.accounts.find((account) => account.account_id === selectedAccountId) || queue.accounts[0];
+  const openDenials = queue.denials.filter((denial) => denial.status === "open");
+  const totalBalance = queue.accounts.reduce((total, account) => total + Number(account.balance || 0), 0);
+  const totalCharges = queue.charges.reduce((total, charge) => total + Number(charge.total_amount || 0), 0);
+  const claimBalance = queue.claims.reduce((total, claim) => total + Number(claim.balance || 0), 0);
+
+  async function loadBilling() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    try {
+      const [workQueue, patientPayload, encounterPayload, orderPayload, carePlanPayload] = await Promise.all([
+        apiRequest(`/api/clinical/billing/work-queue?${params.toString()}`, { token }),
+        apiRequest("/api/clinical/patients?limit=200", { token }),
+        apiRequest("/api/clinical/encounters?limit=200", { token }),
+        apiRequest("/api/clinical/orders?limit=200", { token }),
+        apiRequest("/api/clinical/care-plans?limit=200", { token }),
+      ]);
+      setQueue(workQueue);
+      setPatients(patientPayload.patients || []);
+      setEncounters(encounterPayload.encounters || []);
+      setOrders(orderPayload.orders || []);
+      setCarePlans(carePlanPayload.care_plans || []);
+      setSelectedAccountId((current) => current || workQueue.accounts?.[0]?.account_id || null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadBilling();
+  }, [token]);
+
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function workflowSuccess() {
+    loadBilling();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Revenue cycle foundation</p>
+          <h2>Billing / Insurance</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("verify")}><ShieldCheck size={16} />Verify Insurance</button>
+          <button type="button" onClick={() => setModalType("charge")}><ReceiptText size={16} />Create Charge</button>
+          <button type="button" onClick={() => setModalType("claim")}><FileCheck2 size={16} />Create Claim</button>
+          <button type="button" onClick={() => setModalType("payment")}><CreditCard size={16} />Post Payment</button>
+          <button type="button" onClick={() => setModalType("denial")}><AlertTriangle size={16} />Capture Denial</button>
+        </div>
+      </section>
+      <section>
+        <div className="billing-filter">
+          <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Patient, account, claim, charge" /></label>
+          <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All</option>{billingStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Patient<select value={filters.patient_id} onChange={(event) => updateFilter("patient_id", event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id}</option>)}</select></label>
+          <label>Payer<input value={filters.payer} onChange={(event) => updateFilter("payer", event.target.value)} /></label>
+          <label>Date<input type="date" value={filters.date} onChange={(event) => updateFilter("date", event.target.value)} /></label>
+          <label>Claim<select value={filters.claim_status} onChange={(event) => updateFilter("claim_status", event.target.value)}><option value="">All</option>{billingClaimStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Denial<select value={filters.denial_status} onChange={(event) => updateFilter("denial_status", event.target.value)}><option value="">Open</option>{billingDenialStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <button type="button" onClick={loadBilling}><RefreshCw size={16} />Apply</button>
+        </div>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading ? <div className="notice-state">Loading billing work queue...</div> : (
+        <>
+          <div className="content-grid">
+            <MetricCard label="Account Balance" value={formatMoney(totalBalance)} tone={totalBalance > 0 ? "warning" : "neutral"} />
+            <MetricCard label="Captured Charges" value={formatMoney(totalCharges)} />
+            <MetricCard label="Claim Balance" value={formatMoney(claimBalance)} tone={claimBalance > 0 ? "warning" : "neutral"} />
+            <MetricCard label="Open Denials" value={formatNumber(openDenials.length)} tone={openDenials.length ? "warning" : "neutral"} />
+          </div>
+          <div className="split billing-layout">
+            <section>
+              <h3>Billing Work Queue</h3>
+              <div className="workflow-list">
+                {queue.accounts.length ? queue.accounts.map((account) => (
+                  <button type="button" className="workflow-row" key={account.account_id} onClick={() => setSelectedAccountId(account.account_id)}>
+                    <span>{account.account_number} - {account.patient_name}</span>
+                    <span>{formatMoney(account.balance)}</span>
+                    <StatusPill status={account.status} />
+                  </button>
+                )) : <div className="empty-state">No billing accounts match the current filters.</div>}
+              </div>
+            </section>
+            <section>
+              <h3>Account Summary</h3>
+              {selectedAccount ? (
+                <div className="info-list compact">
+                  <p><strong>{selectedAccount.account_number}</strong></p>
+                  <p>{selectedAccount.patient_id} - {selectedAccount.patient_name}</p>
+                  <p>{selectedAccount.payer_name || "No payer selected"}</p>
+                  <div className="summary-grid">
+                    <span>Charges <strong>{formatMoney(selectedAccount.total_charges)}</strong></span>
+                    <span>Payments <strong>{formatMoney(selectedAccount.total_payments)}</strong></span>
+                    <span>Adjustments <strong>{formatMoney(selectedAccount.total_adjustments)}</strong></span>
+                    <span>Balance <strong>{formatMoney(selectedAccount.balance)}</strong></span>
+                  </div>
+                </div>
+              ) : <div className="empty-state">Select or create a billing account.</div>}
+            </section>
+          </div>
+          <div className="billing-detail-grid">
+            <section>
+              <h3>Insurance Verification</h3>
+              <Table rows={queue.insurance_verifications.slice(0, 6)} columns={["patient_id", "payer_name", "verification_status", "verified_at"]} />
+            </section>
+            <section>
+              <h3>Charges</h3>
+              <Table rows={queue.charges.slice(0, 8)} columns={["charge_number", "patient_id", "code", "total_amount", "status"]} />
+            </section>
+            <section>
+              <h3>Claims</h3>
+              <Table rows={queue.claims.slice(0, 8)} columns={["claim_number", "patient_id", "payer_name", "balance", "status"]} />
+            </section>
+            <section>
+              <h3>Payments</h3>
+              <Table rows={queue.payments.slice(0, 8)} columns={["claim_number", "payment_amount", "adjustment_amount", "payment_method", "posted_at"]} />
+            </section>
+            <section>
+              <h3>Denial / Rework</h3>
+              <Table rows={queue.denials.slice(0, 8)} columns={["claim_number", "denial_code", "denial_reason", "status", "due_date"]} />
+            </section>
+            <section>
+              <h3>Handoffs</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/quality")}><span>Quality / Compliance</span><StatusPill status="Planned" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Reporting</span><StatusPill status="Foundation pending" /></button>
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+      {modalType && (
+        <BillingWorkflowModal
+          type={modalType}
+          token={token}
+          account={selectedAccount}
+          patients={patients}
+          encounters={encounters}
+          orders={orders}
+          carePlans={carePlans}
+          queue={queue}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_billing") {
+    return <ClinicalBillingPage token={token} navigate={navigate} />;
+  }
   if (section.id === "clinical_care_plans") {
     return <ClinicalCarePlansPage token={token} navigate={navigate} />;
   }

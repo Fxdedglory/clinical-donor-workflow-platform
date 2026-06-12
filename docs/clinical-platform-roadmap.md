@@ -24,7 +24,7 @@ Important repository state from Sprint 0:
 | EMR / Encounters | Sprint 5 adds encounter creation, note templates, draft notes, signing/locking, amendments, diagnoses/problems, allergies, medications, status history, RBAC, audit, and an operational UI. | Add richer clinician assignment, encounter closure/cancellation policies, problem reconciliation, medication/allergy reconciliation, and deeper downstream decision support. |
 | Orders / Results | Sprint 6 adds generic clinical order catalog, order placement, result entry/correction, abnormal/critical flags, acknowledgement, cancellation, status history, RBAC, audit, and an operational UI. | Add specimen accessioning, laboratory interface ingestion, reference-range engines, richer correction policy, infectious disease fact reconciliation, and downstream Billing handoff. |
 | Care Plans | Sprint 7 adds patient-linked care plans, goals, interventions, tasks, team assignment, progress timeline, closure, RBAC, audit, and an operational UI. | Add richer task lifecycle updates, cross-plan case load balancing, referral automation, and downstream Billing/Quality handoff. |
-| Billing / Insurance | No billing workflow module. | Add insurance profile, charges, codes, authorizations, claims, payments, denials, and rework queues. |
+| Billing / Insurance | Sprint 8 adds billing accounts, insurance verification, charge capture, claim drafts/lines, payment posting, denial/rework, RBAC, audit, and an operational UI. | Add real clearinghouse submission, EDI 837/835, prior authorization, coding master data ingestion, appeals, and payer integrations. |
 | Quality / Compliance | Deviation, CAPA, audit, and QMS concepts exist. | Add `/clinical/quality` workflows, adverse events, audit evidence export, severity classification, and closure approval. |
 | Reporting / Analytics | Dashboards, monitoring, and export metadata exist. | Add clinical module reports with date/status/entity filters and export surfaces. |
 | Clinical Administration | System admin and RBAC exist. | Add versioned clinical templates, appointment types, screening rules, note templates, order catalogs, billing code lists, quality categories, and approval paths. |
@@ -381,12 +381,65 @@ Implemented care plan foundation:
 - Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover patient/context validation, missing/invalid/valid confirmation headers, audit file creation and append preservation, goals/interventions/tasks, progress timeline/status update, closure requirements/blocking behavior, and external partner mutation rejection.
 
+## Sprint 8 Implemented Scope
+
+Sprint 8 implements Billing / Insurance as the revenue-cycle foundation linked to Patient / Donor Registration, Encounters, Orders / Results, and Care Plans.
+
+Implemented billing foundation:
+
+- Persistent billing entities:
+  - `operational.clinical_billing_accounts`
+  - `operational.clinical_insurance_verifications`
+  - `operational.clinical_charges`
+  - `operational.clinical_claims`
+  - `operational.clinical_claim_lines`
+  - `operational.clinical_payments`
+  - `operational.clinical_denials`
+  - `operational.clinical_billing_status_history`
+- Alembic migration `202606120007_clinical_billing`.
+- Billing RBAC permissions:
+  - `billing.read`
+  - `billing.manage`
+  - `billing.payment_post`
+- Backend `/api/clinical/billing` endpoints:
+  - `GET /api/clinical/billing/accounts`
+  - `GET /api/clinical/billing/accounts/{account_id}`
+  - `GET /api/clinical/billing/charges`
+  - `POST /api/clinical/billing/charges/preview`
+  - `POST /api/clinical/billing/charges`
+  - `GET /api/clinical/billing/claims`
+  - `GET /api/clinical/billing/claims/{claim_id}`
+  - `POST /api/clinical/billing/claims/preview`
+  - `POST /api/clinical/billing/claims`
+  - `POST /api/clinical/billing/payments/preview`
+  - `POST /api/clinical/billing/payments`
+  - `POST /api/clinical/billing/denials/preview`
+  - `POST /api/clinical/billing/denials`
+  - `POST /api/clinical/billing/insurance-verifications/preview`
+  - `POST /api/clinical/billing/insurance-verifications`
+  - `GET /api/clinical/billing/work-queue`
+- Billing accounts link to canonical patient records and are created automatically on first charge when no account exists.
+- Patient insurance records from registration are reused for insurance verification and claim payer context.
+- Charge capture validates linked encounter, order, order result, care plan, and care plan task context belongs to the same patient before commit.
+- Claim preview rejects voided/cancelled charges, returns payer/patient/line item totals, and claim commit generates claim lines from selected charges.
+- Payment posting updates claim paid amount, adjustment amount, balance, status, and account totals.
+- Partial payments leave claims `partially_paid`; full payments mark claims `paid` and record closure fields.
+- Denial capture records open rework items, can link to claim lines, moves claims to `denied`, and surfaces denials in the billing work queue.
+- Successful commits append workflow operations for:
+  - `billing.insurance_verify`
+  - `billing.charge_capture`
+  - `billing.claim_create`
+  - `billing.payment_post`
+  - `billing.denial_capture`
+- Frontend `/clinical/billing` is now an operational billing workspace with work queue filters, account summary, charges, claims, payments, denial/rework, insurance verification, status chips, balance cards, modal workflows, and planned Quality/Reporting handoffs.
+- Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover insurance verification validation/commit/audit, charge context validation and account creation/reuse, claim totals and claim lines, payment balance/status behavior, denial capture/work queue behavior, and external partner mutation rejection.
+
 ## Future Sprint Sequence
 
-1. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
-2. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-3. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-4. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
+2. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
+3. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
 
 ## Validation Commands
 

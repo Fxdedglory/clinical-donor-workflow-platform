@@ -404,7 +404,8 @@ section,
 .screening-filter,
 .encounter-filter,
 .orders-filter,
-.care-plan-filter {
+.care-plan-filter,
+.billing-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
@@ -426,6 +427,12 @@ section,
     minmax(150px, 190px) minmax(120px, 150px) minmax(120px, 150px) auto;
 }
 
+.billing-filter {
+  grid-template-columns:
+    minmax(190px, 1fr) minmax(120px, 150px) minmax(160px, 210px) minmax(130px, 170px)
+    minmax(130px, 170px) minmax(130px, 160px) minmax(130px, 160px) auto;
+}
+
 .schedule-layout,
 .screening-layout,
 .encounter-layout,
@@ -437,10 +444,53 @@ section,
 .screening-detail-grid,
 .encounter-detail-grid,
 .orders-detail-grid,
-.care-plan-detail-grid {
+.care-plan-detail-grid,
+.billing-detail-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.billing-layout {
+  align-items: start;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary-grid span {
+  background: #f5f8fb;
+  border: 1px solid #dce6ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem;
+}
+
+.summary-grid strong {
+  color: #17212b;
+}
+
+.info-list.compact {
+  box-shadow: none;
+  padding: 0;
+}
+
+.charge-picker {
+  border: 1px solid #d9e3eb;
+  border-radius: 7px;
+  display: grid;
+  gap: 0.4rem;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.65rem;
+}
+
+.billing-modal {
+  max-width: 860px;
 }
 
 .orders-wide-section,
@@ -780,10 +830,12 @@ pre {
   .encounter-filter,
   .orders-filter,
   .care-plan-filter,
+  .billing-filter,
   .screening-detail-grid,
   .encounter-detail-grid,
   .orders-detail-grid,
-  .care-plan-detail-grid {
+  .care-plan-detail-grid,
+  .billing-detail-grid {
     grid-template-columns: 1fr;
   }
 

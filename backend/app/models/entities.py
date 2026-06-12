@@ -865,6 +865,11 @@ class Patient(Base):
     medications: Mapped[list["ClinicalPatientMedication"]] = relationship(back_populates="patient")
     orders: Mapped[list["ClinicalOrder"]] = relationship(back_populates="patient")
     care_plans: Mapped[list["ClinicalCarePlan"]] = relationship(back_populates="patient")
+    billing_accounts: Mapped[list["ClinicalBillingAccount"]] = relationship(back_populates="patient")
+    insurance_verifications: Mapped[list["ClinicalInsuranceVerification"]] = relationship(back_populates="patient")
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="patient")
+    claims: Mapped[list["ClinicalClaim"]] = relationship(back_populates="patient")
+    payments: Mapped[list["ClinicalPayment"]] = relationship(back_populates="patient")
 
 
 class PatientContact(Base):
@@ -937,6 +942,9 @@ class PatientInsurance(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     patient: Mapped[Patient] = relationship(back_populates="insurance_profiles")
+    billing_accounts: Mapped[list["ClinicalBillingAccount"]] = relationship(back_populates="primary_insurance")
+    insurance_verifications: Mapped[list["ClinicalInsuranceVerification"]] = relationship(back_populates="patient_insurance")
+    claims: Mapped[list["ClinicalClaim"]] = relationship(back_populates="patient_insurance")
 
 
 class PatientConsent(Base):
@@ -1472,6 +1480,7 @@ class ClinicalEncounter(Base):
     )
     orders: Mapped[list["ClinicalOrder"]] = relationship(back_populates="encounter")
     care_plans: Mapped[list["ClinicalCarePlan"]] = relationship(back_populates="encounter")
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="encounter")
 
     @property
     def patient_id(self) -> str:
@@ -1757,6 +1766,7 @@ class ClinicalOrder(Base):
         back_populates="order", cascade="all, delete-orphan"
     )
     care_plans: Mapped[list["ClinicalCarePlan"]] = relationship(back_populates="order")
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="order")
 
     @property
     def patient_id(self) -> str:
@@ -1857,6 +1867,7 @@ class ClinicalOrderResult(Base):
 
     order: Mapped[ClinicalOrder] = relationship(back_populates="results")
     care_plans: Mapped[list["ClinicalCarePlan"]] = relationship(back_populates="order_result")
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="order_result")
 
     @property
     def requires_acknowledgement(self) -> bool:
@@ -1986,6 +1997,7 @@ class ClinicalCarePlan(Base):
     status_history: Mapped[list["ClinicalCarePlanStatusHistory"]] = relationship(
         back_populates="care_plan", cascade="all, delete-orphan"
     )
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="care_plan")
 
     @property
     def patient_id(self) -> str:
@@ -2123,6 +2135,7 @@ class ClinicalCarePlanTask(Base):
     )
 
     care_plan: Mapped[ClinicalCarePlan] = relationship(back_populates="tasks")
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="care_plan_task")
 
 
 class ClinicalCarePlanProgressNote(Base):
@@ -2186,6 +2199,438 @@ class ClinicalCarePlanStatusHistory(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     care_plan: Mapped[ClinicalCarePlan] = relationship(back_populates="status_history")
+
+
+class ClinicalBillingAccount(Base):
+    __tablename__ = "clinical_billing_accounts"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    account_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    primary_insurance_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patient_insurance.insurance_id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open", index=True)
+    total_charges: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_payments: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_adjustments: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    balance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient] = relationship(back_populates="billing_accounts")
+    primary_insurance: Mapped[PatientInsurance | None] = relationship(back_populates="billing_accounts")
+    charges: Mapped[list["ClinicalCharge"]] = relationship(back_populates="billing_account")
+    claims: Mapped[list["ClinicalClaim"]] = relationship(back_populates="billing_account")
+    payments: Mapped[list["ClinicalPayment"]] = relationship(back_populates="billing_account")
+    status_history: Mapped[list["ClinicalBillingStatusHistory"]] = relationship(back_populates="billing_account")
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+    @property
+    def payer_name(self) -> str | None:
+        return self.primary_insurance.payer_name if self.primary_insurance else None
+
+
+class ClinicalInsuranceVerification(Base):
+    __tablename__ = "clinical_insurance_verifications"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    verification_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    patient_insurance_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patient_insurance.insurance_id"), nullable=True, index=True
+    )
+    verification_status: Mapped[str] = mapped_column(String(80), nullable=False, default="verified", index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    verified_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    payer_name: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    plan_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    member_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    group_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    coverage_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    coverage_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    patient: Mapped[Patient] = relationship(back_populates="insurance_verifications")
+    patient_insurance: Mapped[PatientInsurance | None] = relationship(back_populates="insurance_verifications")
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+
+class ClinicalCharge(Base):
+    __tablename__ = "clinical_charges"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    charge_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    charge_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    billing_account_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_billing_accounts.account_id"), nullable=False, index=True
+    )
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    encounter_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_encounters.encounter_id"), nullable=True, index=True
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_orders.order_id"), nullable=True, index=True
+    )
+    order_result_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_order_results.result_id"), nullable=True, index=True
+    )
+    care_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_care_plans.care_plan_id"), nullable=True, index=True
+    )
+    care_plan_task_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_care_plan_tasks.task_id"), nullable=True, index=True
+    )
+    service_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    code_type: Mapped[str] = mapped_column(String(40), nullable=False, default="internal", index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    unit_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="captured", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    billing_account: Mapped[ClinicalBillingAccount] = relationship(back_populates="charges")
+    patient: Mapped[Patient] = relationship(back_populates="charges")
+    encounter: Mapped[ClinicalEncounter | None] = relationship(back_populates="charges")
+    order: Mapped[ClinicalOrder | None] = relationship(back_populates="charges")
+    order_result: Mapped[ClinicalOrderResult | None] = relationship(back_populates="charges")
+    care_plan: Mapped[ClinicalCarePlan | None] = relationship(back_populates="charges")
+    care_plan_task: Mapped[ClinicalCarePlanTask | None] = relationship(back_populates="charges")
+    claim_lines: Mapped[list["ClinicalClaimLine"]] = relationship(back_populates="charge")
+    status_history: Mapped[list["ClinicalBillingStatusHistory"]] = relationship(back_populates="charge")
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+    @property
+    def account_number(self) -> str:
+        return self.billing_account.account_number if self.billing_account else ""
+
+    @property
+    def encounter_number(self) -> str | None:
+        return self.encounter.encounter_number if self.encounter else None
+
+    @property
+    def order_number(self) -> str | None:
+        return self.order.order_number if self.order else None
+
+    @property
+    def order_result_summary(self) -> str | None:
+        if not self.order_result:
+            return None
+        return f"{self.order_result.result_name}: {self.order_result.result_value}"
+
+    @property
+    def care_plan_number(self) -> str | None:
+        return self.care_plan.care_plan_number if self.care_plan else None
+
+    @property
+    def care_plan_task_title(self) -> str | None:
+        return self.care_plan_task.title if self.care_plan_task else None
+
+
+class ClinicalClaim(Base):
+    __tablename__ = "clinical_claims"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    claim_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    claim_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    billing_account_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_billing_accounts.account_id"), nullable=False, index=True
+    )
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    patient_insurance_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patient_insurance.insurance_id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="ready_for_review", index=True)
+    total_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    paid_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    adjustment_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    balance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    billing_account: Mapped[ClinicalBillingAccount] = relationship(back_populates="claims")
+    patient: Mapped[Patient] = relationship(back_populates="claims")
+    patient_insurance: Mapped[PatientInsurance | None] = relationship(back_populates="claims")
+    lines: Mapped[list["ClinicalClaimLine"]] = relationship(back_populates="claim", cascade="all, delete-orphan")
+    payments: Mapped[list["ClinicalPayment"]] = relationship(back_populates="claim")
+    denials: Mapped[list["ClinicalDenial"]] = relationship(back_populates="claim")
+    status_history: Mapped[list["ClinicalBillingStatusHistory"]] = relationship(back_populates="claim")
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+    @property
+    def account_number(self) -> str:
+        return self.billing_account.account_number if self.billing_account else ""
+
+    @property
+    def payer_name(self) -> str | None:
+        return self.patient_insurance.payer_name if self.patient_insurance else None
+
+
+class ClinicalClaimLine(Base):
+    __tablename__ = "clinical_claim_lines"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    line_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    claim_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_claims.claim_id"), nullable=False, index=True
+    )
+    charge_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_charges.charge_id"), nullable=False, index=True
+    )
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    code_type: Mapped[str] = mapped_column(String(40), nullable=False, default="internal", index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    unit_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    line_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    diagnosis_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="ready_for_review", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    claim: Mapped[ClinicalClaim] = relationship(back_populates="lines")
+    charge: Mapped[ClinicalCharge] = relationship(back_populates="claim_lines")
+    denials: Mapped[list["ClinicalDenial"]] = relationship(back_populates="claim_line")
+
+    @property
+    def charge_number(self) -> str:
+        return self.charge.charge_number if self.charge else str(self.charge_id)
+
+
+class ClinicalPayment(Base):
+    __tablename__ = "clinical_payments"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    payment_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    claim_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_claims.claim_id"), nullable=False, index=True
+    )
+    billing_account_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_billing_accounts.account_id"), nullable=False, index=True
+    )
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    payment_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    adjustment_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    payment_method: Mapped[str] = mapped_column(String(80), nullable=False, default="eft")
+    payer_type: Mapped[str] = mapped_column(String(80), nullable=False, default="insurance")
+    reference_number: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    posted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    posted_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    claim: Mapped[ClinicalClaim] = relationship(back_populates="payments")
+    billing_account: Mapped[ClinicalBillingAccount] = relationship(back_populates="payments")
+    patient: Mapped[Patient] = relationship(back_populates="payments")
+
+    @property
+    def claim_number(self) -> str:
+        return self.claim.claim_number if self.claim else str(self.claim_id)
+
+    @property
+    def account_number(self) -> str:
+        return self.billing_account.account_number if self.billing_account else str(self.billing_account_id)
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+
+class ClinicalDenial(Base):
+    __tablename__ = "clinical_denials"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    denial_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    claim_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_claims.claim_id"), nullable=False, index=True
+    )
+    claim_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_claim_lines.line_id"), nullable=True, index=True
+    )
+    denial_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    denial_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open", index=True)
+    assigned_to: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    claim: Mapped[ClinicalClaim] = relationship(back_populates="denials")
+    claim_line: Mapped[ClinicalClaimLine | None] = relationship(back_populates="denials")
+
+    @property
+    def claim_number(self) -> str:
+        return self.claim.claim_number if self.claim else str(self.claim_id)
+
+
+class ClinicalBillingStatusHistory(Base):
+    __tablename__ = "clinical_billing_status_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    billing_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_billing_accounts.account_id"), nullable=True, index=True
+    )
+    claim_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_claims.claim_id"), nullable=True, index=True
+    )
+    charge_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_charges.charge_id"), nullable=True, index=True
+    )
+    from_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    billing_account: Mapped[ClinicalBillingAccount | None] = relationship(back_populates="status_history")
+    claim: Mapped[ClinicalClaim | None] = relationship(back_populates="status_history")
+    charge: Mapped[ClinicalCharge | None] = relationship(back_populates="status_history")
 
 
 class DonorScreening(Base):
