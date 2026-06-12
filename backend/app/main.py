@@ -26,6 +26,7 @@ from app.routes import (
     auth,
     change_control,
     clinical,
+    clinical_encounters,
     clinical_patients,
     clinical_screening,
     clinical_scheduling,
@@ -137,6 +138,7 @@ app.include_router(risk_analysis.router)
 app.include_router(audit_logs.router)
 app.include_router(change_control.router)
 app.include_router(clinical.router)
+app.include_router(clinical_encounters.router)
 app.include_router(clinical_patients.router)
 app.include_router(clinical_screening.router)
 app.include_router(clinical_scheduling.router)

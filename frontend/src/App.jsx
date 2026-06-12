@@ -197,8 +197,8 @@ const clinicalSections = [
     label: "Encounters",
     route: "/clinical/encounters",
     icon: FileCheck2,
-    status: "Planned workflow",
-    workflows: ["Create encounter", "Sign note", "Amend signed note"],
+    status: "Active",
+    workflows: ["Create encounter", "Save draft note", "Sign and lock note", "Amend signed note", "Add diagnosis/problem", "Add allergy", "Add medication"],
   },
   {
     id: "clinical_orders",
@@ -941,7 +941,7 @@ const patientStatusOptions = ["active", "inactive", "deferred", "deceased"];
 const futurePatientWorkflows = [
   { label: "Schedule Visit", route: "/clinical/scheduling", status: "Active" },
   { label: "Start Screening", route: "/clinical/screening", status: "Active" },
-  { label: "Open Encounter", route: "/clinical/encounters", status: "Foundation pending" },
+  { label: "Open Encounter", route: "/clinical/encounters", status: "Active" },
   { label: "Create Order", route: "/clinical/orders", status: "Planned" },
   { label: "Billing Review", route: "/clinical/billing", status: "Planned" },
 ];
@@ -2572,7 +2572,560 @@ function ClinicalScreeningPage({ token, navigate }) {
   );
 }
 
+const encounterStatusOptions = ["draft", "in_progress", "ready_for_signature", "signed", "amended", "cancelled"];
+
+function latestUnsignedEncounterNote(encounter) {
+  return [...(encounter?.notes || [])]
+    .filter((note) => !["signed", "amended"].includes(note.status))
+    .sort((left, right) => new Date(right.updated_at || right.created_at) - new Date(left.updated_at || left.created_at))[0] || null;
+}
+
+function latestSignedEncounterNote(encounter) {
+  return [...(encounter?.notes || [])]
+    .filter((note) => ["signed", "amended"].includes(note.status))
+    .sort((left, right) => new Date(right.signed_at || right.updated_at || right.created_at) - new Date(left.signed_at || left.updated_at || left.created_at))[0] || null;
+}
+
+function checkedInAppointments(appointments) {
+  return (appointments || []).filter((appointment) => appointment.status === "checked_in");
+}
+
+function encounterWorkflowTitle(type) {
+  return {
+    create: "Create Encounter",
+    note: "Save Draft Note",
+    sign: "Sign Note",
+    amend: "Amend Signed Note",
+    diagnosis: "Add Diagnosis / Problem",
+    allergy: "Add Allergy",
+    medication: "Add Medication",
+  }[type];
+}
+
+function defaultEncounterForm(type, encounter, patients, appointments, sessions, templates) {
+  const unsignedNote = latestUnsignedEncounterNote(encounter);
+  const signedNote = latestSignedEncounterNote(encounter);
+  const firstTemplate = templates?.[0];
+  const firstCheckedInAppointment = checkedInAppointments(appointments)?.[0] || appointments?.[0];
+  if (type === "create") {
+    return {
+      patient_id: encounter?.patient_id || patients?.[0]?.patient_id || "",
+      appointment_id: firstCheckedInAppointment?.appointment_id || "",
+      screening_session_id: sessions?.[0]?.session_id || "",
+      encounter_type: "donor_screening",
+      chief_complaint: "Donor screening review",
+      started_at: defaultDateTimeLocal(0),
+      reason: "Create clinical encounter",
+    };
+  }
+  if (type === "note") {
+    return {
+      note_id: unsignedNote?.note_id || "",
+      template_id: unsignedNote?.template_id || firstTemplate?.template_id || "",
+      note_type: unsignedNote?.note_type || firstTemplate?.note_type || "clinical_note",
+      title: unsignedNote?.title || "Clinical encounter note",
+      content: unsignedNote?.content || firstTemplate?.body || "Subjective:\n\nObjective:\n\nAssessment:\n\nPlan:\n",
+      reason: "Save draft encounter note",
+    };
+  }
+  if (type === "sign") {
+    return {
+      note_id: unsignedNote?.note_id || "",
+      attestation: "I attest this encounter note is accurate and complete.",
+      reason: "Sign encounter note",
+    };
+  }
+  if (type === "amend") {
+    return {
+      note_id: signedNote?.note_id || "",
+      title: "Encounter note addendum",
+      amendment_text: "",
+      reason: "Late clinical clarification",
+    };
+  }
+  if (type === "diagnosis") {
+    return { code: "", display: "", diagnosis_type: "problem", status: "active", onset_date: "", notes: "", reason: "Add encounter diagnosis/problem" };
+  }
+  if (type === "allergy") {
+    return { allergen: "", reaction: "", severity: "unknown", status: "active", onset_date: "", notes: "", reason: "Add patient allergy" };
+  }
+  return {
+    medication_name: "",
+    dose: "",
+    route: "",
+    frequency: "",
+    status: "active",
+    start_date: "",
+    end_date: "",
+    indication: "",
+    notes: "",
+    reason: "Add patient medication",
+  };
+}
+
+function validateEncounterWorkflow(type, form, encounter) {
+  const issues = [];
+  if (type === "create") {
+    if (!form.patient_id) issues.push("Patient/donor is required.");
+    if (!form.reason?.trim()) issues.push("Reason is required.");
+  }
+  if (type === "note") {
+    if (!form.title?.trim()) issues.push("Note title is required.");
+    if (!form.content?.trim()) issues.push("Note content is required.");
+  }
+  if (type === "sign") {
+    if (!form.note_id) issues.push("Select a draft or ready note to sign.");
+    if (!form.attestation?.trim()) issues.push("Attestation is required.");
+  }
+  if (type === "amend") {
+    if (!form.note_id) issues.push("Select a signed note to amend.");
+    if (!form.amendment_text?.trim()) issues.push("Amendment text is required.");
+    if (!form.reason?.trim()) issues.push("Amendment reason is required.");
+  }
+  if (type === "diagnosis") {
+    if (!form.code?.trim()) issues.push("Diagnosis/problem code is required.");
+    if (!form.display?.trim()) issues.push("Diagnosis/problem display is required.");
+  }
+  if (type === "allergy" && !form.allergen?.trim()) issues.push("Allergen is required.");
+  if (type === "medication" && !form.medication_name?.trim()) issues.push("Medication name is required.");
+  if (["note", "sign", "amend", "diagnosis", "allergy", "medication"].includes(type) && !encounter) issues.push("Select an encounter first.");
+  return issues;
+}
+
+function encounterPayload(type, form) {
+  const payload = compactPayload(form);
+  for (const field of ["appointment_id", "screening_session_id", "template_id", "note_id"]) {
+    if (payload[field] !== undefined) payload[field] = Number(payload[field]);
+  }
+  if (payload.started_at) payload.started_at = localDateTimeToIso(payload.started_at);
+  return payload;
+}
+
+function encounterPreviewEndpoint(type, encounter, patientId) {
+  if (type === "create") return "/api/clinical/encounters/preview";
+  if (type === "note") return `/api/clinical/encounters/${encounter.encounter_id}/notes/preview`;
+  if (type === "sign") return `/api/clinical/encounters/${encounter.encounter_id}/sign/preview`;
+  if (type === "amend") return `/api/clinical/encounters/${encounter.encounter_id}/amend/preview`;
+  if (type === "diagnosis") return `/api/clinical/encounters/${encounter.encounter_id}/diagnoses/preview`;
+  if (type === "allergy") return `/api/clinical/patients/${patientId}/allergies/preview`;
+  return `/api/clinical/patients/${patientId}/medications/preview`;
+}
+
+function encounterCommitEndpoint(type, encounter, patientId) {
+  if (type === "create") return { path: "/api/clinical/encounters", method: "POST" };
+  if (type === "note") return { path: `/api/clinical/encounters/${encounter.encounter_id}/notes`, method: "POST" };
+  if (type === "sign") return { path: `/api/clinical/encounters/${encounter.encounter_id}/sign`, method: "POST" };
+  if (type === "amend") return { path: `/api/clinical/encounters/${encounter.encounter_id}/amend`, method: "POST" };
+  if (type === "diagnosis") return { path: `/api/clinical/encounters/${encounter.encounter_id}/diagnoses`, method: "POST" };
+  if (type === "allergy") return { path: `/api/clinical/patients/${patientId}/allergies`, method: "POST" };
+  return { path: `/api/clinical/patients/${patientId}/medications`, method: "POST" };
+}
+
+function EncounterWorkflowModal({ type, encounter, token, patients, appointments, sessions, templates, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultEncounterForm(type, encounter, patients, appointments, sessions, templates));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validateEncounterWorkflow(type, form, encounter);
+  const blockingIssues = preview?.blocking_issues || [];
+  const warningRows = preview?.warnings || [];
+  const patientId = encounter?.patient_id || form.patient_id;
+  const unsignedNotes = (encounter?.notes || []).filter((note) => !["signed", "amended"].includes(note.status));
+  const signedNotes = (encounter?.notes || []).filter((note) => ["signed", "amended"].includes(note.status));
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateTemplate(templateId) {
+    const template = templates.find((item) => String(item.template_id) === String(templateId));
+    setForm((current) => ({
+      ...current,
+      template_id: templateId,
+      note_type: template?.note_type || current.note_type,
+      content: current.content?.trim() ? current.content : template?.body || current.content,
+    }));
+  }
+
+  function updateSelectedNote(noteId) {
+    const note = [...unsignedNotes, ...signedNotes].find((item) => String(item.note_id) === String(noteId));
+    setForm((current) => ({
+      ...current,
+      note_id: noteId,
+      title: note?.title || current.title,
+      content: type === "note" ? note?.content || current.content : current.content,
+      template_id: type === "note" ? note?.template_id || current.template_id : current.template_id,
+    }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(encounterPreviewEndpoint(type, encounter, patientId), {
+        token,
+        method: "POST",
+        body: encounterPayload(type, form),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    setBusy(true);
+    setError("");
+    const { path, method } = encounterCommitEndpoint(type, encounter, patientId);
+    try {
+      const payload = await apiRequest(path, {
+        token,
+        method,
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...encounterPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess(payload);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={encounterWorkflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{encounterWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            {type === "create" && (
+              <div className="form-grid">
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+                <label>Checked-in appointment<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {appointment.patient_name || appointment.patient_id} ({appointment.status})</option>)}</select></label>
+                <label>Screening context<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening session</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {session.patient_name || session.patient_id}</option>)}</select></label>
+                <label>Encounter type<input value={form.encounter_type} onChange={(event) => updateField("encounter_type", event.target.value)} /></label>
+                <label>Started<input type="datetime-local" value={form.started_at} onChange={(event) => updateField("started_at", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label>Chief complaint<textarea value={form.chief_complaint} rows="3" onChange={(event) => updateField("chief_complaint", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "note" && (
+              <div className="form-grid">
+                <label>Draft note<select value={form.note_id} onChange={(event) => updateSelectedNote(event.target.value)}><option value="">New draft note</option>{unsignedNotes.map((note) => <option key={note.note_id} value={note.note_id}>{note.title} - {note.status}</option>)}</select></label>
+                <label>Template<select value={form.template_id} onChange={(event) => updateTemplate(event.target.value)}><option value="">No template</option>{templates.map((template) => <option key={template.template_id} value={template.template_id}>{template.name}</option>)}</select></label>
+                <label>Note type<input value={form.note_type} onChange={(event) => updateField("note_type", event.target.value)} /></label>
+                <label>Title<input value={form.title} onChange={(event) => updateField("title", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Draft note<textarea value={form.content} rows="12" onChange={(event) => updateField("content", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "sign" && (
+              <div className="form-grid">
+                <label>Note to sign<select value={form.note_id} onChange={(event) => updateSelectedNote(event.target.value)}><option value="">Select note</option>{unsignedNotes.map((note) => <option key={note.note_id} value={note.note_id}>{note.title} - {note.status}</option>)}</select></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Attestation<textarea value={form.attestation} rows="3" onChange={(event) => updateField("attestation", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "amend" && (
+              <div className="form-grid">
+                <label>Signed note<select value={form.note_id} onChange={(event) => updateSelectedNote(event.target.value)}><option value="">Select signed note</option>{signedNotes.map((note) => <option key={note.note_id} value={note.note_id}>{note.title} - v{note.version}</option>)}</select></label>
+                <label>Title<input value={form.title} onChange={(event) => updateField("title", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Amendment text<textarea value={form.amendment_text} rows="8" onChange={(event) => updateField("amendment_text", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "diagnosis" && (
+              <div className="form-grid">
+                <label>Code<input value={form.code} onChange={(event) => updateField("code", event.target.value)} /></label>
+                <label>Display<input value={form.display} onChange={(event) => updateField("display", event.target.value)} /></label>
+                <label>Type<input value={form.diagnosis_type} onChange={(event) => updateField("diagnosis_type", event.target.value)} /></label>
+                <label>Status<input value={form.status} onChange={(event) => updateField("status", event.target.value)} /></label>
+                <label>Onset date<input type="date" value={form.onset_date} onChange={(event) => updateField("onset_date", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="4" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "allergy" && (
+              <div className="form-grid">
+                <label>Allergen<input value={form.allergen} onChange={(event) => updateField("allergen", event.target.value)} /></label>
+                <label>Reaction<input value={form.reaction} onChange={(event) => updateField("reaction", event.target.value)} /></label>
+                <label>Severity<input value={form.severity} onChange={(event) => updateField("severity", event.target.value)} /></label>
+                <label>Status<input value={form.status} onChange={(event) => updateField("status", event.target.value)} /></label>
+                <label>Onset date<input type="date" value={form.onset_date} onChange={(event) => updateField("onset_date", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="4" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "medication" && (
+              <div className="form-grid">
+                <label>Medication<input value={form.medication_name} onChange={(event) => updateField("medication_name", event.target.value)} /></label>
+                <label>Dose<input value={form.dose} onChange={(event) => updateField("dose", event.target.value)} /></label>
+                <label>Route<input value={form.route} onChange={(event) => updateField("route", event.target.value)} /></label>
+                <label>Frequency<input value={form.frequency} onChange={(event) => updateField("frequency", event.target.value)} /></label>
+                <label>Status<input value={form.status} onChange={(event) => updateField("status", event.target.value)} /></label>
+                <label>Start date<input type="date" value={form.start_date} onChange={(event) => updateField("start_date", event.target.value)} /></label>
+                <label>End date<input type="date" value={form.end_date} onChange={(event) => updateField("end_date", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Indication<textarea value={form.indication} rows="3" onChange={(event) => updateField("indication", event.target.value)} /></label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {encounter && <div className="notice-state">Workflow target: {encounter.encounter_number} for {encounter.patient_name || encounter.patient_id}.</div>}
+            <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run encounter workflow checks.</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className={blockingIssues.length ? "error-state" : "notice-state"}>{preview.summary}</div>
+            <Table rows={[{ field: "Preview hash", value: preview.preview_hash }, { field: "Validation", value: preview.validation_status }, { field: "Workflow", value: preview.workflow }]} columns={["field", "value"]} />
+            {!!blockingIssues.length && <div className="conflict-list">{blockingIssues.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}><XCircle size={16} /><span>{issue.message}</span></div>)}</div>}
+            {!!warningRows.length && <div className="conflict-list">{warningRows.map((warning) => <div className="conflict-row warning" key={`${warning.issue_type}-${warning.field}`}><AlertTriangle size={16} /><span>{warning.message}</span></div>)}</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={blockingIssues.length > 0} onClick={() => setStep("confirm")}>Continue to commit confirmation</button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">Commit will send X-Confirm-Generation: true and append an encounter workflow audit entry.</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>Back to preview</button>
+            <button type="button" disabled={busy} onClick={runCommit}>{busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}Commit workflow</button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Encounter workflow completed successfully.</div>
+            <button type="button" onClick={onClose}>Done</button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ClinicalEncountersPage({ token, navigate }) {
+  const [encounters, setEncounters] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [selectedEncounter, setSelectedEncounter] = useState(null);
+  const [query, setQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [appointmentContext, setAppointmentContext] = useState("");
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const latestDraft = latestUnsignedEncounterNote(selectedEncounter);
+  const latestSigned = latestSignedEncounterNote(selectedEncounter);
+
+  async function loadEncounters() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (dateFilter) params.set("date", dateFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (appointmentContext) params.set("appointment_context", appointmentContext);
+    try {
+      const [encounterPayload, templatePayload, patientPayload, appointmentPayload, screeningPayload] = await Promise.all([
+        apiRequest(`/api/clinical/encounters${params.toString() ? `?${params}` : ""}`, { token }),
+        apiRequest("/api/clinical/encounters/templates", { token }),
+        apiRequest("/api/clinical/patients?limit=500", { token }),
+        apiRequest("/api/clinical/scheduling/appointments?limit=500", { token }).catch(() => ({ appointments: [] })),
+        apiRequest("/api/clinical/screening/sessions?limit=500", { token }).catch(() => ({ sessions: [] })),
+      ]);
+      const nextEncounters = encounterPayload?.encounters || [];
+      setEncounters(nextEncounters);
+      setTemplates(templatePayload || []);
+      setPatients(patientPayload?.patients || []);
+      setAppointments(appointmentPayload?.appointments || []);
+      setSessions(screeningPayload?.sessions || []);
+      setSelectedEncounter((current) => {
+        if (!nextEncounters.length) return null;
+        if (!current) return nextEncounters[0];
+        return nextEncounters.find((encounter) => encounter.encounter_id === current.encounter_id) || nextEncounters[0];
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadEncounters();
+  }, [token]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    loadEncounters();
+  }
+
+  function workflowSuccess(payload) {
+    if (payload?.encounter) setSelectedEncounter(payload.encounter);
+    loadEncounters();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">EMR / encounters</p>
+          <h2>Encounter Worklist</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("create")}><FileCheck2 size={16} />Create Encounter</button>
+          <button type="button" className="secondary-button" onClick={loadEncounters}><RefreshCw size={16} />Refresh</button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/screening")}><CheckCircle2 size={16} />Screening</button>
+        </div>
+      </section>
+      <section>
+        <form className="encounter-filter" onSubmit={submitSearch}>
+          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Encounter, patient, or donor" /></label>
+          <label>Date<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
+          <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{encounterStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
+          <label>Appointment<select value={appointmentContext} onChange={(event) => setAppointmentContext(event.target.value)}><option value="">All</option><option value="true">With appointment</option><option value="false">Without appointment</option></select></label>
+          <button type="submit"><FileCheck2 size={16} />Apply</button>
+        </form>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="notice-state">Loading encounter worklist...</div>}
+      {!loading && !encounters.length && <div className="empty-state">No encounters match the current filters.</div>}
+      {!!encounters.length && (
+        <div className="split encounter-layout">
+          <section>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Encounter</th><th>Patient / Donor</th><th>Context</th><th>Started</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  {encounters.map((encounter) => (
+                    <tr key={encounter.encounter_id}>
+                      <td>{encounter.encounter_number}</td>
+                      <td>{encounter.patient_name || encounter.patient_id}</td>
+                      <td>{encounter.appointment_number || encounter.screening_session_number || "Direct"}</td>
+                      <td>{formatDateTime(encounter.started_at)}</td>
+                      <td><StatusPill status={encounter.status} /></td>
+                      <td><button type="button" className="table-action" onClick={() => setSelectedEncounter(encounter)}>Open</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="appointment-detail-panel">
+            {selectedEncounter ? (
+              <>
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">{selectedEncounter.encounter_number}</p>
+                    <h3>{selectedEncounter.patient_name || selectedEncounter.patient_id}</h3>
+                  </div>
+                  <StatusPill status={selectedEncounter.status} />
+                </div>
+                <Table rows={[
+                  { field: "Patient ID", value: selectedEncounter.patient_id },
+                  { field: "Appointment", value: selectedEncounter.appointment_number || "No appointment" },
+                  { field: "Screening", value: selectedEncounter.screening_session_number || "No screening session" },
+                  { field: "Type", value: selectedEncounter.encounter_type },
+                  { field: "Chief complaint", value: selectedEncounter.chief_complaint },
+                  { field: "Started", value: formatDateTime(selectedEncounter.started_at) },
+                  { field: "Signed", value: formatDateTime(selectedEncounter.signed_at) },
+                ]} columns={["field", "value"]} />
+                <div className="clinical-actions detail-actions">
+                  <button type="button" onClick={() => setModalType("note")}><FileCheck2 size={16} />Save Draft Note</button>
+                  <button type="button" onClick={() => setModalType("sign")}><ShieldCheck size={16} />Sign Note</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("amend")}><AlertTriangle size={16} />Amend</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("diagnosis")}><HeartPulse size={16} />Diagnosis</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("allergy")}><XCircle size={16} />Allergy</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("medication")}><Activity size={16} />Medication</button>
+                </div>
+              </>
+            ) : <div className="empty-state">Select an encounter to review details.</div>}
+          </section>
+        </div>
+      )}
+      {selectedEncounter && (
+        <>
+          <div className="encounter-detail-grid">
+            <section>
+              <h3>Clinical Summary</h3>
+              <Table rows={[
+                { field: "Draft note", value: latestDraft ? `${latestDraft.title} (${latestDraft.status})` : "No active draft" },
+                { field: "Latest signed", value: latestSigned ? `${latestSigned.title} v${latestSigned.version}` : "No signed note" },
+                { field: "Diagnoses/problems", value: (selectedEncounter.diagnoses || []).length },
+                { field: "Allergies", value: (selectedEncounter.allergies || []).length },
+                { field: "Medications", value: (selectedEncounter.medications || []).length },
+              ]} columns={["field", "value"]} />
+            </section>
+            <section>
+              <h3>Draft Note Workspace</h3>
+              {latestDraft ? (
+                <Table rows={[{ title: latestDraft.title, status: latestDraft.status, template: latestDraft.template_name || "No template", updated: formatDateTime(latestDraft.updated_at) }]} columns={["title", "status", "template", "updated"]} />
+              ) : (
+                <div className="empty-state">No draft note is active for this encounter.</div>
+              )}
+            </section>
+            <section>
+              <h3>Downstream Actions</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/orders")}><span>Orders / Results</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/care-plans")}><span>Care Plans</span><StatusPill status="Foundation pending" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/billing")}><span>Billing</span><StatusPill status="Planned workflow" /></button>
+              </div>
+            </section>
+          </div>
+          <div className="encounter-detail-grid">
+            <section><h3>Notes</h3><Table rows={(selectedEncounter.notes || []).map((note) => ({ title: note.title, status: note.status, version: note.version, locked: note.locked ? "Read-only" : "Editable draft", signed: formatDateTime(note.signed_at), addendum: note.is_addendum ? "Yes" : "No" }))} columns={["title", "status", "version", "locked", "signed", "addendum"]} /></section>
+            <section><h3>Diagnoses / Problems</h3><Table rows={(selectedEncounter.diagnoses || []).map((diagnosis) => ({ code: diagnosis.code, display: diagnosis.display, type: diagnosis.diagnosis_type, status: diagnosis.status }))} columns={["code", "display", "type", "status"]} /></section>
+            <section><h3>Allergies</h3><Table rows={(selectedEncounter.allergies || []).map((allergy) => ({ allergen: allergy.allergen, reaction: allergy.reaction, severity: allergy.severity, status: allergy.status }))} columns={["allergen", "reaction", "severity", "status"]} /></section>
+            <section><h3>Medications</h3><Table rows={(selectedEncounter.medications || []).map((medication) => ({ medication: medication.medication_name, dose: medication.dose, route: medication.route, frequency: medication.frequency, status: medication.status }))} columns={["medication", "dose", "route", "frequency", "status"]} /></section>
+            <section><h3>Version / Addendum History</h3><Table rows={(selectedEncounter.notes || []).map((note) => ({ note: note.title, version: note.version, status: note.status, amendment_reason: note.amendment_reason || "", from_note: note.amended_from_note_id || "" }))} columns={["note", "version", "status", "amendment_reason", "from_note"]} /></section>
+            <section><h3>Recent Audit Activity</h3><Table rows={(selectedEncounter.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} /></section>
+          </div>
+        </>
+      )}
+      {modalType && (
+        <EncounterWorkflowModal
+          type={modalType}
+          encounter={modalType === "create" ? null : selectedEncounter}
+          token={token}
+          patients={patients}
+          appointments={appointments}
+          sessions={sessions}
+          templates={templates}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_encounters") {
+    return <ClinicalEncountersPage token={token} navigate={navigate} />;
+  }
   if (section.id === "clinical_patients") {
     return <ClinicalPatientsPage token={token} navigate={navigate} />;
   }

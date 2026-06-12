@@ -401,7 +401,8 @@ section,
 
 .patient-filter,
 .scheduling-filter,
-.screening-filter {
+.screening-filter,
+.encounter-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
@@ -409,16 +410,19 @@ section,
 }
 
 .scheduling-filter,
-.screening-filter {
+.screening-filter,
+.encounter-filter {
   grid-template-columns: minmax(200px, 1fr) minmax(140px, 180px) minmax(140px, 180px) minmax(180px, 240px) auto;
 }
 
 .schedule-layout,
-.screening-layout {
+.screening-layout,
+.encounter-layout {
   align-items: start;
 }
 
-.screening-detail-grid {
+.screening-detail-grid,
+.encounter-detail-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -511,6 +515,16 @@ section,
 .workflow-row .status-pill {
   margin-bottom: 0;
   white-space: nowrap;
+}
+
+button.workflow-row {
+  background: #f7fafc;
+  color: #17212b;
+  width: 100%;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
 }
 
 .modal-backdrop {
@@ -712,7 +726,9 @@ pre {
   .patient-filter,
   .scheduling-filter,
   .screening-filter,
-  .screening-detail-grid {
+  .encounter-filter,
+  .screening-detail-grid,
+  .encounter-detail-grid {
     grid-template-columns: 1fr;
   }
 

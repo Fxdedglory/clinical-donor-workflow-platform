@@ -21,7 +21,7 @@ Important repository state from Sprint 0:
 | Patient / Donor Management | Sprint 2 adds canonical patient/donor registration, contacts, insurance, consents, duplicate warnings, preview/commit APIs, UI workflows, and workflow operation audit. | Add merge/review queue, richer identity conflict review, patient/donor linkage to downstream modules, and production duplicate-resolution policy. |
 | Scheduling | Sprint 3 adds appointment booking, resources, appointment types, conflict previews, status transitions, UI workflows, RBAC, and audit. | Add full calendar visualization, recurring availability templates, capacity rules, waitlists, reminders, and completed-appointment handoff into encounters. |
 | Donor Screening / Eligibility | Sprint 4 adds patient-linked screening sessions, questionnaire/vitals capture, eligibility preview, result commit, deferrals, supervisor override, UI workflow, RBAC, and audit while reusing the existing donor eligibility engine. | Add richer screening templates, infectious disease result entry, deferral expiration workflows, medical director queues, and deeper donor-to-patient identity reconciliation. |
-| EMR / Encounters | No generic encounter documentation module. | Add encounters, notes, diagnoses, allergies, medications, signing, locking, and amendments. |
+| EMR / Encounters | Sprint 5 adds encounter creation, note templates, draft notes, signing/locking, amendments, diagnoses/problems, allergies, medications, status history, RBAC, audit, and an operational UI. | Add richer clinician assignment, encounter closure/cancellation policies, problem reconciliation, medication/allergy reconciliation, and downstream Orders/Results handoff. |
 | Orders / Results | Infectious disease results exist for donor eligibility. | Add generic order catalog, lab/test orders, result entry, abnormal/critical flags, acknowledgement, and cancellation. |
 | Care Plans | No care plan module. | Add care plans, goals, interventions, tasks, care team assignment, progress updates, and closure. |
 | Billing / Insurance | No billing workflow module. | Add insurance profile, charges, codes, authorizations, claims, payments, denials, and rework queues. |
@@ -212,15 +212,68 @@ Implemented screening foundation:
 - Frontend `/clinical/screening` is now an operational screening workspace with queue filters, patient identity summary, appointment context, questionnaire, vitals, eligibility preview, deferrals, override history, recent audit activity, templates/rules, and modal workflows.
 - Focused tests cover session preview/commit guard, questionnaire validation/audit, vitals validation/audit, explainable eligibility preview, result commit blocking behavior, eligible result commit, temporary/permanent deferrals, supervisor override, and external partner rejection.
 
+## Sprint 5 Implemented Scope
+
+Sprint 5 implements EMR / Encounters as the clinical documentation foundation linked to Patient / Donor Registration, Scheduling, and Screening.
+
+Implemented encounter foundation:
+
+- Persistent encounter entities:
+  - `operational.clinical_encounters`
+  - `operational.clinical_encounter_notes`
+  - `operational.clinical_note_templates`
+  - `operational.clinical_encounter_diagnoses`
+  - `operational.clinical_patient_allergies`
+  - `operational.clinical_patient_medications`
+  - `operational.clinical_encounter_status_history`
+- Alembic migration `202606120004_clinical_encounters`.
+- Encounter RBAC permissions:
+  - `encounters.read`
+  - `encounters.manage`
+  - `encounters.sign`
+- Backend `/api/clinical/encounters` endpoints:
+  - `GET /api/clinical/encounters`
+  - `GET /api/clinical/encounters/{encounter_id}`
+  - `POST /api/clinical/encounters/preview`
+  - `POST /api/clinical/encounters`
+  - `POST /api/clinical/encounters/{encounter_id}/notes/preview`
+  - `POST /api/clinical/encounters/{encounter_id}/notes`
+  - `POST /api/clinical/encounters/{encounter_id}/sign/preview`
+  - `POST /api/clinical/encounters/{encounter_id}/sign`
+  - `POST /api/clinical/encounters/{encounter_id}/amend/preview`
+  - `POST /api/clinical/encounters/{encounter_id}/amend`
+  - `POST /api/clinical/encounters/{encounter_id}/diagnoses/preview`
+  - `POST /api/clinical/encounters/{encounter_id}/diagnoses`
+  - `POST /api/clinical/patients/{patient_id}/allergies/preview`
+  - `POST /api/clinical/patients/{patient_id}/allergies`
+  - `POST /api/clinical/patients/{patient_id}/medications/preview`
+  - `POST /api/clinical/patients/{patient_id}/medications`
+  - `GET /api/clinical/encounters/templates`
+- Encounter creation validates patient context, checked-in appointment context, and optional screening-session linkage before commit.
+- Draft notes can be created or updated until signed.
+- Signed notes are locked from direct edit.
+- Amendments create signed addendum note versions and move the encounter to `amended`.
+- Diagnoses/problems, allergies, and medications are append-only operational additions in this sprint.
+- Successful commits append workflow operations for:
+  - `encounter.create`
+  - `encounter.note_save`
+  - `encounter.sign`
+  - `encounter.amend`
+  - `encounter.diagnosis_add`
+  - `patient.allergy_add`
+  - `patient.medication_add`
+- Frontend `/clinical/encounters` is now an operational EMR workspace with worklist filters, patient identity, appointment/screening context, clinical summary, draft note/template workflow, signed-note read-only state, amendment history, diagnoses/problems, allergies, medications, recent status history, and planned downstream Orders/Care Plans/Billing actions.
+- Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover checked-in appointment validation, confirmation header rejection/acceptance, audit creation/append preservation, draft note saving, signing/locking, amendment addenda, diagnosis/allergy/medication commits, and external partner rejection.
+
 ## Future Sprint Sequence
 
-1. EMR / Encounters: encounter creation, note templates, draft notes, signing, locking, amendments, and version history.
-2. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
-3. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
-4. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
-5. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-6. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-7. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
+2. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
+3. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
+4. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
+5. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
+6. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
 
 ## Validation Commands
 

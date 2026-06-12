@@ -69,8 +69,16 @@ CLINICAL_MODULES = [
         label="Encounters",
         route="/clinical/encounters",
         api_namespace="/api/clinical/encounters",
-        status="planned_workflow",
-        workflows=["Create encounter", "Sign note", "Amend signed note"],
+        status="active",
+        workflows=[
+            "Create encounter",
+            "Save draft note",
+            "Sign and lock note",
+            "Amend signed note",
+            "Add diagnosis/problem",
+            "Add allergy",
+            "Add medication",
+        ],
     ),
     ClinicalModuleRead(
         module_id="orders",
