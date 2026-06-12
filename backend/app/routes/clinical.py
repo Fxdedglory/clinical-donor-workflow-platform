@@ -32,8 +32,8 @@ CLINICAL_MODULES = [
         label="Patients / Donors",
         route="/clinical/patients",
         api_namespace="/api/clinical/patients",
-        status="planned_workflow",
-        workflows=["Create patient/donor", "Edit demographics", "Capture consent"],
+        status="active",
+        workflows=["Create patient/donor", "Edit demographics", "Capture consent", "Add contact", "Add insurance"],
     ),
     ClinicalModuleRead(
         module_id="scheduling",

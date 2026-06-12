@@ -5,6 +5,9 @@ ROLE_DEFINITIONS = {
             "system.admin",
             "users.manage",
             "roles.manage",
+            "patients.read",
+            "patients.create",
+            "patients.manage",
             "workflow.configure",
             "risk_rules.manage",
             "eligibility.manage",
@@ -45,6 +48,8 @@ ROLE_DEFINITIONS = {
         "permissions": [
             "donors.create",
             "donors.read",
+            "patients.read",
+            "patients.create",
             "eligibility.read",
             "tasks.read",
             "tasks.update",
@@ -67,6 +72,8 @@ ROLE_DEFINITIONS = {
         "permissions": [
             "donors.read",
             "donors.review",
+            "patients.read",
+            "patients.manage",
             "eligibility.read",
             "eligibility.review",
             "tasks.read",
@@ -89,6 +96,7 @@ ROLE_DEFINITIONS = {
         "description": "Owns deviation investigations, audit review, CAPA oversight, and SOP compliance.",
         "permissions": [
             "audit.review",
+            "patients.read",
             "qms.manage",
             "release.manage",
             "change_control.manage",
@@ -140,6 +148,7 @@ ROLE_DEFINITIONS = {
         "description": "Oversees queues, workload, staffing, escalations, and enterprise operations dashboards.",
         "permissions": [
             "dashboard.view",
+            "patients.read",
             "tasks.read",
             "tasks.manage",
             "escalations.manage",

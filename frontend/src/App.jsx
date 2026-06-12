@@ -299,8 +299,8 @@ function clinicalPatientId(route) {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
-async function apiRequest(path, { token, method = "GET", body } = {}) {
-  const headers = {};
+async function apiRequest(path, { token, method = "GET", body, headers: customHeaders = {} } = {}) {
+  const headers = { ...customHeaders };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body) headers["Content-Type"] = "application/json";
   const response = await fetch(apiUrl(path), {
@@ -934,7 +934,493 @@ function Table({ rows, columns }) {
   );
 }
 
-function ClinicalModuleSection({ section, route, navigate }) {
+const patientStatusOptions = ["active", "inactive", "deferred", "deceased"];
+const futurePatientWorkflows = [
+  { label: "Schedule Visit", route: "/clinical/scheduling", status: "Planned" },
+  { label: "Start Screening", route: "/clinical/screening", status: "Planned" },
+  { label: "Open Encounter", route: "/clinical/encounters", status: "Foundation pending" },
+  { label: "Create Order", route: "/clinical/orders", status: "Planned" },
+  { label: "Billing Review", route: "/clinical/billing", status: "Planned" },
+];
+
+function formatDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function patientDisplayName(patient) {
+  return [patient?.first_name, patient?.middle_name, patient?.last_name].filter(Boolean).join(" ") || "Unnamed patient";
+}
+
+function defaultPatientForm(type, patient) {
+  if (type === "edit") {
+    return {
+      donor_reference: patient?.donor_reference || "",
+      first_name: patient?.first_name || "",
+      middle_name: patient?.middle_name || "",
+      last_name: patient?.last_name || "",
+      date_of_birth: patient?.date_of_birth || "",
+      sex_at_birth: patient?.sex_at_birth || "",
+      gender_identity: patient?.gender_identity || "",
+      preferred_language: patient?.preferred_language || "",
+      phone: patient?.phone || "",
+      email: patient?.email || "",
+      address_line1: patient?.address_line1 || "",
+      city: patient?.city || "",
+      state: patient?.state || "",
+      postal_code: patient?.postal_code || "",
+      status: patient?.status || "active",
+    };
+  }
+  if (type === "contact") {
+    return { contact_type: "emergency", full_name: "", relationship: "", phone: "", email: "", is_primary: false, status: "active" };
+  }
+  if (type === "insurance") {
+    return { payer_name: "", member_id: "", group_number: "", plan_type: "", priority: "primary", eligibility_status: "not_verified", status: "active" };
+  }
+  if (type === "consent") {
+    return { consent_type: "Treatment", consent_status: "captured", captured_by_name: "", notes: "" };
+  }
+  return {
+    donor_reference: "",
+    first_name: "",
+    middle_name: "",
+    last_name: "",
+    date_of_birth: "",
+    sex_at_birth: "",
+    gender_identity: "",
+    preferred_language: "",
+    phone: "",
+    email: "",
+    address_line1: "",
+    city: "",
+    state: "",
+    postal_code: "",
+    status: "active",
+  };
+}
+
+function compactPayload(form) {
+  return Object.fromEntries(
+    Object.entries(form).filter(([, value]) => value !== "" && value !== null && value !== undefined),
+  );
+}
+
+function workflowTitle(type) {
+  return {
+    create: "Create Patient / Donor",
+    edit: "Edit Demographics",
+    contact: "Add Contact",
+    insurance: "Add Insurance",
+    consent: "Capture Consent",
+  }[type];
+}
+
+function validatePatientWorkflow(type, form) {
+  const issues = [];
+  if (["create", "edit"].includes(type)) {
+    for (const field of ["first_name", "last_name", "date_of_birth", "sex_at_birth"]) {
+      if (!form[field]) issues.push(`${field.replaceAll("_", " ")} is required.`);
+    }
+  }
+  if (type === "contact" && !form.full_name) issues.push("Contact full name is required.");
+  if (type === "insurance" && !form.payer_name) issues.push("Payer name is required.");
+  if (type === "consent" && !form.consent_type) issues.push("Consent type is required.");
+  return issues;
+}
+
+function previewEndpoint(type, patientId) {
+  if (type === "create") return "/api/clinical/patients/preview";
+  if (type === "edit") return `/api/clinical/patients/${patientId}/edit/preview`;
+  if (type === "contact") return `/api/clinical/patients/${patientId}/contacts/preview`;
+  if (type === "insurance") return `/api/clinical/patients/${patientId}/insurance/preview`;
+  return `/api/clinical/patients/${patientId}/consents/preview`;
+}
+
+function commitEndpoint(type, patientId) {
+  if (type === "create") return { path: "/api/clinical/patients", method: "POST" };
+  if (type === "edit") return { path: `/api/clinical/patients/${patientId}`, method: "PATCH" };
+  if (type === "contact") return { path: `/api/clinical/patients/${patientId}/contacts`, method: "POST" };
+  if (type === "insurance") return { path: `/api/clinical/patients/${patientId}/insurance`, method: "POST" };
+  return { path: `/api/clinical/patients/${patientId}/consents`, method: "POST" };
+}
+
+function PatientWorkflowModal({ type, patient, token, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultPatientForm(type, patient));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validatePatientWorkflow(type, form);
+  const patientId = patient?.patient_id;
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(previewEndpoint(type, patientId), {
+        token,
+        method: "POST",
+        body: compactPayload(form),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    setBusy(true);
+    setError("");
+    const { path, method } = commitEndpoint(type, patientId);
+    try {
+      const payload = await apiRequest(path, {
+        token,
+        method,
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...compactPayload(form), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess(payload);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={workflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{workflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            {["create", "edit"].includes(type) && (
+              <div className="form-grid">
+                <label>First name<input value={form.first_name} onChange={(event) => updateField("first_name", event.target.value)} /></label>
+                <label>Middle name<input value={form.middle_name} onChange={(event) => updateField("middle_name", event.target.value)} /></label>
+                <label>Last name<input value={form.last_name} onChange={(event) => updateField("last_name", event.target.value)} /></label>
+                <label>Date of birth<input type="date" value={form.date_of_birth} onChange={(event) => updateField("date_of_birth", event.target.value)} /></label>
+                <label>Sex at birth<input value={form.sex_at_birth} onChange={(event) => updateField("sex_at_birth", event.target.value)} /></label>
+                <label>Gender identity<input value={form.gender_identity} onChange={(event) => updateField("gender_identity", event.target.value)} /></label>
+                <label>Donor reference<input value={form.donor_reference} onChange={(event) => updateField("donor_reference", event.target.value)} /></label>
+                <label>Preferred language<input value={form.preferred_language} onChange={(event) => updateField("preferred_language", event.target.value)} /></label>
+                <label>Phone<input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} /></label>
+                <label>Email<input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} /></label>
+                <label>Address<input value={form.address_line1} onChange={(event) => updateField("address_line1", event.target.value)} /></label>
+                <label>City<input value={form.city} onChange={(event) => updateField("city", event.target.value)} /></label>
+                <label>State<input value={form.state} onChange={(event) => updateField("state", event.target.value)} /></label>
+                <label>Postal code<input value={form.postal_code} onChange={(event) => updateField("postal_code", event.target.value)} /></label>
+                <label>Status<select value={form.status} onChange={(event) => updateField("status", event.target.value)}>{patientStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
+              </div>
+            )}
+            {type === "contact" && (
+              <div className="form-grid">
+                <label>Contact type<input value={form.contact_type} onChange={(event) => updateField("contact_type", event.target.value)} /></label>
+                <label>Full name<input value={form.full_name} onChange={(event) => updateField("full_name", event.target.value)} /></label>
+                <label>Relationship<input value={form.relationship} onChange={(event) => updateField("relationship", event.target.value)} /></label>
+                <label>Phone<input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} /></label>
+                <label>Email<input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} /></label>
+                <label className="checkbox-row"><input type="checkbox" checked={form.is_primary} onChange={(event) => updateField("is_primary", event.target.checked)} /> Primary contact</label>
+              </div>
+            )}
+            {type === "insurance" && (
+              <div className="form-grid">
+                <label>Payer name<input value={form.payer_name} onChange={(event) => updateField("payer_name", event.target.value)} /></label>
+                <label>Member ID<input value={form.member_id} onChange={(event) => updateField("member_id", event.target.value)} /></label>
+                <label>Group number<input value={form.group_number} onChange={(event) => updateField("group_number", event.target.value)} /></label>
+                <label>Plan type<input value={form.plan_type} onChange={(event) => updateField("plan_type", event.target.value)} /></label>
+                <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}><option>primary</option><option>secondary</option></select></label>
+                <label>Eligibility status<input value={form.eligibility_status} onChange={(event) => updateField("eligibility_status", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "consent" && (
+              <div className="form-grid">
+                <label>Consent type<input value={form.consent_type} onChange={(event) => updateField("consent_type", event.target.value)} /></label>
+                <label>Consent status<select value={form.consent_status} onChange={(event) => updateField("consent_status", event.target.value)}><option>captured</option><option>declined</option><option>revoked</option></select></label>
+                <label>Captured by<input value={form.captured_by_name} onChange={(event) => updateField("captured_by_name", event.target.value)} /></label>
+                <label>Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? (
+              <div className="error-state">{validationIssues.join(" ")}</div>
+            ) : (
+              <div className="notice-state">Required fields are complete. Preview will check backend rules and duplicate risk.</div>
+            )}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>
+              {busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}
+              Generate preview
+            </button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className="notice-state">{preview.summary}</div>
+            <Table rows={[{ field: "Preview hash", value: preview.preview_hash }, { field: "Validation", value: preview.validation_status }]} columns={["field", "value"]} />
+            {preview.duplicate_warnings?.length > 0 && (
+              <div className="error-state">
+                Duplicate risk: {preview.duplicate_warnings.map((warning) => `${warning.patient_id} (${warning.matched_fields.join(", ")})`).join("; ")}
+              </div>
+            )}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" onClick={() => setStep("confirm")}>Continue to commit confirmation</button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">Commit will send X-Confirm-Generation: true and append a workflow operation audit entry.</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>Back to preview</button>
+            <button type="button" disabled={busy} onClick={runCommit}>
+              {busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}
+              Commit workflow
+            </button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Workflow committed successfully.</div>
+            <button type="button" onClick={onClose}>Done</button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ClinicalPatientsPage({ token, navigate }) {
+  const [patients, setPatients] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [modalType, setModalType] = useState("");
+
+  async function loadPatients() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (statusFilter) params.set("status", statusFilter);
+    try {
+      const payload = await apiRequest(`/api/clinical/patients${params.toString() ? `?${params}` : ""}`, { token });
+      setPatients(payload?.patients || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadPatients();
+  }, [token]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    loadPatients();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Patient / donor registration</p>
+          <h2>Patients / Donors</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("create")}>
+            <UserPlus size={16} />
+            Create Patient / Donor
+          </button>
+          <button type="button" className="secondary-button" onClick={loadPatients}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
+      </section>
+      <section>
+        <form className="patient-filter" onSubmit={submitSearch}>
+          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, phone, email, or patient ID" /></label>
+          <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{patientStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
+          <button type="submit"><FileCheck2 size={16} />Apply</button>
+        </form>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="notice-state">Loading patient/donor records...</div>}
+      {!loading && !patients.length && <div className="empty-state">No patient or donor profiles found.</div>}
+      {!!patients.length && (
+        <section>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Patient ID</th><th>Name</th><th>DOB</th><th>Contact</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>
+                {patients.map((patient) => (
+                  <tr key={patient.patient_id}>
+                    <td>{patient.patient_id}</td>
+                    <td>{patientDisplayName(patient)}</td>
+                    <td>{formatDate(patient.date_of_birth)}</td>
+                    <td>{patient.phone || patient.email || ""}</td>
+                    <td><StatusPill status={patient.status} /></td>
+                    <td><button type="button" className="table-action" onClick={() => navigate(`/clinical/patients/${patient.patient_id}`)}>Open</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+      {modalType && (
+        <PatientWorkflowModal
+          type={modalType}
+          token={token}
+          onClose={() => setModalType("")}
+          onSuccess={(payload) => {
+            loadPatients();
+            if (payload?.patient?.patient_id) navigate(`/clinical/patients/${payload.patient.patient_id}`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ClinicalPatientDetailPage({ token, route, navigate }) {
+  const patientId = clinicalPatientId(route);
+  const [patient, setPatient] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [modalType, setModalType] = useState("");
+
+  async function loadPatient() {
+    if (!patientId) return;
+    setLoading(true);
+    setError("");
+    try {
+      setPatient(await apiRequest(`/api/clinical/patients/${patientId}`, { token }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadPatient();
+  }, [token, patientId]);
+
+  if (loading) return <div className="notice-state">Loading patient/donor profile...</div>;
+  if (error) return <div className="error-state">{error}</div>;
+  if (!patient) return <div className="empty-state">Patient/donor profile unavailable.</div>;
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">{patient.patient_id}</p>
+          <h2>{patientDisplayName(patient)}</h2>
+          <StatusPill status={patient.status} />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("edit")}><FileCheck2 size={16} />Edit Demographics</button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients")}><ArrowLeft size={16} />Back to List</button>
+        </div>
+      </section>
+      <div className="split">
+        <section>
+          <h3>Demographics</h3>
+          <Table rows={[
+            { field: "Date of birth", value: formatDate(patient.date_of_birth) },
+            { field: "Sex at birth", value: patient.sex_at_birth },
+            { field: "Gender identity", value: patient.gender_identity || "" },
+            { field: "Preferred language", value: patient.preferred_language || "" },
+            { field: "Phone", value: patient.phone || "" },
+            { field: "Email", value: patient.email || "" },
+            { field: "Donor reference", value: patient.donor_reference || "" },
+          ]} columns={["field", "value"]} />
+        </section>
+        <section>
+          <h3>Planned Future Workflows</h3>
+          <div className="workflow-list">
+            {futurePatientWorkflows.map((workflow) => (
+              <div className="workflow-row" key={workflow.label}>
+                <button type="button" className="secondary-button" onClick={() => navigate(workflow.route)}>{workflow.label}</button>
+                <StatusPill status={workflow.status} />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+      <div className="split">
+        <section>
+          <div className="section-heading-row"><h3>Contacts</h3><button type="button" onClick={() => setModalType("contact")}>Add</button></div>
+          <Table rows={patient.contacts || []} columns={["contact_type", "full_name", "relationship", "phone", "email"]} />
+        </section>
+        <section>
+          <div className="section-heading-row"><h3>Insurance</h3><button type="button" onClick={() => setModalType("insurance")}>Add</button></div>
+          <Table rows={patient.insurance_profiles || []} columns={["priority", "payer_name", "member_id", "eligibility_status"]} />
+        </section>
+      </div>
+      <div className="split">
+        <section>
+          <div className="section-heading-row"><h3>Consents</h3><button type="button" onClick={() => setModalType("consent")}>Capture</button></div>
+          <Table rows={patient.consents || []} columns={["consent_type", "consent_status", "captured_by_name", "notes"]} />
+        </section>
+        <section>
+          <h3>Recent Workflow Activity</h3>
+          <Table rows={[
+            { event: "Profile created", timestamp: formatDateTime(patient.created_at), source: patient.source },
+            { event: "Profile updated", timestamp: formatDateTime(patient.updated_at), source: `Version ${patient.version}` },
+          ]} columns={["event", "timestamp", "source"]} />
+        </section>
+      </div>
+      {modalType && (
+        <PatientWorkflowModal
+          type={modalType}
+          patient={patient}
+          token={token}
+          onClose={() => setModalType("")}
+          onSuccess={(payload) => setPatient(payload?.patient || patient)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_patients") {
+    return <ClinicalPatientsPage token={token} navigate={navigate} />;
+  }
+  if (section.id === "clinical_patient_detail") {
+    return <ClinicalPatientDetailPage token={token} route={route} navigate={navigate} />;
+  }
   const patientId = clinicalPatientId(route);
   const moduleRoute = patientId ? "/clinical/patients" : section.route;
   const detailRows = patientId
@@ -1156,7 +1642,7 @@ function SectionBody({ active, activeSection, route, status, token, refresh, nav
   const runs = status?.recent_runs || [];
 
   if (active?.startsWith("clinical_")) {
-    return <ClinicalModuleSection section={activeSection} route={route} navigate={navigate} />;
+    return <ClinicalModuleSection section={activeSection} route={route} token={token} navigate={navigate} />;
   }
   if (active === "dashboard") return <OperationsSection status={status} />;
   if (active === "referrals") {

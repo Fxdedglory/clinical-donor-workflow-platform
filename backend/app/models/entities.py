@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -811,6 +812,157 @@ class Donor(Base):
     archived_by: Mapped[int | None] = mapped_column(
         ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
     )
+
+
+class Patient(Base):
+    __tablename__ = "patients"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    patient_pk: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_id: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    donor_reference: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    first_name: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    middle_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_name: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    date_of_birth: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    sex_at_birth: Mapped[str] = mapped_column(String(40), nullable=False)
+    gender_identity: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    preferred_language: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(180), nullable=True, index=True)
+    address_line1: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    address_line2: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_registration")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    contacts: Mapped[list["PatientContact"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    insurance_profiles: Mapped[list["PatientInsurance"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    consents: Mapped[list["PatientConsent"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+
+
+class PatientContact(Base):
+    __tablename__ = "patient_contacts"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    contact_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    contact_type: Mapped[str] = mapped_column(String(80), nullable=False, default="emergency")
+    full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    contact_relationship: Mapped[str | None] = mapped_column("relationship", String(80), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_registration")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient] = relationship(back_populates="contacts")
+
+    @property
+    def relationship(self) -> str | None:
+        return self.contact_relationship
+
+
+class PatientInsurance(Base):
+    __tablename__ = "patient_insurance"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    insurance_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    payer_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    member_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    group_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    plan_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    priority: Mapped[str] = mapped_column(String(40), nullable=False, default="primary")
+    eligibility_status: Mapped[str] = mapped_column(String(80), nullable=False, default="not_verified")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_registration")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient] = relationship(back_populates="insurance_profiles")
+
+
+class PatientConsent(Base):
+    __tablename__ = "patient_consents"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    consent_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    consent_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    consent_status: Mapped[str] = mapped_column(String(40), nullable=False, default="captured")
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    captured_by_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_registration")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient] = relationship(back_populates="consents")
 
 
 class DonorScreening(Base):
