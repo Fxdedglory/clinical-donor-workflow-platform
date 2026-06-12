@@ -93,8 +93,8 @@ CLINICAL_MODULES = [
         label="Care Plans",
         route="/clinical/care-plans",
         api_namespace="/api/clinical/care-plans",
-        status="planned_workflow",
-        workflows=["Create care plan", "Update progress", "Close care plan"],
+        status="active",
+        workflows=["Create care plan", "Add goal", "Add intervention", "Add task", "Update progress", "Close care plan"],
     ),
     ClinicalModuleRead(
         module_id="billing",

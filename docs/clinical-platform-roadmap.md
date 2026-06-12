@@ -22,8 +22,8 @@ Important repository state from Sprint 0:
 | Scheduling | Sprint 3 adds appointment booking, resources, appointment types, conflict previews, status transitions, UI workflows, RBAC, and audit. | Add full calendar visualization, recurring availability templates, capacity rules, waitlists, reminders, and completed-appointment handoff into encounters. |
 | Donor Screening / Eligibility | Sprint 4 adds patient-linked screening sessions, questionnaire/vitals capture, eligibility preview, result commit, deferrals, supervisor override, UI workflow, RBAC, and audit while reusing the existing donor eligibility engine. | Add richer screening templates, infectious disease result entry, deferral expiration workflows, medical director queues, and deeper donor-to-patient identity reconciliation. |
 | EMR / Encounters | Sprint 5 adds encounter creation, note templates, draft notes, signing/locking, amendments, diagnoses/problems, allergies, medications, status history, RBAC, audit, and an operational UI. | Add richer clinician assignment, encounter closure/cancellation policies, problem reconciliation, medication/allergy reconciliation, and deeper downstream decision support. |
-| Orders / Results | Sprint 6 adds generic clinical order catalog, order placement, result entry/correction, abnormal/critical flags, acknowledgement, cancellation, status history, RBAC, audit, and an operational UI. | Add specimen accessioning, laboratory interface ingestion, reference-range engines, richer correction policy, infectious disease fact reconciliation, and downstream Care Plans/Billing handoff. |
-| Care Plans | No care plan module. | Add care plans, goals, interventions, tasks, care team assignment, progress updates, and closure. |
+| Orders / Results | Sprint 6 adds generic clinical order catalog, order placement, result entry/correction, abnormal/critical flags, acknowledgement, cancellation, status history, RBAC, audit, and an operational UI. | Add specimen accessioning, laboratory interface ingestion, reference-range engines, richer correction policy, infectious disease fact reconciliation, and downstream Billing handoff. |
+| Care Plans | Sprint 7 adds patient-linked care plans, goals, interventions, tasks, team assignment, progress timeline, closure, RBAC, audit, and an operational UI. | Add richer task lifecycle updates, cross-plan case load balancing, referral automation, and downstream Billing/Quality handoff. |
 | Billing / Insurance | No billing workflow module. | Add insurance profile, charges, codes, authorizations, claims, payments, denials, and rework queues. |
 | Quality / Compliance | Deviation, CAPA, audit, and QMS concepts exist. | Add `/clinical/quality` workflows, adverse events, audit evidence export, severity classification, and closure approval. |
 | Reporting / Analytics | Dashboards, monitoring, and export metadata exist. | Add clinical module reports with date/status/entity filters and export surfaces. |
@@ -323,13 +323,70 @@ Implemented orders/results foundation:
 - Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover catalog access, patient/encounter linkage validation, missing/invalid/valid confirmation headers, audit creation and append preservation, cancelled-order result blocking, critical result acknowledgement, cancellation reason/audit behavior, and external partner mutation rejection.
 
+## Sprint 7 Implemented Scope
+
+Sprint 7 implements Care Plans / Case Management as the operational coordination layer linked to Patient / Donor Registration, Screening, Encounters, and Orders / Results.
+
+Implemented care plan foundation:
+
+- Persistent care plan entities:
+  - `operational.clinical_care_plans`
+  - `operational.clinical_care_plan_goals`
+  - `operational.clinical_care_plan_interventions`
+  - `operational.clinical_care_plan_tasks`
+  - `operational.clinical_care_plan_progress_notes`
+  - `operational.clinical_care_plan_team_members`
+  - `operational.clinical_care_plan_status_history`
+- Alembic migration `202606120006_clinical_care_plans`.
+- Care Plans RBAC permissions:
+  - `care_plans.read`
+  - `care_plans.manage`
+  - `care_plans.close`
+- Backend `/api/clinical/care-plans` endpoints:
+  - `GET /api/clinical/care-plans`
+  - `GET /api/clinical/care-plans/{care_plan_id}`
+  - `POST /api/clinical/care-plans/preview`
+  - `POST /api/clinical/care-plans`
+  - `POST /api/clinical/care-plans/{care_plan_id}/goals/preview`
+  - `POST /api/clinical/care-plans/{care_plan_id}/goals`
+  - `POST /api/clinical/care-plans/{care_plan_id}/interventions/preview`
+  - `POST /api/clinical/care-plans/{care_plan_id}/interventions`
+  - `POST /api/clinical/care-plans/{care_plan_id}/tasks/preview`
+  - `POST /api/clinical/care-plans/{care_plan_id}/tasks`
+  - `POST /api/clinical/care-plans/{care_plan_id}/progress/preview`
+  - `POST /api/clinical/care-plans/{care_plan_id}/progress`
+  - `POST /api/clinical/care-plans/{care_plan_id}/close/preview`
+  - `POST /api/clinical/care-plans/{care_plan_id}/close`
+- Supported care plan statuses:
+  - `draft`
+  - `active`
+  - `on_hold`
+  - `completed`
+  - `cancelled`
+  - `closed`
+- Care plan creation validates patient, encounter, screening session, order, and order result linkage before commit.
+- Linked abnormal and critical order results remain visible in preview, list filters, and detail context, including unacknowledged critical result warnings.
+- Goals, interventions, tasks, progress notes, team members, and status history are stored as reusable case-management records.
+- Tasks require owner and due date; tasks committed as completed capture completion timestamp and actor.
+- Progress notes append to the timeline and can move care plans between `draft`, `active`, and `on_hold`.
+- Closure requires outcome summary and closure reason, moves the plan to `closed`, records closure actor/time, and blocks later goals, interventions, tasks, or progress.
+- Successful commits append workflow operations for:
+  - `care_plan.create`
+  - `care_plan.goal_add`
+  - `care_plan.intervention_add`
+  - `care_plan.task_add`
+  - `care_plan.progress_add`
+  - `care_plan.close`
+- Frontend `/clinical/care-plans` is now an operational case-management workspace with worklist filters, status and priority chips, patient/encounter/screening/order-result context, critical/abnormal indicators, goals, interventions, tasks, team, progress, closure details, status history, and planned downstream Billing handoff.
+- Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover patient/context validation, missing/invalid/valid confirmation headers, audit file creation and append preservation, goals/interventions/tasks, progress timeline/status update, closure requirements/blocking behavior, and external partner mutation rejection.
+
 ## Future Sprint Sequence
 
-1. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
-2. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
-3. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-4. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-5. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
+2. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
+3. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
+4. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
 
 ## Validation Commands
 

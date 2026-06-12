@@ -213,8 +213,8 @@ const clinicalSections = [
     label: "Care Plans",
     route: "/clinical/care-plans",
     icon: Activity,
-    status: "Planned workflow",
-    workflows: ["Create care plan", "Update progress", "Close care plan"],
+    status: "Active",
+    workflows: ["Create care plan", "Add goal", "Add intervention", "Add task", "Update progress", "Close care plan"],
   },
   {
     id: "clinical_billing",
@@ -3595,7 +3595,7 @@ function ClinicalOrdersPage({ token, navigate }) {
             <section>
               <h3>Downstream Actions</h3>
               <div className="workflow-list">
-                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/care-plans")}><span>Care Plans</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/care-plans")}><span>Care Plans</span><StatusPill status="Active" /></button>
                 <button type="button" className="workflow-row" onClick={() => navigate("/clinical/billing")}><span>Billing</span><StatusPill status="Planned workflow" /></button>
               </div>
             </section>
@@ -3656,7 +3656,530 @@ function ClinicalOrdersPage({ token, navigate }) {
   );
 }
 
+const carePlanStatusOptions = ["draft", "active", "on_hold", "completed", "cancelled", "closed"];
+const carePlanPriorityOptions = ["routine", "urgent", "stat"];
+const carePlanResultFlagOptions = ["none", "pending", "normal", "abnormal", "critical"];
+
+function defaultDateInput(daysAhead = 0) {
+  const date = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
+}
+
+function PriorityChip({ priority }) {
+  const normalized = priority || "routine";
+  const tone = normalized === "stat" ? "danger" : normalized === "urgent" ? "warning" : "neutral";
+  return <span className={cx("priority-chip", tone)}>{normalized}</span>;
+}
+
+function latestCarePlanProgress(carePlan) {
+  return [...(carePlan?.progress_notes || [])].sort((left, right) => new Date(right.created_at) - new Date(left.created_at))[0] || null;
+}
+
+function carePlanOrderResults(orders, orderId) {
+  const order = (orders || []).find((item) => String(item.order_id) === String(orderId));
+  return order?.results || [];
+}
+
+function carePlanWorkflowTitle(type) {
+  return {
+    create: "Create Care Plan",
+    goal: "Add Goal",
+    intervention: "Add Intervention",
+    task: "Add Task",
+    progress: "Add Progress Update",
+    close: "Close Care Plan",
+  }[type];
+}
+
+function defaultCarePlanForm(type, carePlan, patients, encounters, sessions, orders) {
+  const firstOrder = orders?.[0];
+  const firstResult = firstOrder?.results?.[0];
+  if (type === "create") {
+    return {
+      patient_id: patients?.[0]?.patient_id || "",
+      encounter_id: encounters?.[0]?.encounter_id || "",
+      screening_session_id: sessions?.[0]?.session_id || "",
+      order_id: firstOrder?.order_id || "",
+      order_result_id: firstResult?.result_id || "",
+      title: firstResult?.critical_flag ? "Critical result follow-up plan" : "Care coordination plan",
+      plan_type: "case_management",
+      priority: firstResult?.critical_flag ? "urgent" : "routine",
+      start_date: defaultDateInput(0),
+      target_date: defaultDateInput(14),
+      team_member_name: "",
+      team_member_role: "Care Coordinator",
+      reason: "Create care plan",
+    };
+  }
+  if (type === "goal") {
+    return { goal: "", target_date: defaultDateInput(30), status: "active", priority: carePlan?.priority || "routine", notes: "", reason: "Add care plan goal" };
+  }
+  if (type === "intervention") {
+    return { intervention: "", intervention_type: "follow_up", owner: "", due_date: defaultDateInput(7), status: "planned", notes: "", reason: "Add care plan intervention" };
+  }
+  if (type === "task") {
+    return { title: "", description: "", owner: "", due_date: defaultDateInput(7), priority: carePlan?.priority || "routine", status: "open", notes: "", reason: "Add care plan task" };
+  }
+  if (type === "progress") {
+    return { progress_note: "", status_update: "", reason: "Add care plan progress update" };
+  }
+  return { outcome_summary: "", closure_reason: "", reason: "Close care plan" };
+}
+
+function validateCarePlanWorkflow(type, form, carePlan) {
+  const issues = [];
+  if (type === "create") {
+    if (!form.patient_id) issues.push("Patient/donor is required.");
+    if (!form.title?.trim()) issues.push("Title is required.");
+    if (!form.plan_type?.trim()) issues.push("Plan type is required.");
+    if (!form.priority?.trim()) issues.push("Priority is required.");
+  }
+  if (type === "goal" && !form.goal?.trim()) issues.push("Goal is required.");
+  if (type === "intervention") {
+    if (!form.intervention?.trim()) issues.push("Intervention is required.");
+    if (!form.intervention_type?.trim()) issues.push("Intervention type is required.");
+  }
+  if (type === "task") {
+    if (!form.title?.trim()) issues.push("Task title is required.");
+    if (!form.owner?.trim()) issues.push("Task owner is required.");
+    if (!form.due_date) issues.push("Task due date is required.");
+  }
+  if (type === "progress" && !form.progress_note?.trim()) issues.push("Progress note is required.");
+  if (type === "close") {
+    if (!form.outcome_summary?.trim()) issues.push("Outcome summary is required.");
+    if (!form.closure_reason?.trim()) issues.push("Closure reason is required.");
+  }
+  if (type !== "create" && !carePlan) issues.push("Select a care plan first.");
+  return issues;
+}
+
+function carePlanPayload(type, form) {
+  const payload = compactPayload(form);
+  for (const field of ["encounter_id", "screening_session_id", "order_id", "order_result_id"]) {
+    if (payload[field] !== undefined) payload[field] = Number(payload[field]);
+  }
+  return payload;
+}
+
+function carePlanPreviewEndpoint(type, carePlan) {
+  if (type === "create") return "/api/clinical/care-plans/preview";
+  if (type === "goal") return `/api/clinical/care-plans/${carePlan.care_plan_id}/goals/preview`;
+  if (type === "intervention") return `/api/clinical/care-plans/${carePlan.care_plan_id}/interventions/preview`;
+  if (type === "task") return `/api/clinical/care-plans/${carePlan.care_plan_id}/tasks/preview`;
+  if (type === "progress") return `/api/clinical/care-plans/${carePlan.care_plan_id}/progress/preview`;
+  return `/api/clinical/care-plans/${carePlan.care_plan_id}/close/preview`;
+}
+
+function carePlanCommitEndpoint(type, carePlan) {
+  if (type === "create") return { path: "/api/clinical/care-plans", method: "POST" };
+  if (type === "goal") return { path: `/api/clinical/care-plans/${carePlan.care_plan_id}/goals`, method: "POST" };
+  if (type === "intervention") return { path: `/api/clinical/care-plans/${carePlan.care_plan_id}/interventions`, method: "POST" };
+  if (type === "task") return { path: `/api/clinical/care-plans/${carePlan.care_plan_id}/tasks`, method: "POST" };
+  if (type === "progress") return { path: `/api/clinical/care-plans/${carePlan.care_plan_id}/progress`, method: "POST" };
+  return { path: `/api/clinical/care-plans/${carePlan.care_plan_id}/close`, method: "POST" };
+}
+
+function carePlanContextLabel(carePlan) {
+  return carePlan?.order_number || carePlan?.encounter_number || carePlan?.screening_session_number || "Direct care plan";
+}
+
+function CarePlanWorkflowModal({ type, carePlan, token, patients, encounters, sessions, orders, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultCarePlanForm(type, carePlan, patients, encounters, sessions, orders));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validateCarePlanWorkflow(type, form, carePlan);
+  const blockingIssues = preview?.blocking_issues || [];
+  const warningRows = preview?.warnings || [];
+  const linkedOrderResults = carePlanOrderResults(orders, form.order_id);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateOrder(orderId) {
+    const results = carePlanOrderResults(orders, orderId);
+    setForm((current) => ({ ...current, order_id: orderId, order_result_id: results?.[0]?.result_id || "" }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(carePlanPreviewEndpoint(type, carePlan), {
+        token,
+        method: "POST",
+        body: carePlanPayload(type, form),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    setBusy(true);
+    setError("");
+    const { path, method } = carePlanCommitEndpoint(type, carePlan);
+    try {
+      const payload = await apiRequest(path, {
+        token,
+        method,
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...carePlanPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess(payload);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={carePlanWorkflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{carePlanWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            {type === "create" && (
+              <div className="form-grid">
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+                <label>Encounter<select value={form.encounter_id} onChange={(event) => updateField("encounter_id", event.target.value)}><option value="">No encounter</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {encounter.patient_name || encounter.patient_id}</option>)}</select></label>
+                <label>Screening<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {session.patient_name || session.patient_id}</option>)}</select></label>
+                <label>Order<select value={form.order_id} onChange={(event) => updateOrder(event.target.value)}><option value="">No order</option>{orders.map((order) => <option key={order.order_id} value={order.order_id}>{order.order_number} - {order.patient_name || order.patient_id} ({order.result_flag})</option>)}</select></label>
+                <label>Order result<select value={form.order_result_id} onChange={(event) => updateField("order_result_id", event.target.value)}><option value="">No result</option>{linkedOrderResults.map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_value}{result.critical_flag ? " (critical)" : result.abnormal_flag ? " (abnormal)" : ""}</option>)}</select></label>
+                <label>Plan type<input value={form.plan_type} onChange={(event) => updateField("plan_type", event.target.value)} /></label>
+                <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}>{carePlanPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
+                <label>Start date<input type="date" value={form.start_date} onChange={(event) => updateField("start_date", event.target.value)} /></label>
+                <label>Target date<input type="date" value={form.target_date} onChange={(event) => updateField("target_date", event.target.value)} /></label>
+                <label>Team member<input value={form.team_member_name} onChange={(event) => updateField("team_member_name", event.target.value)} /></label>
+                <label>Team role<input value={form.team_member_role} onChange={(event) => updateField("team_member_role", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Title<textarea value={form.title} rows="3" onChange={(event) => updateField("title", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "goal" && (
+              <div className="form-grid">
+                <label>Target date<input type="date" value={form.target_date} onChange={(event) => updateField("target_date", event.target.value)} /></label>
+                <label>Status<input value={form.status} onChange={(event) => updateField("status", event.target.value)} /></label>
+                <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}><option value="">None</option>{carePlanPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Goal<textarea value={form.goal} rows="4" onChange={(event) => updateField("goal", event.target.value)} /></label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "intervention" && (
+              <div className="form-grid">
+                <label>Type<input value={form.intervention_type} onChange={(event) => updateField("intervention_type", event.target.value)} /></label>
+                <label>Owner<input value={form.owner} onChange={(event) => updateField("owner", event.target.value)} /></label>
+                <label>Due date<input type="date" value={form.due_date} onChange={(event) => updateField("due_date", event.target.value)} /></label>
+                <label>Status<input value={form.status} onChange={(event) => updateField("status", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Intervention<textarea value={form.intervention} rows="4" onChange={(event) => updateField("intervention", event.target.value)} /></label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "task" && (
+              <div className="form-grid">
+                <label>Title<input value={form.title} onChange={(event) => updateField("title", event.target.value)} /></label>
+                <label>Owner<input value={form.owner} onChange={(event) => updateField("owner", event.target.value)} /></label>
+                <label>Due date<input type="date" value={form.due_date} onChange={(event) => updateField("due_date", event.target.value)} /></label>
+                <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}>{carePlanPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
+                <label>Status<select value={form.status} onChange={(event) => updateField("status", event.target.value)}><option>open</option><option>in_progress</option><option>completed</option><option>cancelled</option></select></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Description<textarea value={form.description} rows="3" onChange={(event) => updateField("description", event.target.value)} /></label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "progress" && (
+              <div className="form-grid">
+                <label>Status update<select value={form.status_update} onChange={(event) => updateField("status_update", event.target.value)}><option value="">No status change</option><option value="active">active</option><option value="on_hold">on_hold</option><option value="draft">draft</option></select></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Progress note<textarea value={form.progress_note} rows="6" onChange={(event) => updateField("progress_note", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "close" && (
+              <div className="form-grid">
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Outcome summary<textarea value={form.outcome_summary} rows="5" onChange={(event) => updateField("outcome_summary", event.target.value)} /></label>
+                <label className="wide-field">Closure reason<textarea value={form.closure_reason} rows="4" onChange={(event) => updateField("closure_reason", event.target.value)} /></label>
+              </div>
+            )}
+            {carePlan && <div className="notice-state">Workflow target: {carePlan.care_plan_number} for {carePlan.patient_name || carePlan.patient_id}.</div>}
+            <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run care plan checks.</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className={blockingIssues.length ? "error-state" : "notice-state"}>{preview.summary}</div>
+            <Table rows={[{ field: "Preview hash", value: preview.preview_hash }, { field: "Validation", value: preview.validation_status }, { field: "Workflow", value: preview.workflow }]} columns={["field", "value"]} />
+            {!!blockingIssues.length && <div className="conflict-list">{blockingIssues.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}><XCircle size={16} /><span>{issue.message}</span></div>)}</div>}
+            {!!warningRows.length && <div className="conflict-list">{warningRows.map((warning) => <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}><AlertTriangle size={16} /><span>{warning.message}</span></div>)}</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={blockingIssues.length > 0} onClick={() => setStep("confirm")}>Continue to commit confirmation</button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">Commit will send X-Confirm-Generation: true and append a care plan workflow audit entry.</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>Back to preview</button>
+            <button type="button" disabled={busy} onClick={runCommit}>{busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}Commit workflow</button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Care plan workflow completed successfully.</div>
+            <button type="button" onClick={onClose}>Done</button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ClinicalCarePlansPage({ token, navigate }) {
+  const [carePlans, setCarePlans] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [encounters, setEncounters] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [selectedCarePlan, setSelectedCarePlan] = useState(null);
+  const [query, setQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [patientFilter, setPatientFilter] = useState("");
+  const [encounterFilter, setEncounterFilter] = useState("");
+  const [orderContextFilter, setOrderContextFilter] = useState("");
+  const [resultFlagFilter, setResultFlagFilter] = useState("");
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const latestProgress = latestCarePlanProgress(selectedCarePlan);
+
+  async function loadCarePlans() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (dateFilter) params.set("date", dateFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (priorityFilter) params.set("priority", priorityFilter);
+    if (patientFilter) params.set("patient_id", patientFilter);
+    if (encounterFilter) params.set("encounter_id", encounterFilter);
+    if (orderContextFilter) params.set("order_context", orderContextFilter);
+    if (resultFlagFilter) params.set("result_flag", resultFlagFilter);
+    try {
+      const [carePlanPayload, patientPayload, encounterPayload, screeningPayload, orderPayload] = await Promise.all([
+        apiRequest(`/api/clinical/care-plans${params.toString() ? `?${params}` : ""}`, { token }),
+        apiRequest("/api/clinical/patients?limit=500", { token }),
+        apiRequest("/api/clinical/encounters?limit=500", { token }).catch(() => ({ encounters: [] })),
+        apiRequest("/api/clinical/screening/sessions?limit=500", { token }).catch(() => ({ sessions: [] })),
+        apiRequest("/api/clinical/orders?limit=500", { token }).catch(() => ({ orders: [] })),
+      ]);
+      const nextCarePlans = carePlanPayload?.care_plans || [];
+      setCarePlans(nextCarePlans);
+      setPatients(patientPayload?.patients || []);
+      setEncounters(encounterPayload?.encounters || []);
+      setSessions(screeningPayload?.sessions || []);
+      setOrders(orderPayload?.orders || []);
+      setSelectedCarePlan((current) => {
+        if (!nextCarePlans.length) return null;
+        if (!current) return nextCarePlans[0];
+        return nextCarePlans.find((carePlan) => carePlan.care_plan_id === current.care_plan_id) || nextCarePlans[0];
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadCarePlans();
+  }, [token]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    loadCarePlans();
+  }
+
+  function workflowSuccess(payload) {
+    if (payload?.care_plan) setSelectedCarePlan(payload.care_plan);
+    loadCarePlans();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Care plans / case management</p>
+          <h2>Care Plan Worklist</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("create")}><Activity size={16} />Create Care Plan</button>
+          <button type="button" className="secondary-button" onClick={loadCarePlans}><RefreshCw size={16} />Refresh</button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/orders")}><UploadCloud size={16} />Orders</button>
+        </div>
+      </section>
+      <section>
+        <form className="care-plan-filter" onSubmit={submitSearch}>
+          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Care plan or patient" /></label>
+          <label>Start date<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
+          <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{carePlanStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
+          <label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="">All</option>{carePlanPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
+          <label>Patient<select value={patientFilter} onChange={(event) => setPatientFilter(event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+          <label>Encounter<select value={encounterFilter} onChange={(event) => setEncounterFilter(event.target.value)}><option value="">All</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number}</option>)}</select></label>
+          <label>Order context<select value={orderContextFilter} onChange={(event) => setOrderContextFilter(event.target.value)}><option value="">All</option><option value="true">With order/result</option><option value="false">Without order</option></select></label>
+          <label>Result<select value={resultFlagFilter} onChange={(event) => setResultFlagFilter(event.target.value)}><option value="">All</option>{carePlanResultFlagOptions.map((flag) => <option key={flag}>{flag}</option>)}</select></label>
+          <button type="submit"><FileCheck2 size={16} />Apply</button>
+        </form>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="notice-state">Loading care plan worklist...</div>}
+      {!loading && !carePlans.length && <div className="empty-state">No care plans match the current filters.</div>}
+      {!!carePlans.length && (
+        <div className="split care-plan-layout">
+          <section>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Care plan</th><th>Patient / Donor</th><th>Context</th><th>Priority</th><th>Status</th><th>Result</th><th>Target</th><th>Action</th></tr></thead>
+                <tbody>
+                  {carePlans.map((carePlan) => (
+                    <tr key={carePlan.care_plan_id} className={carePlan.has_critical_unacknowledged ? "order-critical-row" : ""}>
+                      <td>{carePlan.care_plan_number}</td>
+                      <td>{carePlan.patient_name || carePlan.patient_id}</td>
+                      <td>{carePlanContextLabel(carePlan)}</td>
+                      <td><PriorityChip priority={carePlan.priority} /></td>
+                      <td><StatusPill status={carePlan.status} /></td>
+                      <td><ResultFlagPill flag={carePlan.result_flag} /></td>
+                      <td>{formatDate(carePlan.target_date)}</td>
+                      <td><button type="button" className="table-action" onClick={() => setSelectedCarePlan(carePlan)}>Open</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="appointment-detail-panel">
+            {selectedCarePlan ? (
+              <>
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">{selectedCarePlan.care_plan_number}</p>
+                    <h3>{selectedCarePlan.title}</h3>
+                  </div>
+                  <StatusPill status={selectedCarePlan.status} />
+                </div>
+                <Table rows={[
+                  { field: "Patient", value: selectedCarePlan.patient_name || selectedCarePlan.patient_id },
+                  { field: "Context", value: carePlanContextLabel(selectedCarePlan) },
+                  { field: "Priority", value: selectedCarePlan.priority },
+                  { field: "Result flag", value: selectedCarePlan.result_flag },
+                  { field: "Critical ack", value: selectedCarePlan.has_critical_unacknowledged ? "Required" : "Current" },
+                  { field: "Latest progress", value: latestProgress ? formatDateTime(latestProgress.created_at) : "No progress note" },
+                ]} columns={["field", "value"]} />
+                <div className="clinical-actions detail-actions">
+                  <button type="button" onClick={() => setModalType("goal")}><CheckCircle2 size={16} />Goal</button>
+                  <button type="button" onClick={() => setModalType("intervention")}><Activity size={16} />Intervention</button>
+                  <button type="button" onClick={() => setModalType("task")}><Clock size={16} />Task</button>
+                  <button type="button" onClick={() => setModalType("progress")}><FileCheck2 size={16} />Progress</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("close")}><XCircle size={16} />Close</button>
+                </div>
+              </>
+            ) : <div className="empty-state">Select a care plan to review details.</div>}
+          </section>
+        </div>
+      )}
+      {selectedCarePlan && (
+        <>
+          <div className="care-plan-detail-grid">
+            <section>
+              <h3>Patient / Clinical Context</h3>
+              <Table rows={[
+                { field: "Patient ID", value: selectedCarePlan.patient_id },
+                { field: "Encounter", value: selectedCarePlan.encounter_number || "No encounter" },
+                { field: "Screening", value: selectedCarePlan.screening_session_number || "No screening" },
+                { field: "Order", value: selectedCarePlan.order_number || "No order" },
+                { field: "Order result", value: selectedCarePlan.order_result_summary || "No linked result" },
+              ]} columns={["field", "value"]} />
+            </section>
+            <section>
+              <h3>Plan Summary</h3>
+              <Table rows={[
+                { field: "Type", value: selectedCarePlan.plan_type },
+                { field: "Start", value: formatDate(selectedCarePlan.start_date) },
+                { field: "Target", value: formatDate(selectedCarePlan.target_date) },
+                { field: "Reason", value: selectedCarePlan.reason },
+                { field: "Closed", value: formatDateTime(selectedCarePlan.closed_at) },
+              ]} columns={["field", "value"]} />
+            </section>
+            <section>
+              <h3>Downstream Actions</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/billing")}><span>Billing Review</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/quality")}><span>Quality Review</span><StatusPill status="Foundation pending" /></button>
+              </div>
+            </section>
+          </div>
+          <div className="care-plan-detail-grid">
+            <section><h3>Goals</h3><Table rows={(selectedCarePlan.goals || []).map((goal) => ({ goal: goal.goal, status: goal.status, priority: goal.priority || "", target: formatDate(goal.target_date), notes: goal.notes || "" }))} columns={["goal", "status", "priority", "target", "notes"]} /></section>
+            <section><h3>Interventions</h3><Table rows={(selectedCarePlan.interventions || []).map((intervention) => ({ intervention: intervention.intervention, type: intervention.intervention_type, owner: intervention.owner || "", due: formatDate(intervention.due_date), status: intervention.status }))} columns={["intervention", "type", "owner", "due", "status"]} /></section>
+            <section><h3>Tasks</h3><Table rows={(selectedCarePlan.tasks || []).map((task) => ({ title: task.title, owner: task.owner, due: formatDate(task.due_date), priority: task.priority, status: task.status, completed: formatDateTime(task.completed_at) }))} columns={["title", "owner", "due", "priority", "status", "completed"]} /></section>
+            <section><h3>Care Team</h3><Table rows={(selectedCarePlan.team_members || []).map((member) => ({ member: member.member_name, role: member.role, primary: member.is_primary ? "Yes" : "No" }))} columns={["member", "role", "primary"]} /></section>
+            <section className="care-plan-wide-section"><h3>Progress Timeline</h3><Table rows={(selectedCarePlan.progress_notes || []).map((note) => ({ at: formatDateTime(note.created_at), status_update: note.status_update || "", note: note.progress_note }))} columns={["at", "status_update", "note"]} /></section>
+            <section><h3>Closure</h3><Table rows={[
+              { field: "Status", value: selectedCarePlan.status },
+              { field: "Closed at", value: formatDateTime(selectedCarePlan.closed_at) },
+              { field: "Closure reason", value: selectedCarePlan.closure_reason || "" },
+              { field: "Outcome summary", value: selectedCarePlan.outcome_summary || "" },
+            ]} columns={["field", "value"]} /></section>
+            <section><h3>Recent Audit / Status</h3><Table rows={(selectedCarePlan.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} /></section>
+          </div>
+        </>
+      )}
+      {modalType && (
+        <CarePlanWorkflowModal
+          type={modalType}
+          carePlan={modalType === "create" ? null : selectedCarePlan}
+          token={token}
+          patients={patients}
+          encounters={encounters}
+          sessions={sessions}
+          orders={orders}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_care_plans") {
+    return <ClinicalCarePlansPage token={token} navigate={navigate} />;
+  }
   if (section.id === "clinical_orders") {
     return <ClinicalOrdersPage token={token} navigate={navigate} />;
   }

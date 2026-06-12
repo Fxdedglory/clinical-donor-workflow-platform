@@ -403,7 +403,8 @@ section,
 .scheduling-filter,
 .screening-filter,
 .encounter-filter,
-.orders-filter {
+.orders-filter,
+.care-plan-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
@@ -413,11 +414,13 @@ section,
 .scheduling-filter,
 .screening-filter,
 .encounter-filter,
-.orders-filter {
+.orders-filter,
+.care-plan-filter {
   grid-template-columns: minmax(200px, 1fr) minmax(140px, 180px) minmax(140px, 180px) minmax(180px, 240px) auto;
 }
 
-.orders-filter {
+.orders-filter,
+.care-plan-filter {
   grid-template-columns:
     minmax(190px, 1fr) minmax(130px, 160px) minmax(130px, 160px) minmax(180px, 240px)
     minmax(150px, 190px) minmax(120px, 150px) minmax(120px, 150px) auto;
@@ -426,20 +429,46 @@ section,
 .schedule-layout,
 .screening-layout,
 .encounter-layout,
-.orders-layout {
+.orders-layout,
+.care-plan-layout {
   align-items: start;
 }
 
 .screening-detail-grid,
 .encounter-detail-grid,
-.orders-detail-grid {
+.orders-detail-grid,
+.care-plan-detail-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.orders-wide-section {
+.orders-wide-section,
+.care-plan-wide-section {
   grid-column: span 2;
+}
+
+.priority-chip {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.3rem 0.55rem;
+}
+
+.priority-chip.danger {
+  background: #ffe4e4;
+  color: #9b2c2c;
+}
+
+.priority-chip.warning {
+  background: #fff3d8;
+  color: #8a5b0e;
+}
+
+.priority-chip.neutral {
+  background: #edf2f6;
+  color: #43515f;
 }
 
 .order-critical-row td {
@@ -750,13 +779,16 @@ pre {
   .screening-filter,
   .encounter-filter,
   .orders-filter,
+  .care-plan-filter,
   .screening-detail-grid,
   .encounter-detail-grid,
-  .orders-detail-grid {
+  .orders-detail-grid,
+  .care-plan-detail-grid {
     grid-template-columns: 1fr;
   }
 
-  .orders-wide-section {
+  .orders-wide-section,
+  .care-plan-wide-section {
     grid-column: auto;
   }
 
