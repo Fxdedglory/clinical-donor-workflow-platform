@@ -205,8 +205,8 @@ const clinicalSections = [
     label: "Orders / Results",
     route: "/clinical/orders",
     icon: UploadCloud,
-    status: "Planned workflow",
-    workflows: ["Create order", "Receive result", "Acknowledge critical result"],
+    status: "Active",
+    workflows: ["Create order", "Receive result", "Correct result", "Acknowledge critical result", "Cancel order"],
   },
   {
     id: "clinical_care_plans",
@@ -942,7 +942,7 @@ const futurePatientWorkflows = [
   { label: "Schedule Visit", route: "/clinical/scheduling", status: "Active" },
   { label: "Start Screening", route: "/clinical/screening", status: "Active" },
   { label: "Open Encounter", route: "/clinical/encounters", status: "Active" },
-  { label: "Create Order", route: "/clinical/orders", status: "Planned" },
+  { label: "Create Order", route: "/clinical/orders", status: "Active" },
   { label: "Billing Review", route: "/clinical/billing", status: "Planned" },
 ];
 
@@ -3089,7 +3089,7 @@ function ClinicalEncountersPage({ token, navigate }) {
             <section>
               <h3>Downstream Actions</h3>
               <div className="workflow-list">
-                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/orders")}><span>Orders / Results</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/orders")}><span>Orders / Results</span><StatusPill status="Active" /></button>
                 <button type="button" className="workflow-row" onClick={() => navigate("/clinical/care-plans")}><span>Care Plans</span><StatusPill status="Foundation pending" /></button>
                 <button type="button" className="workflow-row" onClick={() => navigate("/clinical/billing")}><span>Billing</span><StatusPill status="Planned workflow" /></button>
               </div>
@@ -3122,7 +3122,544 @@ function ClinicalEncountersPage({ token, navigate }) {
   );
 }
 
+const orderStatusOptions = ["draft", "ordered", "in_progress", "resulted", "cancelled"];
+const orderPriorityOptions = ["routine", "urgent", "stat"];
+const orderResultFlagOptions = ["pending", "normal", "abnormal", "critical"];
+const orderResultStatusOptions = ["normal", "abnormal", "critical", "corrected", "cancelled"];
+
+function ResultFlagPill({ flag }) {
+  const normalized = flag || "pending";
+  const tone = normalized === "critical" ? "danger" : normalized === "abnormal" ? "warning" : normalized === "normal" ? "success" : "neutral";
+  return <span className={cx("status-pill", tone)}>{normalized}</span>;
+}
+
+function acknowledgedResultIds(order) {
+  return new Set((order?.acknowledgements || []).filter((ack) => ack.result_id).map((ack) => ack.result_id));
+}
+
+function criticalUnacknowledgedResults(order) {
+  const acknowledged = acknowledgedResultIds(order);
+  const orderAcknowledged = (order?.acknowledgements || []).some((ack) => !ack.result_id);
+  if (orderAcknowledged) return [];
+  return (order?.results || []).filter(
+    (result) => result.critical_flag && result.result_status !== "cancelled" && !acknowledged.has(result.result_id),
+  );
+}
+
+function latestOrderResult(order) {
+  return [...(order?.results || [])].sort((left, right) => new Date(right.resulted_at) - new Date(left.resulted_at))[0] || null;
+}
+
+function orderWorkflowTitle(type) {
+  return {
+    create: "Create Order",
+    result: "Enter Result",
+    acknowledge: "Acknowledge Critical Result",
+    cancel: "Cancel Order",
+  }[type];
+}
+
+function defaultOrderForm(type, order, patients, encounters, sessions, appointments, catalog) {
+  const firstCatalog = catalog?.[0];
+  const firstPatient = order?.patient_id || patients?.[0]?.patient_id || "";
+  if (type === "create") {
+    return {
+      patient_id: firstPatient,
+      encounter_id: encounters?.[0]?.encounter_id || "",
+      screening_session_id: sessions?.[0]?.session_id || "",
+      appointment_id: appointments?.[0]?.appointment_id || "",
+      catalog_item_id: firstCatalog?.catalog_item_id || "",
+      priority: firstCatalog?.default_priority || "routine",
+      clinical_indication: "Donor screening order",
+      ordering_provider: "",
+      ordered_at: defaultDateTimeLocal(0),
+      reason: "Create clinical order",
+    };
+  }
+  if (type === "result") {
+    return {
+      result_name: order?.catalog_name || "Order result",
+      result_value: "",
+      result_unit: "",
+      reference_range: "",
+      result_status: "normal",
+      abnormal_flag: false,
+      critical_flag: false,
+      resulted_at: defaultDateTimeLocal(0),
+      notes: "",
+      corrected_from_result_id: "",
+      reason: "Enter order result",
+    };
+  }
+  if (type === "acknowledge") {
+    return {
+      result_id: criticalUnacknowledgedResults(order)?.[0]?.result_id || "",
+      acknowledgement_note: "",
+      reason: "Acknowledge critical result",
+    };
+  }
+  return {
+    cancellation_reason: "",
+    reason: "Cancel clinical order",
+  };
+}
+
+function validateOrderWorkflow(type, form, order) {
+  const issues = [];
+  if (type === "create") {
+    if (!form.patient_id) issues.push("Patient/donor is required.");
+    if (!form.catalog_item_id) issues.push("Catalog item is required.");
+    if (!form.priority?.trim()) issues.push("Priority is required.");
+  }
+  if (type === "result") {
+    if (!order) issues.push("Select an order first.");
+    if (!form.result_name?.trim()) issues.push("Result name is required.");
+    if (!form.result_value?.trim()) issues.push("Result value is required.");
+    if (!form.reason?.trim()) issues.push("Result reason is required.");
+  }
+  if (type === "acknowledge") {
+    if (!order) issues.push("Select an order first.");
+    if (!form.reason?.trim()) issues.push("Acknowledgement reason is required.");
+    if (!criticalUnacknowledgedResults(order).length) issues.push("No unacknowledged critical result is present.");
+  }
+  if (type === "cancel") {
+    if (!order) issues.push("Select an order first.");
+    if (!form.cancellation_reason?.trim()) issues.push("Cancellation reason is required.");
+  }
+  return issues;
+}
+
+function orderPayload(type, form) {
+  const payload = compactPayload(form);
+  for (const field of ["catalog_item_id", "encounter_id", "screening_session_id", "appointment_id", "result_id", "corrected_from_result_id"]) {
+    if (payload[field] !== undefined) payload[field] = Number(payload[field]);
+  }
+  if (payload.ordered_at) payload.ordered_at = localDateTimeToIso(payload.ordered_at);
+  if (payload.resulted_at) payload.resulted_at = localDateTimeToIso(payload.resulted_at);
+  if (type === "result" && payload.result_status === "critical") payload.critical_flag = true;
+  if (type === "result" && ["abnormal", "critical"].includes(payload.result_status)) payload.abnormal_flag = true;
+  return payload;
+}
+
+function orderPreviewEndpoint(type, order) {
+  if (type === "create") return "/api/clinical/orders/preview";
+  if (type === "result") return `/api/clinical/orders/${order.order_id}/results/preview`;
+  if (type === "acknowledge") return `/api/clinical/orders/${order.order_id}/acknowledge/preview`;
+  return `/api/clinical/orders/${order.order_id}/cancel/preview`;
+}
+
+function orderCommitEndpoint(type, order) {
+  if (type === "create") return { path: "/api/clinical/orders", method: "POST" };
+  if (type === "result") return { path: `/api/clinical/orders/${order.order_id}/results`, method: "POST" };
+  if (type === "acknowledge") return { path: `/api/clinical/orders/${order.order_id}/acknowledge`, method: "POST" };
+  return { path: `/api/clinical/orders/${order.order_id}/cancel`, method: "POST" };
+}
+
+function orderContextLabel(order) {
+  return order?.encounter_number || order?.screening_session_number || order?.appointment_number || "Direct order";
+}
+
+function OrderWorkflowModal({ type, order, token, patients, encounters, sessions, appointments, catalog, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultOrderForm(type, order, patients, encounters, sessions, appointments, catalog));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validateOrderWorkflow(type, form, order);
+  const blockingIssues = preview?.blocking_issues || [];
+  const warningRows = preview?.warnings || [];
+  const unacknowledged = criticalUnacknowledgedResults(order);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateCatalog(catalogItemId) {
+    const item = catalog.find((catalogItem) => String(catalogItem.catalog_item_id) === String(catalogItemId));
+    setForm((current) => ({
+      ...current,
+      catalog_item_id: catalogItemId,
+      priority: item?.default_priority || current.priority,
+    }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(orderPreviewEndpoint(type, order), {
+        token,
+        method: "POST",
+        body: orderPayload(type, form),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    setBusy(true);
+    setError("");
+    const { path, method } = orderCommitEndpoint(type, order);
+    try {
+      const payload = await apiRequest(path, {
+        token,
+        method,
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...orderPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess(payload);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={orderWorkflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{orderWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            {type === "create" && (
+              <div className="form-grid">
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+                <label>Catalog<select value={form.catalog_item_id} onChange={(event) => updateCatalog(event.target.value)}><option value="">Select order</option>{catalog.map((item) => <option key={item.catalog_item_id} value={item.catalog_item_id}>{item.code} - {item.name}</option>)}</select></label>
+                <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}>{orderPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
+                <label>Encounter<select value={form.encounter_id} onChange={(event) => updateField("encounter_id", event.target.value)}><option value="">No encounter</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {encounter.patient_name || encounter.patient_id}</option>)}</select></label>
+                <label>Screening<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {session.patient_name || session.patient_id}</option>)}</select></label>
+                <label>Appointment<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {appointment.patient_name || appointment.patient_id}</option>)}</select></label>
+                <label>Ordered at<input type="datetime-local" value={form.ordered_at} onChange={(event) => updateField("ordered_at", event.target.value)} /></label>
+                <label>Ordering provider<input value={form.ordering_provider} onChange={(event) => updateField("ordering_provider", event.target.value)} /></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Clinical indication<textarea value={form.clinical_indication} rows="3" onChange={(event) => updateField("clinical_indication", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "result" && (
+              <div className="form-grid">
+                <label>Result name<input value={form.result_name} onChange={(event) => updateField("result_name", event.target.value)} /></label>
+                <label>Value<input value={form.result_value} onChange={(event) => updateField("result_value", event.target.value)} /></label>
+                <label>Unit<input value={form.result_unit} onChange={(event) => updateField("result_unit", event.target.value)} /></label>
+                <label>Reference range<input value={form.reference_range} onChange={(event) => updateField("reference_range", event.target.value)} /></label>
+                <label>Status<select value={form.result_status} onChange={(event) => updateField("result_status", event.target.value)}>{orderResultStatusOptions.map((resultStatus) => <option key={resultStatus}>{resultStatus}</option>)}</select></label>
+                <label>Resulted at<input type="datetime-local" value={form.resulted_at} onChange={(event) => updateField("resulted_at", event.target.value)} /></label>
+                <label>Corrects result<select value={form.corrected_from_result_id} onChange={(event) => updateField("corrected_from_result_id", event.target.value)}><option value="">No correction</option>{(order?.results || []).map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_value} ({formatDateTime(result.resulted_at)})</option>)}</select></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="checkbox-row"><input type="checkbox" checked={Boolean(form.abnormal_flag)} onChange={() => updateField("abnormal_flag", !form.abnormal_flag)} />Abnormal</label>
+                <label className="checkbox-row"><input type="checkbox" checked={Boolean(form.critical_flag)} onChange={() => updateField("critical_flag", !form.critical_flag)} />Critical</label>
+                <label className="wide-field">Notes<textarea value={form.notes} rows="4" onChange={(event) => updateField("notes", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "acknowledge" && (
+              <div className="form-grid">
+                <label>Critical result<select value={form.result_id} onChange={(event) => updateField("result_id", event.target.value)}><option value="">Select critical result</option>{unacknowledged.map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_value}</option>)}</select></label>
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Acknowledgement note<textarea value={form.acknowledgement_note} rows="4" onChange={(event) => updateField("acknowledgement_note", event.target.value)} /></label>
+              </div>
+            )}
+            {type === "cancel" && (
+              <div className="form-grid">
+                <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+                <label className="wide-field">Cancellation reason<textarea value={form.cancellation_reason} rows="5" onChange={(event) => updateField("cancellation_reason", event.target.value)} /></label>
+              </div>
+            )}
+            {order && <div className="notice-state">Workflow target: {order.order_number} for {order.patient_name || order.patient_id}.</div>}
+            <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run orders/results checks.</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className={blockingIssues.length ? "error-state" : "notice-state"}>{preview.summary}</div>
+            <Table rows={[{ field: "Preview hash", value: preview.preview_hash }, { field: "Validation", value: preview.validation_status }, { field: "Workflow", value: preview.workflow }]} columns={["field", "value"]} />
+            {!!blockingIssues.length && <div className="conflict-list">{blockingIssues.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}><XCircle size={16} /><span>{issue.message}</span></div>)}</div>}
+            {!!warningRows.length && <div className="conflict-list">{warningRows.map((warning) => <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}><AlertTriangle size={16} /><span>{warning.message}</span></div>)}</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={blockingIssues.length > 0} onClick={() => setStep("confirm")}>Continue to commit confirmation</button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">Commit will send X-Confirm-Generation: true and append an orders/results workflow audit entry.</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>Back to preview</button>
+            <button type="button" disabled={busy} onClick={runCommit}>{busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}Commit workflow</button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Orders/results workflow completed successfully.</div>
+            <button type="button" onClick={onClose}>Done</button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ClinicalOrdersPage({ token, navigate }) {
+  const [orders, setOrders] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [encounters, setEncounters] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [query, setQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [patientFilter, setPatientFilter] = useState("");
+  const [encounterFilter, setEncounterFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [resultFlagFilter, setResultFlagFilter] = useState("");
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const latestResult = latestOrderResult(selectedOrder);
+  const unacknowledged = criticalUnacknowledgedResults(selectedOrder);
+
+  async function loadOrders() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (dateFilter) params.set("date", dateFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (patientFilter) params.set("patient_id", patientFilter);
+    if (encounterFilter) params.set("encounter_id", encounterFilter);
+    if (priorityFilter) params.set("priority", priorityFilter);
+    if (resultFlagFilter) params.set("result_flag", resultFlagFilter);
+    try {
+      const [orderPayload, catalogPayload, patientPayload, encounterPayload, screeningPayload, appointmentPayload] = await Promise.all([
+        apiRequest(`/api/clinical/orders${params.toString() ? `?${params}` : ""}`, { token }),
+        apiRequest("/api/clinical/orders/catalog", { token }),
+        apiRequest("/api/clinical/patients?limit=500", { token }),
+        apiRequest("/api/clinical/encounters?limit=500", { token }).catch(() => ({ encounters: [] })),
+        apiRequest("/api/clinical/screening/sessions?limit=500", { token }).catch(() => ({ sessions: [] })),
+        apiRequest("/api/clinical/scheduling/appointments?limit=500", { token }).catch(() => ({ appointments: [] })),
+      ]);
+      const nextOrders = orderPayload?.orders || [];
+      setOrders(nextOrders);
+      setCatalog(catalogPayload || []);
+      setPatients(patientPayload?.patients || []);
+      setEncounters(encounterPayload?.encounters || []);
+      setSessions(screeningPayload?.sessions || []);
+      setAppointments(appointmentPayload?.appointments || []);
+      setSelectedOrder((current) => {
+        if (!nextOrders.length) return null;
+        if (!current) return nextOrders[0];
+        return nextOrders.find((order) => order.order_id === current.order_id) || nextOrders[0];
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadOrders();
+  }, [token]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    loadOrders();
+  }
+
+  function workflowSuccess(payload) {
+    if (payload?.order) setSelectedOrder(payload.order);
+    loadOrders();
+  }
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Orders / results</p>
+          <h2>Orders Worklist</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalType("create")}><UploadCloud size={16} />Create Order</button>
+          <button type="button" className="secondary-button" onClick={loadOrders}><RefreshCw size={16} />Refresh</button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/encounters")}><FileCheck2 size={16} />Encounters</button>
+        </div>
+      </section>
+      <section>
+        <form className="orders-filter" onSubmit={submitSearch}>
+          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Order, patient, indication" /></label>
+          <label>Date<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
+          <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{orderStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
+          <label>Patient<select value={patientFilter} onChange={(event) => setPatientFilter(event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+          <label>Encounter<select value={encounterFilter} onChange={(event) => setEncounterFilter(event.target.value)}><option value="">All</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number}</option>)}</select></label>
+          <label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="">All</option>{orderPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
+          <label>Result<select value={resultFlagFilter} onChange={(event) => setResultFlagFilter(event.target.value)}><option value="">All</option>{orderResultFlagOptions.map((flag) => <option key={flag}>{flag}</option>)}</select></label>
+          <button type="submit"><FileCheck2 size={16} />Apply</button>
+        </form>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="notice-state">Loading orders worklist...</div>}
+      {!loading && !orders.length && <div className="empty-state">No orders match the current filters.</div>}
+      {!!orders.length && (
+        <div className="split orders-layout">
+          <section>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Order</th><th>Patient / Donor</th><th>Catalog</th><th>Priority</th><th>Status</th><th>Result</th><th>Action</th></tr></thead>
+                <tbody>
+                  {orders.map((order) => (
+                    <tr key={order.order_id} className={order.has_critical_unacknowledged ? "order-critical-row" : ""}>
+                      <td>{order.order_number}</td>
+                      <td>{order.patient_name || order.patient_id}</td>
+                      <td>{order.catalog_code || order.catalog_name}</td>
+                      <td>{order.priority}</td>
+                      <td><StatusPill status={order.status} /></td>
+                      <td><ResultFlagPill flag={order.result_flag} /></td>
+                      <td><button type="button" className="table-action" onClick={() => setSelectedOrder(order)}>Open</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="appointment-detail-panel">
+            {selectedOrder ? (
+              <>
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">{selectedOrder.order_number}</p>
+                    <h3>{selectedOrder.patient_name || selectedOrder.patient_id}</h3>
+                  </div>
+                  <ResultFlagPill flag={selectedOrder.result_flag} />
+                </div>
+                <Table rows={[
+                  { field: "Patient ID", value: selectedOrder.patient_id },
+                  { field: "Catalog", value: `${selectedOrder.catalog_code} - ${selectedOrder.catalog_name}` },
+                  { field: "Context", value: orderContextLabel(selectedOrder) },
+                  { field: "Priority", value: selectedOrder.priority },
+                  { field: "Status", value: selectedOrder.status },
+                  { field: "Ordered", value: formatDateTime(selectedOrder.ordered_at) },
+                  { field: "Critical ack", value: unacknowledged.length ? "Required" : "Current" },
+                ]} columns={["field", "value"]} />
+                <div className="clinical-actions detail-actions">
+                  <button type="button" onClick={() => setModalType("result")}><Activity size={16} />Enter Result</button>
+                  <button type="button" onClick={() => setModalType("acknowledge")}><ShieldCheck size={16} />Acknowledge</button>
+                  <button type="button" className="secondary-button" onClick={() => setModalType("cancel")}><XCircle size={16} />Cancel</button>
+                </div>
+              </>
+            ) : <div className="empty-state">Select an order to review details.</div>}
+          </section>
+        </div>
+      )}
+      {selectedOrder && (
+        <>
+          <div className="orders-detail-grid">
+            <section>
+              <h3>Patient / Encounter Context</h3>
+              <Table rows={[
+                { field: "Patient", value: selectedOrder.patient_name || selectedOrder.patient_id },
+                { field: "Encounter", value: selectedOrder.encounter_number || "No encounter" },
+                { field: "Screening", value: selectedOrder.screening_session_number || "No screening" },
+                { field: "Appointment", value: selectedOrder.appointment_number || "No appointment" },
+                { field: "Indication", value: selectedOrder.clinical_indication },
+              ]} columns={["field", "value"]} />
+            </section>
+            <section>
+              <h3>Result Summary</h3>
+              <Table rows={[
+                { field: "Latest result", value: latestResult ? `${latestResult.result_name}: ${latestResult.result_value}` : "Pending" },
+                { field: "Unit / range", value: latestResult ? `${latestResult.result_unit || ""} ${latestResult.reference_range || ""}`.trim() : "" },
+                { field: "Flag", value: selectedOrder.result_flag },
+                { field: "Critical unacknowledged", value: unacknowledged.length },
+                { field: "Resulted", value: formatDateTime(latestResult?.resulted_at) },
+              ]} columns={["field", "value"]} />
+            </section>
+            <section>
+              <h3>Downstream Actions</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/care-plans")}><span>Care Plans</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/billing")}><span>Billing</span><StatusPill status="Planned workflow" /></button>
+              </div>
+            </section>
+          </div>
+          <div className="orders-detail-grid">
+            <section className="orders-wide-section">
+              <h3>Results</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Name</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th><th>Ack</th><th>Resulted</th></tr></thead>
+                  <tbody>
+                    {(selectedOrder.results || []).map((result) => (
+                      <tr key={result.result_id} className={result.critical_flag ? "order-critical-row" : result.abnormal_flag ? "order-abnormal-row" : ""}>
+                        <td>{result.result_name}</td>
+                        <td>{result.result_value}</td>
+                        <td>{result.result_unit || ""}</td>
+                        <td>{result.reference_range || ""}</td>
+                        <td><ResultFlagPill flag={result.critical_flag ? "critical" : result.abnormal_flag ? "abnormal" : result.result_status} /></td>
+                        <td>{result.requires_acknowledgement && !acknowledgedResultIds(selectedOrder).has(result.result_id) ? "Required" : "Current"}</td>
+                        <td>{formatDateTime(result.resulted_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!(selectedOrder.results || []).length && <div className="empty-state">No results entered for this order.</div>}
+              </div>
+            </section>
+            <section>
+              <h3>Correction History</h3>
+              <Table rows={(selectedOrder.results || []).filter((result) => result.corrected_from_result_id).map((result) => ({ result: result.result_name, value: result.result_value, corrects: result.corrected_from_result_id, at: formatDateTime(result.resulted_at) }))} columns={["result", "value", "corrects", "at"]} />
+            </section>
+            <section>
+              <h3>Recent Audit / Status</h3>
+              <Table rows={(selectedOrder.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} />
+            </section>
+          </div>
+          <section>
+            <h3>Catalog</h3>
+            <Table rows={catalog.map((item) => ({ code: item.code, name: item.name, type: item.order_type, priority: item.default_priority, specimen: item.specimen_type || "" }))} columns={["code", "name", "type", "priority", "specimen"]} />
+          </section>
+        </>
+      )}
+      {modalType && (
+        <OrderWorkflowModal
+          type={modalType}
+          order={modalType === "create" ? null : selectedOrder}
+          token={token}
+          patients={patients}
+          encounters={encounters}
+          sessions={sessions}
+          appointments={appointments}
+          catalog={catalog}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_orders") {
+    return <ClinicalOrdersPage token={token} navigate={navigate} />;
+  }
   if (section.id === "clinical_encounters") {
     return <ClinicalEncountersPage token={token} navigate={navigate} />;
   }

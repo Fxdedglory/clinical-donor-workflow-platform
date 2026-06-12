@@ -402,7 +402,8 @@ section,
 .patient-filter,
 .scheduling-filter,
 .screening-filter,
-.encounter-filter {
+.encounter-filter,
+.orders-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
@@ -411,21 +412,42 @@ section,
 
 .scheduling-filter,
 .screening-filter,
-.encounter-filter {
+.encounter-filter,
+.orders-filter {
   grid-template-columns: minmax(200px, 1fr) minmax(140px, 180px) minmax(140px, 180px) minmax(180px, 240px) auto;
+}
+
+.orders-filter {
+  grid-template-columns:
+    minmax(190px, 1fr) minmax(130px, 160px) minmax(130px, 160px) minmax(180px, 240px)
+    minmax(150px, 190px) minmax(120px, 150px) minmax(120px, 150px) auto;
 }
 
 .schedule-layout,
 .screening-layout,
-.encounter-layout {
+.encounter-layout,
+.orders-layout {
   align-items: start;
 }
 
 .screening-detail-grid,
-.encounter-detail-grid {
+.encounter-detail-grid,
+.orders-detail-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.orders-wide-section {
+  grid-column: span 2;
+}
+
+.order-critical-row td {
+  background: #fff1f1;
+}
+
+.order-abnormal-row td {
+  background: #fff8e8;
 }
 
 .screening-question-row {
@@ -727,9 +749,15 @@ pre {
   .scheduling-filter,
   .screening-filter,
   .encounter-filter,
+  .orders-filter,
   .screening-detail-grid,
-  .encounter-detail-grid {
+  .encounter-detail-grid,
+  .orders-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .orders-wide-section {
+    grid-column: auto;
   }
 
   .appointment-detail-panel {

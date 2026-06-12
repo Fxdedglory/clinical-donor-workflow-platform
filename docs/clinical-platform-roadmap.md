@@ -21,8 +21,8 @@ Important repository state from Sprint 0:
 | Patient / Donor Management | Sprint 2 adds canonical patient/donor registration, contacts, insurance, consents, duplicate warnings, preview/commit APIs, UI workflows, and workflow operation audit. | Add merge/review queue, richer identity conflict review, patient/donor linkage to downstream modules, and production duplicate-resolution policy. |
 | Scheduling | Sprint 3 adds appointment booking, resources, appointment types, conflict previews, status transitions, UI workflows, RBAC, and audit. | Add full calendar visualization, recurring availability templates, capacity rules, waitlists, reminders, and completed-appointment handoff into encounters. |
 | Donor Screening / Eligibility | Sprint 4 adds patient-linked screening sessions, questionnaire/vitals capture, eligibility preview, result commit, deferrals, supervisor override, UI workflow, RBAC, and audit while reusing the existing donor eligibility engine. | Add richer screening templates, infectious disease result entry, deferral expiration workflows, medical director queues, and deeper donor-to-patient identity reconciliation. |
-| EMR / Encounters | Sprint 5 adds encounter creation, note templates, draft notes, signing/locking, amendments, diagnoses/problems, allergies, medications, status history, RBAC, audit, and an operational UI. | Add richer clinician assignment, encounter closure/cancellation policies, problem reconciliation, medication/allergy reconciliation, and downstream Orders/Results handoff. |
-| Orders / Results | Infectious disease results exist for donor eligibility. | Add generic order catalog, lab/test orders, result entry, abnormal/critical flags, acknowledgement, and cancellation. |
+| EMR / Encounters | Sprint 5 adds encounter creation, note templates, draft notes, signing/locking, amendments, diagnoses/problems, allergies, medications, status history, RBAC, audit, and an operational UI. | Add richer clinician assignment, encounter closure/cancellation policies, problem reconciliation, medication/allergy reconciliation, and deeper downstream decision support. |
+| Orders / Results | Sprint 6 adds generic clinical order catalog, order placement, result entry/correction, abnormal/critical flags, acknowledgement, cancellation, status history, RBAC, audit, and an operational UI. | Add specimen accessioning, laboratory interface ingestion, reference-range engines, richer correction policy, infectious disease fact reconciliation, and downstream Care Plans/Billing handoff. |
 | Care Plans | No care plan module. | Add care plans, goals, interventions, tasks, care team assignment, progress updates, and closure. |
 | Billing / Insurance | No billing workflow module. | Add insurance profile, charges, codes, authorizations, claims, payments, denials, and rework queues. |
 | Quality / Compliance | Deviation, CAPA, audit, and QMS concepts exist. | Add `/clinical/quality` workflows, adverse events, audit evidence export, severity classification, and closure approval. |
@@ -266,14 +266,70 @@ Implemented encounter foundation:
 - Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover checked-in appointment validation, confirmation header rejection/acceptance, audit creation/append preservation, draft note saving, signing/locking, amendment addenda, diagnosis/allergy/medication commits, and external partner rejection.
 
+## Sprint 6 Implemented Scope
+
+Sprint 6 implements Orders / Results as the first downstream operational module after encounters while preserving the existing donor infectious disease result implementation.
+
+Existing assets reused:
+
+- Existing infectious disease catalog/result facts remain in place:
+  - `operational.dim_infectious_disease_test`
+  - `operational.fact_infectious_disease_result`
+- Infectious disease order catalog entries reference those existing donor eligibility assets and do not replace or rewrite donor eligibility logic.
+- Existing clinical workflow commit guard and append-only workflow audit writer are reused.
+
+Implemented orders/results foundation:
+
+- Persistent orders/results entities:
+  - `operational.clinical_order_catalog_items`
+  - `operational.clinical_orders`
+  - `operational.clinical_order_results`
+  - `operational.clinical_order_result_acknowledgements`
+  - `operational.clinical_order_status_history`
+- Alembic migration `202606120005_clinical_orders`.
+- Orders RBAC permissions:
+  - `orders.read`
+  - `orders.manage`
+  - `orders.acknowledge`
+- Backend `/api/clinical/orders` endpoints:
+  - `GET /api/clinical/orders`
+  - `GET /api/clinical/orders/{order_id}`
+  - `GET /api/clinical/orders/catalog`
+  - `POST /api/clinical/orders/preview`
+  - `POST /api/clinical/orders`
+  - `POST /api/clinical/orders/{order_id}/results/preview`
+  - `POST /api/clinical/orders/{order_id}/results`
+  - `POST /api/clinical/orders/{order_id}/acknowledge/preview`
+  - `POST /api/clinical/orders/{order_id}/acknowledge`
+  - `POST /api/clinical/orders/{order_id}/cancel/preview`
+  - `POST /api/clinical/orders/{order_id}/cancel`
+- Supported order statuses:
+  - `draft`
+  - `ordered`
+  - `in_progress`
+  - `resulted`
+  - `cancelled`
+- Order creation links to patient/donor, optional appointment, screening session, and encounter context.
+- Result entry supports normal, abnormal, critical, corrected, and cancelled statuses.
+- Critical results remain visibly unacknowledged until acknowledgement is committed.
+- Cancelled orders reject new result entry and preserve cancellation reason/status history.
+- Successful commits append workflow operations for:
+  - `order.create`
+  - `order.result_add`
+  - `order.result_correct`
+  - `order.acknowledge`
+  - `order.cancel`
+- Frontend `/clinical/orders` is now an operational orders/results workspace with worklist filters, patient identity, encounter/screening/appointment context, catalog selector, result entry, correction history, critical/abnormal indicators, acknowledgement state, cancellation workflow, recent status/audit activity, and planned downstream Care Plans/Billing actions.
+- Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover catalog access, patient/encounter linkage validation, missing/invalid/valid confirmation headers, audit creation and append preservation, cancelled-order result blocking, critical result acknowledgement, cancellation reason/audit behavior, and external partner mutation rejection.
+
 ## Future Sprint Sequence
 
-1. Orders / Results: order catalog, order lifecycle, result entry, critical flags, acknowledgement, and cancellation.
-2. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
-3. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
-4. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-5. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-6. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Care Plans: care plan creation, goals, interventions, tasks, care team assignment, progress updates, and closure.
+2. Billing / Insurance: charges, coding, claim draft/review/commit, payments, denials, and rework queues.
+3. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
+4. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
+5. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
 
 ## Validation Commands
 

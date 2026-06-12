@@ -85,8 +85,8 @@ CLINICAL_MODULES = [
         label="Orders / Results",
         route="/clinical/orders",
         api_namespace="/api/clinical/orders",
-        status="planned_workflow",
-        workflows=["Create order", "Receive result", "Acknowledge critical result"],
+        status="active",
+        workflows=["Create order", "Receive result", "Correct result", "Acknowledge critical result", "Cancel order"],
     ),
     ClinicalModuleRead(
         module_id="care_plans",
