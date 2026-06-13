@@ -445,7 +445,7 @@ section,
 .reports-filter {
   grid-template-columns:
     minmax(130px, 170px) minmax(130px, 170px) minmax(130px, 160px) minmax(170px, 220px)
-    minmax(170px, 1fr) minmax(150px, 190px) auto;
+    minmax(160px, 210px) minmax(170px, 1fr) minmax(150px, 190px) auto;
 }
 
 .schedule-layout,
@@ -824,6 +824,66 @@ th {
 .status-pill.neutral {
   background: #edf2f6;
   color: #43515f;
+}
+
+.clinical-redacted-value,
+.clinical-suppressed-metric {
+  align-items: flex-start;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  line-height: 1.2;
+}
+
+.clinical-redacted-value span,
+.clinical-suppressed-metric span {
+  background: #edf2f6;
+  border: 1px solid #d4dee7;
+  border-radius: 999px;
+  color: #43515f;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0.22rem 0.5rem;
+}
+
+.clinical-redacted-value small,
+.clinical-suppressed-metric small {
+  color: #607080;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.clinical-suppressed-metric span {
+  background: #fff3d8;
+  border-color: #f0c98a;
+  color: #8a5b0e;
+}
+
+.privacy-indicator,
+.export-profile-indicator {
+  align-items: center;
+  color: #607080;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  font-weight: 800;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.privacy-indicator span,
+.export-profile-indicator span:not(.status-pill) {
+  background: #f5f8fb;
+  border: 1px solid #dce6ee;
+  border-radius: 999px;
+  color: #43515f;
+  padding: 0.22rem 0.55rem;
+}
+
+.privacy-indicator strong {
+  color: #17212b;
 }
 
 .empty-state,

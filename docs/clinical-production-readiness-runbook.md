@@ -12,6 +12,8 @@ Post-RC production startup gate update date: 2026-06-13
 
 Post-RC route drift and analytics suppression update date: 2026-06-13
 
+Post-RC UI masking update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -126,6 +128,9 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 16. Generic `/api/clinical/workflows/commit` rejects external users and internal users without `clinical_admin.manage` or `system.admin`.
 17. `scripts/start_app_service.py --check` reports `production_security_gate=passed` in the target environment.
 18. Clinical admin mutation requires admin mutation permission and confirmation.
+19. External or missing role context in the clinical frontend renders high-risk identifiers/free text as `Redacted` with `PHI protected`.
+20. Reports and quality export workflows display the selected export profile, redaction status, suppression status, and profile warnings.
+21. Suppressed report/export metric cells render as `Suppressed` without showing hidden raw counts.
 
 ## Audit And Export Review Checklist
 
@@ -138,6 +143,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm report audit activity is scoped to approved roles.
 - Confirm `aggregate_safe`, `external_safe`, `audit_metadata`, `internal_detail`, and `compliance_evidence` profile behavior is approved for the target environment.
 - Confirm small-cell suppression threshold 5 is approved for shared aggregate analytics and export row-count contracts.
+- Confirm frontend export profile indicators and suppression labels match approved profile behavior.
+- Confirm frontend masking has been reviewed against approved role policy for any external or non-care users.
 - Confirm workflow audit change payloads do not store raw PHI/ePHI details after redaction.
 - Confirm no external delivery is enabled for analytics/compliance exports.
 - Confirm PHI/ePHI UI masking and free-text review requirements are documented before detailed or external exports.
@@ -155,7 +162,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 ## Known Limitations
 
 - Workflow operation audit is now DB-backed with JSON mirror/fallback; object-storage immutability is not yet implemented.
-- Post-RC-02 adds export/audit redaction profiles, and Post-RC-04 adds small-cell suppression for aggregate report/export count cells; no full role-aware UI masking framework exists yet.
+- Post-RC-02 adds export/audit redaction profiles, Post-RC-04 adds small-cell suppression for aggregate report/export count cells, and Post-RC-05 adds lightweight role-aware UI masking. A full centralized field-policy engine remains future work.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup now fails closed on unsafe production-like secrets, cookie, CORS, database, audit, export, auth, and generic commit settings.
 - Analytics/compliance exports are metadata/evidence contracts only; external warehouse, FHIR/HL7, Power BI, clearinghouse, and notification delivery integrations remain out of scope.

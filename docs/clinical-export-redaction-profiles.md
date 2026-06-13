@@ -4,6 +4,8 @@ Post-RC-02 update date: 2026-06-13
 
 Post-RC-04 small-cell suppression update date: 2026-06-13
 
+Post-RC-05 UI indicator update date: 2026-06-13
+
 Scope: PHI/ePHI hardening for export-like clinical report, audit evidence, and compliance evidence routes. This is a deterministic foundation, not a full policy engine.
 
 ## Sensitivity Registry
@@ -62,6 +64,18 @@ Covered aggregate surfaces include report metric cards, count dictionaries, sele
 
 Analytics export commits persist suppression metadata in export payload metadata and workflow audit changes. Suppressed export item `row_count` values are stored as `0` so downstream readers do not accidentally treat hidden cohorts as visible rows.
 
+## Frontend Export Profile Indicators
+
+Post-RC-05 adds frontend indicators for report analytics exports and quality compliance exports:
+
+- selected export profile;
+- whether PHI/ePHI redaction is active;
+- whether small-cell suppression is active;
+- suppression threshold and suppressed-cell count when returned by the API;
+- warnings for `aggregate_safe`, `external_safe`, and `compliance_evidence`.
+
+The UI indicators are display guidance only. Backend export profile enforcement, route permissions, and workflow audit redaction remain authoritative. See `docs/clinical-ui-phi-masking.md`.
+
 ## Audit Payload Behavior
 
 Workflow commit audit entries continue to include operation id, workflow, entity type/id, actor, timestamp, preview hash, confirmation status, status transition, reason, and changes.
@@ -70,7 +84,7 @@ Post-RC-02 redacts the `changes` payload before DB persistence and JSON mirror/f
 
 ## Remaining Gaps
 
-- Full role-aware UI field masking is not implemented.
+- A lightweight role-aware UI masking foundation is implemented, but a full centralized field policy engine remains planned.
 - Free-text clinical narrative review is still required for production detailed exports.
 - External warehouse, FHIR/HL7, Power BI, clearinghouse, and object export delivery remain out of scope.
 - Object-storage/WORM mirroring for immutable audit/export evidence remains planned.

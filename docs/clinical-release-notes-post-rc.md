@@ -17,7 +17,7 @@ Date: 2026-06-13
 ## Deferred Items
 
 - Object-storage immutability/WORM mirror remains planned.
-- Full role-aware UI masking and production free-text review remain planned.
+- Centralized UI field-policy management and production free-text review remain planned.
 - Production startup fail-closed checks are implemented in CLINICAL-POST-RC-03.
 
 ## PHI/ePHI Export Hardening And Generic Commit Lockdown
@@ -37,7 +37,7 @@ Date: 2026-06-13
 
 ## Remaining Post-RC Items
 
-- Full role-aware UI field masking remains planned.
+- Centralized UI field-policy management remains planned.
 - Object-storage immutability/WORM mirror remains planned.
 - External secret manager and Entra-backed MFA integration remain planned.
 - External warehouse, FHIR/HL7, Power BI, clearinghouse, and object export delivery remain out of scope until separately approved.
@@ -57,7 +57,7 @@ Date: 2026-06-13
 
 ## Remaining Post-RC Security Items
 
-- Full role-aware UI field masking remains planned.
+- Centralized UI field-policy management remains planned.
 - Object-storage immutability/WORM mirror remains planned.
 - External secret manager and Entra-backed MFA integration remain future deployment-hardening work.
 
@@ -78,6 +78,27 @@ Date: 2026-06-13
 
 ## Remaining Post-RC Hardening Items
 
-- Full role-aware UI field masking remains planned.
+- Full centralized UI field-policy management remains planned after the lightweight Post-RC-05 masking foundation.
 - Object-storage immutability/WORM mirror remains planned.
 - External secret manager and Entra-backed MFA integration remain future deployment-hardening work.
+
+## Role-Aware UI PHI Masking And Export Indicators
+
+Update: CLINICAL-POST-RC-05
+
+Date: 2026-06-13
+
+- Added frontend privacy display helpers for redacted PHI/ePHI values and suppressed aggregate cells.
+- Applied role-aware masking indicators to high-risk clinical surfaces for patients, scheduling, screening, encounters, orders, care plans, billing, quality, and reports.
+- Defaulted missing frontend role context to safer masked display while preserving backend RBAC as the authorization boundary.
+- Added export profile selectors and indicators in reports analytics exports and quality compliance exports.
+- Displayed redaction active/inactive status, small-cell suppression active/inactive status, thresholds, suppressed-cell counts, and profile warnings.
+- Rendered suppressed report/export metric cells as `Suppressed` without showing hidden raw counts.
+- Added focused helper/source tests in `tests/test_clinical_ui_privacy_helpers.py`.
+- Added `docs/clinical-ui-phi-masking.md` and updated export, suppression, PHI inventory, RBAC, and production readiness docs.
+
+## Remaining Post-RC-05 Items
+
+- Replace the lightweight frontend masking helper with a centralized approved field-policy engine if granular partner-facing clinical views are approved.
+- Object-storage immutability/WORM mirror remains planned.
+- External warehouse, FHIR/HL7, Power BI, clearinghouse, notification delivery, and approval execution integrations remain out of scope until separately approved.

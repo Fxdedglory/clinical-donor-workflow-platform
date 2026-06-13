@@ -8,6 +8,8 @@ Post-RC-02 hardening update date: 2026-06-13
 
 Post-RC-04 route drift and suppression update date: 2026-06-13
 
+Post-RC-05 UI masking update date: 2026-06-13
+
 Source reviewed: `backend/app/services/access_control.py` plus module-level route dependencies.
 
 ## Permission Families
@@ -105,6 +107,18 @@ Preview endpoints do not mutate durable clinical state and do not require this h
 | Clinical admin | `require_admin_read` and `require_admin_mutation`; external users rejected. | Appropriate for RC1. Admin mutation routes also require confirmation header. |
 | Frontend `/clinical/...` routes | Visible and navigable shell routes. Backend remains source of authorization. | Frontend route visibility is not an authorization boundary. Route guards should remain backend-enforced. |
 
+## Post-RC-05 Frontend Display Masking
+
+The clinical frontend now uses the existing authenticated user/profile context to choose a display mode:
+
+| UI display mode | Trigger | Behavior |
+| --- | --- | --- |
+| External safe display | Partner/supplier/external role markers. | Sensitive identifiers and free text render as `Redacted` with `PHI protected`. |
+| Internal operational detail | Internal clinical, QA, operations, admin, audit, or export-capable roles. | Operational detail may render when backend access already allowed the page or workflow. |
+| Safe display | Missing or incomplete role context. | Sensitive fields default to masked display. |
+
+This display layer does not grant access and does not replace backend route guards. Internal clinical routes continue to reject partner/supplier external users. See `docs/clinical-ui-phi-masking.md`.
+
 ## RC1 Mutation / Export / Admin Endpoint Review
 
 | Endpoint family | Required access today | Confirmation guard | External user handling | Notes |
@@ -139,7 +153,7 @@ Allowed external access remains limited to partner/supplier portal permissions s
 1. Keep the generated route-permission drift test aligned with FastAPI route metadata, this matrix, and `ROLE_DEFINITIONS`.
 2. Split report audit activity from broad `reports.read` if compliance owners classify audit operation payloads as audit-only.
 3. Decide whether analytics export list metadata should require export permission rather than report read permission.
-4. Add frontend route-visibility tests that confirm hidden/disabled navigation never replaces backend authorization.
+4. Expand frontend route-visibility and masking tests if partner-facing clinical pages are approved.
 5. Resolve the "QA Specialist" display label versus "Quality Assurance Specialist" role-name mismatch.
 6. Review `system.admin` use for least-privilege production operations.
 7. Obtain compliance signoff for `internal_detail`, `compliance_evidence`, and the small-cell suppression threshold before production analytics sharing.

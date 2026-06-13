@@ -26,9 +26,19 @@ import {
   UserPlus,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { isValidElement, useEffect, useMemo, useState } from "react";
 
+import { ClinicalRedactedValue } from "./pages/clinical/ClinicalRedactedValue";
 import { ClinicalShellPlaceholder } from "./pages/clinical/ClinicalShellPlaceholder";
+import { ClinicalSuppressedMetric } from "./pages/clinical/ClinicalSuppressedMetric";
+import {
+  EXPORT_PROFILE_OPTIONS,
+  clinicalPrivacyMode,
+  displayClinicalValue,
+  exportProfileInfo,
+  isSuppressedCell,
+  suppressionSummary,
+} from "./pages/clinical/clinicalPrivacyDisplay";
 import { clinicalPatientDetailSection, clinicalPatientId, clinicalSections } from "./pages/clinical/clinicalRoutes";
 
 function resolvePublicBase() {
@@ -313,6 +323,30 @@ function StatusPill({ status }) {
         ? "success"
         : "neutral";
   return <span className={cx("status-pill", tone)}>{normalized}</span>;
+}
+
+function ClinicalPrivacyIndicator({ user }) {
+  const mode = clinicalPrivacyMode(user);
+  return (
+    <div className="privacy-indicator" aria-label="Clinical privacy display mode">
+      <span>PHI protected</span>
+      <strong>{mode.label}</strong>
+    </div>
+  );
+}
+
+function ExportProfileIndicator({ profile = "aggregate_safe", suppression }) {
+  const info = exportProfileInfo(profile);
+  const summary = suppressionSummary(suppression);
+  return (
+    <div className="export-profile-indicator" aria-label="Export profile protections">
+      <StatusPill status={info.label} />
+      <span>{info.redactionActive ? "PHI/ePHI redaction active" : "Detail visibility restricted"}</span>
+      <span>{info.suppressionActive ? "Small-cell suppression active" : "Small-cell suppression inactive"}</span>
+      {summary.threshold && <span>Threshold {summary.threshold}</span>}
+      {summary.applied && <span>{summary.suppressedCells} suppressed</span>}
+    </div>
+  );
 }
 
 function AuthShell({ eyebrow, title, lede, children, navigate }) {
@@ -815,7 +849,35 @@ function ProducerControls({ token, refresh }) {
   );
 }
 
-function Table({ rows, columns }) {
+function renderedFieldName(row, column) {
+  if (column === "value" && row?.field) return row.field;
+  return column;
+}
+
+function TableCellValue({ value, field, user, sensitiveColumns = [] }) {
+  if (isValidElement(value)) return value;
+  if (Array.isArray(value)) return value.length;
+  const display = displayClinicalValue(value, field, user, {
+    sensitive: sensitiveColumns.includes(field) ? true : undefined,
+  });
+  if (display.kind === "suppressed") return <ClinicalSuppressedMetric cell={value} />;
+  if (display.kind === "redacted") return <ClinicalRedactedValue indicator={display.indicator} />;
+  if (display.kind === "empty") return "";
+  return String(display.value ?? "");
+}
+
+function clinicalDisplayText(value, field, user) {
+  const display = displayClinicalValue(value, field, user);
+  if (display.kind === "suppressed") {
+    const threshold = display.threshold ? ` < ${display.threshold}` : "";
+    return `${display.label} (${display.badge}${threshold})`;
+  }
+  if (display.kind === "redacted") return `${display.label} (${display.indicator})`;
+  if (display.kind === "empty") return "";
+  return String(display.value ?? "");
+}
+
+function Table({ rows, columns, user, sensitiveColumns = [] }) {
   if (!rows?.length) return <div className="empty-state">No records available.</div>;
   return (
     <div className="table-wrap">
@@ -831,7 +893,14 @@ function Table({ rows, columns }) {
           {rows.map((row, index) => (
             <tr key={index}>
               {columns.map((column) => (
-                <td key={column}>{Array.isArray(row[column]) ? row[column].length : String(row[column] ?? "")}</td>
+                <td key={column}>
+                  <TableCellValue
+                    value={row[column]}
+                    field={renderedFieldName(row, column)}
+                    user={user}
+                    sensitiveColumns={sensitiveColumns}
+                  />
+                </td>
               ))}
             </tr>
           ))}
@@ -957,7 +1026,7 @@ function commitEndpoint(type, patientId) {
   return { path: `/api/clinical/patients/${patientId}/consents`, method: "POST" };
 }
 
-function PatientWorkflowModal({ type, patient, token, onClose, onSuccess }) {
+function PatientWorkflowModal({ type, patient, token, user, onClose, onSuccess }) {
   const [form, setForm] = useState(() => defaultPatientForm(type, patient));
   const [step, setStep] = useState("form");
   const [preview, setPreview] = useState(null);
@@ -1093,7 +1162,7 @@ function PatientWorkflowModal({ type, patient, token, onClose, onSuccess }) {
             <Table rows={[{ field: "Preview hash", value: preview.preview_hash }, { field: "Validation", value: preview.validation_status }]} columns={["field", "value"]} />
             {preview.duplicate_warnings?.length > 0 && (
               <div className="error-state">
-                Duplicate risk: {preview.duplicate_warnings.map((warning) => `${warning.patient_id} (${warning.matched_fields.join(", ")})`).join("; ")}
+                Duplicate risk: {preview.duplicate_warnings.map((warning) => `${clinicalDisplayText(warning.patient_id, "patient_id", user)} (${warning.matched_fields.join(", ")})`).join("; ")}
               </div>
             )}
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
@@ -1121,7 +1190,7 @@ function PatientWorkflowModal({ type, patient, token, onClose, onSuccess }) {
   );
 }
 
-function ClinicalPatientsPage({ token, navigate }) {
+function ClinicalPatientsPage({ token, navigate, user }) {
   const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -1161,6 +1230,7 @@ function ClinicalPatientsPage({ token, navigate }) {
           <p className="eyebrow">Patient / donor registration</p>
           <h2>Patients / Donors</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("create")}>
@@ -1191,10 +1261,10 @@ function ClinicalPatientsPage({ token, navigate }) {
               <tbody>
                 {patients.map((patient) => (
                   <tr key={patient.patient_id}>
-                    <td>{patient.patient_id}</td>
-                    <td>{patientDisplayName(patient)}</td>
-                    <td>{formatDate(patient.date_of_birth)}</td>
-                    <td>{patient.phone || patient.email || ""}</td>
+                    <td><TableCellValue value={patient.patient_id} field="patient_id" user={user} /></td>
+                    <td><TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /></td>
+                    <td><TableCellValue value={formatDate(patient.date_of_birth)} field="date_of_birth" user={user} /></td>
+                    <td><TableCellValue value={patient.phone || patient.email || ""} field="contact" user={user} /></td>
                     <td><StatusPill status={patient.status} /></td>
                     <td><button type="button" className="table-action" onClick={() => navigate(`/clinical/patients/${patient.patient_id}`)}>Open</button></td>
                   </tr>
@@ -1208,6 +1278,7 @@ function ClinicalPatientsPage({ token, navigate }) {
         <PatientWorkflowModal
           type={modalType}
           token={token}
+          user={user}
           onClose={() => setModalType("")}
           onSuccess={(payload) => {
             loadPatients();
@@ -1219,7 +1290,7 @@ function ClinicalPatientsPage({ token, navigate }) {
   );
 }
 
-function ClinicalPatientDetailPage({ token, route, navigate }) {
+function ClinicalPatientDetailPage({ token, route, navigate, user }) {
   const patientId = clinicalPatientId(route);
   const [patient, setPatient] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1251,9 +1322,10 @@ function ClinicalPatientDetailPage({ token, route, navigate }) {
     <div className="clinical-shell">
       <section className="clinical-hero">
         <div>
-          <p className="eyebrow">{patient.patient_id}</p>
-          <h2>{patientDisplayName(patient)}</h2>
+          <p className="eyebrow"><TableCellValue value={patient.patient_id} field="patient_id" user={user} /></p>
+          <h2><TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /></h2>
           <StatusPill status={patient.status} />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("edit")}><FileCheck2 size={16} />Edit Demographics</button>
@@ -1271,7 +1343,7 @@ function ClinicalPatientDetailPage({ token, route, navigate }) {
             { field: "Phone", value: patient.phone || "" },
             { field: "Email", value: patient.email || "" },
             { field: "Donor reference", value: patient.donor_reference || "" },
-          ]} columns={["field", "value"]} />
+          ]} columns={["field", "value"]} user={user} />
         </section>
         <section>
           <h3>Planned Future Workflows</h3>
@@ -1288,17 +1360,17 @@ function ClinicalPatientDetailPage({ token, route, navigate }) {
       <div className="split">
         <section>
           <div className="section-heading-row"><h3>Contacts</h3><button type="button" onClick={() => setModalType("contact")}>Add</button></div>
-          <Table rows={patient.contacts || []} columns={["contact_type", "full_name", "relationship", "phone", "email"]} />
+          <Table rows={patient.contacts || []} columns={["contact_type", "full_name", "relationship", "phone", "email"]} user={user} />
         </section>
         <section>
           <div className="section-heading-row"><h3>Insurance</h3><button type="button" onClick={() => setModalType("insurance")}>Add</button></div>
-          <Table rows={patient.insurance_profiles || []} columns={["priority", "payer_name", "member_id", "eligibility_status"]} />
+          <Table rows={patient.insurance_profiles || []} columns={["priority", "payer_name", "member_id", "eligibility_status"]} user={user} />
         </section>
       </div>
       <div className="split">
         <section>
           <div className="section-heading-row"><h3>Consents</h3><button type="button" onClick={() => setModalType("consent")}>Capture</button></div>
-          <Table rows={patient.consents || []} columns={["consent_type", "consent_status", "captured_by_name", "notes"]} />
+          <Table rows={patient.consents || []} columns={["consent_type", "consent_status", "captured_by_name", "notes"]} user={user} />
         </section>
         <section>
           <h3>Recent Workflow Activity</h3>
@@ -1313,6 +1385,7 @@ function ClinicalPatientDetailPage({ token, route, navigate }) {
           type={modalType}
           patient={patient}
           token={token}
+          user={user}
           onClose={() => setModalType("")}
           onSuccess={(payload) => setPatient(payload?.patient || patient)}
         />
@@ -1346,9 +1419,10 @@ function appointmentLabel(appointment) {
   return appointment?.appointment_number || `Appointment ${appointment?.appointment_id || ""}`;
 }
 
-function patientOptionLabel(patient) {
-  const name = patientDisplayName(patient);
-  return `${patient.patient_id} - ${name}`;
+function patientOptionLabel(patient, user) {
+  const patientId = clinicalDisplayText(patient?.patient_id, "patient_id", user);
+  const name = clinicalDisplayText(patientDisplayName(patient), "patient_name", user);
+  return patientId && patientId !== name ? `${patientId} - ${name}` : name || "Patient";
 }
 
 function defaultSchedulingForm(type, appointment, resources, appointmentTypes, patients) {
@@ -1453,6 +1527,7 @@ function SchedulingWorkflowModal({
   type,
   appointment,
   token,
+  user,
   resources,
   appointmentTypes,
   patients,
@@ -1534,7 +1609,7 @@ function SchedulingWorkflowModal({
                       <option value="">Select patient</option>
                       {patients.map((patient) => (
                         <option key={patient.patient_id} value={patient.patient_id}>
-                          {patientOptionLabel(patient)}
+                          {patientOptionLabel(patient, user)}
                         </option>
                       ))}
                     </select>
@@ -1636,7 +1711,7 @@ function SchedulingWorkflowModal({
             )}
             {appointment && (
               <div className="notice-state">
-                Workflow target: {appointmentLabel(appointment)} for {appointment.patient_name || appointment.patient_id}.
+                Workflow target: {appointmentLabel(appointment)} for <TableCellValue value={appointment.patient_name || appointment.patient_id} field="patient" user={user} />.
               </div>
             )}
             <button type="button" onClick={() => setStep("validation")}>
@@ -1731,7 +1806,7 @@ function SchedulingWorkflowModal({
   );
 }
 
-function ClinicalSchedulingPage({ token, navigate }) {
+function ClinicalSchedulingPage({ token, navigate, user }) {
   const [appointments, setAppointments] = useState([]);
   const [patients, setPatients] = useState([]);
   const [resources, setResources] = useState({ providers: [], rooms: [], equipment: [] });
@@ -1798,6 +1873,7 @@ function ClinicalSchedulingPage({ token, navigate }) {
           <p className="eyebrow">Clinical scheduling</p>
           <h2>Appointments</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("book")}>
@@ -1874,7 +1950,7 @@ function ClinicalSchedulingPage({ token, navigate }) {
                   {appointments.map((appointment) => (
                     <tr key={appointment.appointment_id}>
                       <td>{appointment.appointment_number}</td>
-                      <td>{appointment.patient_name || appointment.patient_id}</td>
+                      <td><TableCellValue value={appointment.patient_name || appointment.patient_id} field="patient" user={user} /></td>
                       <td>{appointment.provider_name}</td>
                       <td>{formatDateTime(appointment.scheduled_start)}</td>
                       <td>
@@ -1897,7 +1973,7 @@ function ClinicalSchedulingPage({ token, navigate }) {
                 <div className="section-heading-row">
                   <div>
                     <p className="eyebrow">{selectedAppointment.appointment_number}</p>
-                    <h3>{selectedAppointment.patient_name || selectedAppointment.patient_id}</h3>
+                    <h3><TableCellValue value={selectedAppointment.patient_name || selectedAppointment.patient_id} field="patient" user={user} /></h3>
                   </div>
                   <StatusPill status={selectedAppointment.status} />
                 </div>
@@ -1914,6 +1990,7 @@ function ClinicalSchedulingPage({ token, navigate }) {
                     { field: "Check-in", value: formatDateTime(selectedAppointment.check_in_time) },
                   ]}
                   columns={["field", "value"]}
+                  user={user}
                 />
                 <div className="clinical-actions detail-actions">
                   <button type="button" onClick={() => setModalType("reschedule")}>
@@ -1945,6 +2022,7 @@ function ClinicalSchedulingPage({ token, navigate }) {
           type={modalType}
           appointment={modalType === "book" ? null : selectedAppointment}
           token={token}
+          user={user}
           resources={resources}
           appointmentTypes={appointmentTypes}
           patients={patients}
@@ -2118,6 +2196,7 @@ function ScreeningWorkflowModal({
   type,
   session,
   token,
+  user,
   template,
   patients,
   appointments,
@@ -2199,8 +2278,8 @@ function ScreeningWorkflowModal({
           <div className="stacked-form">
             {type === "start" && (
               <div className="form-grid">
-                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
-                <label>Appointment context<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {appointment.patient_name || appointment.patient_id}</option>)}</select></label>
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>)}</select></label>
+                <label>Appointment context<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {clinicalDisplayText(appointment.patient_name || appointment.patient_id, "patient", user)}</option>)}</select></label>
                 <label>Reason<textarea value={form.reason} rows="3" onChange={(event) => updateField("reason", event.target.value)} /></label>
               </div>
             )}
@@ -2253,7 +2332,7 @@ function ScreeningWorkflowModal({
                 <label>Reason<textarea value={form.reason} rows="4" onChange={(event) => updateField("reason", event.target.value)} /></label>
               </div>
             )}
-            {session && <div className="notice-state">Workflow target: {session.session_number} for {session.patient_name || session.patient_id}.</div>}
+            {session && <div className="notice-state">Workflow target: {session.session_number} for <TableCellValue value={session.patient_name || session.patient_id} field="patient" user={user} />.</div>}
             <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
           </div>
         )}
@@ -2299,7 +2378,7 @@ function ScreeningWorkflowModal({
   );
 }
 
-function ClinicalScreeningPage({ token, navigate }) {
+function ClinicalScreeningPage({ token, navigate, user }) {
   const [sessions, setSessions] = useState([]);
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -2375,6 +2454,7 @@ function ClinicalScreeningPage({ token, navigate }) {
           <p className="eyebrow">Donor screening / eligibility</p>
           <h2>Screening Queue</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("start")}><CheckCircle2 size={16} />Start Screening</button>
@@ -2404,7 +2484,7 @@ function ClinicalScreeningPage({ token, navigate }) {
                   {sessions.map((session) => (
                     <tr key={session.session_id}>
                       <td>{session.session_number}</td>
-                      <td>{session.patient_name || session.patient_id}</td>
+                      <td><TableCellValue value={session.patient_name || session.patient_id} field="patient" user={user} /></td>
                       <td>{session.appointment_number || "No appointment"}</td>
                       <td>{session.current_outcome || ""}</td>
                       <td><StatusPill status={session.status} /></td>
@@ -2421,7 +2501,7 @@ function ClinicalScreeningPage({ token, navigate }) {
                 <div className="section-heading-row">
                   <div>
                     <p className="eyebrow">{selectedSession.session_number}</p>
-                    <h3>{selectedSession.patient_name || selectedSession.patient_id}</h3>
+                    <h3><TableCellValue value={selectedSession.patient_name || selectedSession.patient_id} field="patient" user={user} /></h3>
                   </div>
                   <StatusPill status={selectedSession.status} />
                 </div>
@@ -2433,7 +2513,7 @@ function ClinicalScreeningPage({ token, navigate }) {
                   { field: "Supervisor review", value: selectedSession.supervisor_review_required ? "Required" : "Not required" },
                   { field: "Started", value: formatDateTime(selectedSession.started_at) },
                   { field: "Completed", value: formatDateTime(selectedSession.completed_at) },
-                ]} columns={["field", "value"]} />
+                ]} columns={["field", "value"]} user={user} />
                 <div className="clinical-actions detail-actions">
                   <button type="button" onClick={() => setModalType("questionnaire")}><FileCheck2 size={16} />Questionnaire</button>
                   <button type="button" onClick={() => setModalType("vitals")}><HeartPulse size={16} />Vitals</button>
@@ -2448,23 +2528,24 @@ function ClinicalScreeningPage({ token, navigate }) {
       )}
       {selectedSession && (
         <div className="screening-detail-grid">
-          <section><h3>Questionnaire</h3><Table rows={(selectedSession.answers || []).map((answer) => ({ question: answer.question_key, answer: String(answer.answer_value?.value ?? ""), notes: answer.notes }))} columns={["question", "answer", "notes"]} /></section>
-          <section><h3>Vitals</h3><Table rows={(selectedSession.vitals || []).map((vitals) => ({ captured_at: formatDateTime(vitals.captured_at), weight_kg: vitals.weight_kg, temperature_c: vitals.temperature_c, bp: `${vitals.blood_pressure_systolic}/${vitals.blood_pressure_diastolic}`, pulse: vitals.pulse }))} columns={["captured_at", "weight_kg", "temperature_c", "bp", "pulse"]} /></section>
-          <section><h3>Eligibility Preview</h3>{eligibilityPreview ? <Table rows={[{ field: "Proposed outcome", value: eligibilityPreview.proposed_outcome }, { field: "Supervisor review", value: eligibilityPreview.supervisor_review_required ? "Required" : "Not required" }, { field: "Deferral", value: eligibilityPreview.recommended_deferral_type || "" }]} columns={["field", "value"]} /> : <div className="empty-state">No eligibility preview generated in this session view.</div>}</section>
-          <section><h3>Deferrals</h3><Table rows={(selectedSession.deferrals || []).map((deferral) => ({ deferral: deferral.deferral_number, type: deferral.deferral_type, status: deferral.status, reason: deferral.reason }))} columns={["deferral", "type", "status", "reason"]} /></section>
-          <section><h3>Supervisor Override</h3><Table rows={(selectedSession.outcomes || []).filter((outcome) => outcome.override_outcome).map((outcome) => ({ original: outcome.original_outcome, override: outcome.override_outcome, reason: outcome.reason, at: formatDateTime(outcome.created_at) }))} columns={["original", "override", "reason", "at"]} /></section>
+          <section><h3>Questionnaire</h3><Table rows={(selectedSession.answers || []).map((answer) => ({ question: answer.question_key, answer: String(answer.answer_value?.value ?? ""), notes: answer.notes }))} columns={["question", "answer", "notes"]} user={user} /></section>
+          <section><h3>Vitals</h3><Table rows={(selectedSession.vitals || []).map((vitals) => ({ captured_at: formatDateTime(vitals.captured_at), weight_kg: vitals.weight_kg, temperature_c: vitals.temperature_c, bp: `${vitals.blood_pressure_systolic}/${vitals.blood_pressure_diastolic}`, pulse: vitals.pulse }))} columns={["captured_at", "weight_kg", "temperature_c", "bp", "pulse"]} user={user} /></section>
+          <section><h3>Eligibility Preview</h3>{eligibilityPreview ? <Table rows={[{ field: "Proposed outcome", value: eligibilityPreview.proposed_outcome }, { field: "Supervisor review", value: eligibilityPreview.supervisor_review_required ? "Required" : "Not required" }, { field: "Deferral", value: eligibilityPreview.recommended_deferral_type || "" }]} columns={["field", "value"]} user={user} /> : <div className="empty-state">No eligibility preview generated in this session view.</div>}</section>
+          <section><h3>Deferrals</h3><Table rows={(selectedSession.deferrals || []).map((deferral) => ({ deferral: deferral.deferral_number, type: deferral.deferral_type, status: deferral.status, reason: deferral.reason }))} columns={["deferral", "type", "status", "reason"]} user={user} /></section>
+          <section><h3>Supervisor Override</h3><Table rows={(selectedSession.outcomes || []).filter((outcome) => outcome.override_outcome).map((outcome) => ({ original: outcome.original_outcome, override: outcome.override_outcome, reason: outcome.reason, at: formatDateTime(outcome.created_at) }))} columns={["original", "override", "reason", "at"]} user={user} /></section>
           <section><h3>Recent Audit Activity</h3><Table rows={(selectedSession.outcomes || []).map((outcome) => ({ event: outcome.override_outcome ? "Override" : "Result", outcome: outcome.committed_outcome || outcome.override_outcome || outcome.proposed_outcome, at: formatDateTime(outcome.created_at) }))} columns={["event", "outcome", "at"]} /></section>
         </div>
       )}
       <div className="split">
         <section><h3>Screening Rules</h3><Table rows={rules.map((rule) => ({ rule: rule.rule_name, category: rule.rule_category, outcome: rule.outcome, explanation: rule.explanation }))} columns={["rule", "category", "outcome", "explanation"]} /></section>
-        <section><h3>Active Deferrals</h3><Table rows={deferrals.map((deferral) => ({ deferral: deferral.deferral_number, patient: deferral.patient_id, type: deferral.deferral_type, status: deferral.status }))} columns={["deferral", "patient", "type", "status"]} /></section>
+        <section><h3>Active Deferrals</h3><Table rows={deferrals.map((deferral) => ({ deferral: deferral.deferral_number, patient: deferral.patient_id, type: deferral.deferral_type, status: deferral.status }))} columns={["deferral", "patient", "type", "status"]} user={user} /></section>
       </div>
       {modalType && (
         <ScreeningWorkflowModal
           type={modalType}
           session={modalType === "start" ? null : selectedSession}
           token={token}
+          user={user}
           template={template}
           patients={patients}
           appointments={appointments}
@@ -2625,7 +2706,7 @@ function encounterCommitEndpoint(type, encounter, patientId) {
   return { path: `/api/clinical/patients/${patientId}/medications`, method: "POST" };
 }
 
-function EncounterWorkflowModal({ type, encounter, token, patients, appointments, sessions, templates, onClose, onSuccess }) {
+function EncounterWorkflowModal({ type, encounter, token, user, patients, appointments, sessions, templates, onClose, onSuccess }) {
   const [form, setForm] = useState(() => defaultEncounterForm(type, encounter, patients, appointments, sessions, templates));
   const [step, setStep] = useState("form");
   const [preview, setPreview] = useState(null);
@@ -2716,9 +2797,9 @@ function EncounterWorkflowModal({ type, encounter, token, patients, appointments
           <div className="stacked-form">
             {type === "create" && (
               <div className="form-grid">
-                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
-                <label>Checked-in appointment<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {appointment.patient_name || appointment.patient_id} ({appointment.status})</option>)}</select></label>
-                <label>Screening context<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening session</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {session.patient_name || session.patient_id}</option>)}</select></label>
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>)}</select></label>
+                <label>Checked-in appointment<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {clinicalDisplayText(appointment.patient_name || appointment.patient_id, "patient", user)} ({appointment.status})</option>)}</select></label>
+                <label>Screening context<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening session</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {clinicalDisplayText(session.patient_name || session.patient_id, "patient", user)}</option>)}</select></label>
                 <label>Encounter type<input value={form.encounter_type} onChange={(event) => updateField("encounter_type", event.target.value)} /></label>
                 <label>Started<input type="datetime-local" value={form.started_at} onChange={(event) => updateField("started_at", event.target.value)} /></label>
                 <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
@@ -2786,7 +2867,7 @@ function EncounterWorkflowModal({ type, encounter, token, patients, appointments
                 <label className="wide-field">Notes<textarea value={form.notes} rows="3" onChange={(event) => updateField("notes", event.target.value)} /></label>
               </div>
             )}
-            {encounter && <div className="notice-state">Workflow target: {encounter.encounter_number} for {encounter.patient_name || encounter.patient_id}.</div>}
+            {encounter && <div className="notice-state">Workflow target: {encounter.encounter_number} for <TableCellValue value={encounter.patient_name || encounter.patient_id} field="patient" user={user} />.</div>}
             <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
           </div>
         )}
@@ -2825,7 +2906,7 @@ function EncounterWorkflowModal({ type, encounter, token, patients, appointments
   );
 }
 
-function ClinicalEncountersPage({ token, navigate }) {
+function ClinicalEncountersPage({ token, navigate, user }) {
   const [encounters, setEncounters] = useState([]);
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -2897,6 +2978,7 @@ function ClinicalEncountersPage({ token, navigate }) {
           <p className="eyebrow">EMR / encounters</p>
           <h2>Encounter Worklist</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("create")}><FileCheck2 size={16} />Create Encounter</button>
@@ -2926,7 +3008,7 @@ function ClinicalEncountersPage({ token, navigate }) {
                   {encounters.map((encounter) => (
                     <tr key={encounter.encounter_id}>
                       <td>{encounter.encounter_number}</td>
-                      <td>{encounter.patient_name || encounter.patient_id}</td>
+                      <td><TableCellValue value={encounter.patient_name || encounter.patient_id} field="patient" user={user} /></td>
                       <td>{encounter.appointment_number || encounter.screening_session_number || "Direct"}</td>
                       <td>{formatDateTime(encounter.started_at)}</td>
                       <td><StatusPill status={encounter.status} /></td>
@@ -2943,7 +3025,7 @@ function ClinicalEncountersPage({ token, navigate }) {
                 <div className="section-heading-row">
                   <div>
                     <p className="eyebrow">{selectedEncounter.encounter_number}</p>
-                    <h3>{selectedEncounter.patient_name || selectedEncounter.patient_id}</h3>
+                    <h3><TableCellValue value={selectedEncounter.patient_name || selectedEncounter.patient_id} field="patient" user={user} /></h3>
                   </div>
                   <StatusPill status={selectedEncounter.status} />
                 </div>
@@ -2955,7 +3037,7 @@ function ClinicalEncountersPage({ token, navigate }) {
                   { field: "Chief complaint", value: selectedEncounter.chief_complaint },
                   { field: "Started", value: formatDateTime(selectedEncounter.started_at) },
                   { field: "Signed", value: formatDateTime(selectedEncounter.signed_at) },
-                ]} columns={["field", "value"]} />
+                ]} columns={["field", "value"]} user={user} />
                 <div className="clinical-actions detail-actions">
                   <button type="button" onClick={() => setModalType("note")}><FileCheck2 size={16} />Save Draft Note</button>
                   <button type="button" onClick={() => setModalType("sign")}><ShieldCheck size={16} />Sign Note</button>
@@ -2980,12 +3062,12 @@ function ClinicalEncountersPage({ token, navigate }) {
                 { field: "Diagnoses/problems", value: (selectedEncounter.diagnoses || []).length },
                 { field: "Allergies", value: (selectedEncounter.allergies || []).length },
                 { field: "Medications", value: (selectedEncounter.medications || []).length },
-              ]} columns={["field", "value"]} />
+              ]} columns={["field", "value"]} user={user} />
             </section>
             <section>
               <h3>Draft Note Workspace</h3>
               {latestDraft ? (
-                <Table rows={[{ title: latestDraft.title, status: latestDraft.status, template: latestDraft.template_name || "No template", updated: formatDateTime(latestDraft.updated_at) }]} columns={["title", "status", "template", "updated"]} />
+                <Table rows={[{ title: latestDraft.title, status: latestDraft.status, template: latestDraft.template_name || "No template", updated: formatDateTime(latestDraft.updated_at) }]} columns={["title", "status", "template", "updated"]} user={user} />
               ) : (
                 <div className="empty-state">No draft note is active for this encounter.</div>
               )}
@@ -3000,12 +3082,12 @@ function ClinicalEncountersPage({ token, navigate }) {
             </section>
           </div>
           <div className="encounter-detail-grid">
-            <section><h3>Notes</h3><Table rows={(selectedEncounter.notes || []).map((note) => ({ title: note.title, status: note.status, version: note.version, locked: note.locked ? "Read-only" : "Editable draft", signed: formatDateTime(note.signed_at), addendum: note.is_addendum ? "Yes" : "No" }))} columns={["title", "status", "version", "locked", "signed", "addendum"]} /></section>
-            <section><h3>Diagnoses / Problems</h3><Table rows={(selectedEncounter.diagnoses || []).map((diagnosis) => ({ code: diagnosis.code, display: diagnosis.display, type: diagnosis.diagnosis_type, status: diagnosis.status }))} columns={["code", "display", "type", "status"]} /></section>
-            <section><h3>Allergies</h3><Table rows={(selectedEncounter.allergies || []).map((allergy) => ({ allergen: allergy.allergen, reaction: allergy.reaction, severity: allergy.severity, status: allergy.status }))} columns={["allergen", "reaction", "severity", "status"]} /></section>
-            <section><h3>Medications</h3><Table rows={(selectedEncounter.medications || []).map((medication) => ({ medication: medication.medication_name, dose: medication.dose, route: medication.route, frequency: medication.frequency, status: medication.status }))} columns={["medication", "dose", "route", "frequency", "status"]} /></section>
-            <section><h3>Version / Addendum History</h3><Table rows={(selectedEncounter.notes || []).map((note) => ({ note: note.title, version: note.version, status: note.status, amendment_reason: note.amendment_reason || "", from_note: note.amended_from_note_id || "" }))} columns={["note", "version", "status", "amendment_reason", "from_note"]} /></section>
-            <section><h3>Recent Audit Activity</h3><Table rows={(selectedEncounter.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} /></section>
+            <section><h3>Notes</h3><Table rows={(selectedEncounter.notes || []).map((note) => ({ title: note.title, status: note.status, version: note.version, locked: note.locked ? "Read-only" : "Editable draft", signed: formatDateTime(note.signed_at), addendum: note.is_addendum ? "Yes" : "No" }))} columns={["title", "status", "version", "locked", "signed", "addendum"]} user={user} /></section>
+            <section><h3>Diagnoses / Problems</h3><Table rows={(selectedEncounter.diagnoses || []).map((diagnosis) => ({ code: diagnosis.code, display: diagnosis.display, type: diagnosis.diagnosis_type, status: diagnosis.status }))} columns={["code", "display", "type", "status"]} user={user} /></section>
+            <section><h3>Allergies</h3><Table rows={(selectedEncounter.allergies || []).map((allergy) => ({ allergen: allergy.allergen, reaction: allergy.reaction, severity: allergy.severity, status: allergy.status }))} columns={["allergen", "reaction", "severity", "status"]} user={user} /></section>
+            <section><h3>Medications</h3><Table rows={(selectedEncounter.medications || []).map((medication) => ({ medication: medication.medication_name, dose: medication.dose, route: medication.route, frequency: medication.frequency, status: medication.status }))} columns={["medication", "dose", "route", "frequency", "status"]} user={user} /></section>
+            <section><h3>Version / Addendum History</h3><Table rows={(selectedEncounter.notes || []).map((note) => ({ note: note.title, version: note.version, status: note.status, amendment_reason: note.amendment_reason || "", from_note: note.amended_from_note_id || "" }))} columns={["note", "version", "status", "amendment_reason", "from_note"]} user={user} /></section>
+            <section><h3>Recent Audit Activity</h3><Table rows={(selectedEncounter.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} user={user} /></section>
           </div>
         </>
       )}
@@ -3014,6 +3096,7 @@ function ClinicalEncountersPage({ token, navigate }) {
           type={modalType}
           encounter={modalType === "create" ? null : selectedEncounter}
           token={token}
+          user={user}
           patients={patients}
           appointments={appointments}
           sessions={sessions}
@@ -3163,7 +3246,7 @@ function orderContextLabel(order) {
   return order?.encounter_number || order?.screening_session_number || order?.appointment_number || "Direct order";
 }
 
-function OrderWorkflowModal({ type, order, token, patients, encounters, sessions, appointments, catalog, onClose, onSuccess }) {
+function OrderWorkflowModal({ type, order, token, user, patients, encounters, sessions, appointments, catalog, onClose, onSuccess }) {
   const [form, setForm] = useState(() => defaultOrderForm(type, order, patients, encounters, sessions, appointments, catalog));
   const [step, setStep] = useState("form");
   const [preview, setPreview] = useState(null);
@@ -3240,12 +3323,12 @@ function OrderWorkflowModal({ type, order, token, patients, encounters, sessions
           <div className="stacked-form">
             {type === "create" && (
               <div className="form-grid">
-                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>)}</select></label>
                 <label>Catalog<select value={form.catalog_item_id} onChange={(event) => updateCatalog(event.target.value)}><option value="">Select order</option>{catalog.map((item) => <option key={item.catalog_item_id} value={item.catalog_item_id}>{item.code} - {item.name}</option>)}</select></label>
                 <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}>{orderPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
-                <label>Encounter<select value={form.encounter_id} onChange={(event) => updateField("encounter_id", event.target.value)}><option value="">No encounter</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {encounter.patient_name || encounter.patient_id}</option>)}</select></label>
-                <label>Screening<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {session.patient_name || session.patient_id}</option>)}</select></label>
-                <label>Appointment<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {appointment.patient_name || appointment.patient_id}</option>)}</select></label>
+                <label>Encounter<select value={form.encounter_id} onChange={(event) => updateField("encounter_id", event.target.value)}><option value="">No encounter</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {clinicalDisplayText(encounter.patient_name || encounter.patient_id, "patient", user)}</option>)}</select></label>
+                <label>Screening<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {clinicalDisplayText(session.patient_name || session.patient_id, "patient", user)}</option>)}</select></label>
+                <label>Appointment<select value={form.appointment_id} onChange={(event) => updateField("appointment_id", event.target.value)}><option value="">No appointment</option>{appointments.map((appointment) => <option key={appointment.appointment_id} value={appointment.appointment_id}>{appointment.appointment_number} - {clinicalDisplayText(appointment.patient_name || appointment.patient_id, "patient", user)}</option>)}</select></label>
                 <label>Ordered at<input type="datetime-local" value={form.ordered_at} onChange={(event) => updateField("ordered_at", event.target.value)} /></label>
                 <label>Ordering provider<input value={form.ordering_provider} onChange={(event) => updateField("ordering_provider", event.target.value)} /></label>
                 <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
@@ -3260,7 +3343,7 @@ function OrderWorkflowModal({ type, order, token, patients, encounters, sessions
                 <label>Reference range<input value={form.reference_range} onChange={(event) => updateField("reference_range", event.target.value)} /></label>
                 <label>Status<select value={form.result_status} onChange={(event) => updateField("result_status", event.target.value)}>{orderResultStatusOptions.map((resultStatus) => <option key={resultStatus}>{resultStatus}</option>)}</select></label>
                 <label>Resulted at<input type="datetime-local" value={form.resulted_at} onChange={(event) => updateField("resulted_at", event.target.value)} /></label>
-                <label>Corrects result<select value={form.corrected_from_result_id} onChange={(event) => updateField("corrected_from_result_id", event.target.value)}><option value="">No correction</option>{(order?.results || []).map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_value} ({formatDateTime(result.resulted_at)})</option>)}</select></label>
+                <label>Corrects result<select value={form.corrected_from_result_id} onChange={(event) => updateField("corrected_from_result_id", event.target.value)}><option value="">No correction</option>{(order?.results || []).map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {clinicalDisplayText(result.result_value, "result_value", user)} ({formatDateTime(result.resulted_at)})</option>)}</select></label>
                 <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
                 <label className="checkbox-row"><input type="checkbox" checked={Boolean(form.abnormal_flag)} onChange={() => updateField("abnormal_flag", !form.abnormal_flag)} />Abnormal</label>
                 <label className="checkbox-row"><input type="checkbox" checked={Boolean(form.critical_flag)} onChange={() => updateField("critical_flag", !form.critical_flag)} />Critical</label>
@@ -3269,7 +3352,7 @@ function OrderWorkflowModal({ type, order, token, patients, encounters, sessions
             )}
             {type === "acknowledge" && (
               <div className="form-grid">
-                <label>Critical result<select value={form.result_id} onChange={(event) => updateField("result_id", event.target.value)}><option value="">Select critical result</option>{unacknowledged.map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_value}</option>)}</select></label>
+                <label>Critical result<select value={form.result_id} onChange={(event) => updateField("result_id", event.target.value)}><option value="">Select critical result</option>{unacknowledged.map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {clinicalDisplayText(result.result_value, "result_value", user)}</option>)}</select></label>
                 <label>Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
                 <label className="wide-field">Acknowledgement note<textarea value={form.acknowledgement_note} rows="4" onChange={(event) => updateField("acknowledgement_note", event.target.value)} /></label>
               </div>
@@ -3280,7 +3363,7 @@ function OrderWorkflowModal({ type, order, token, patients, encounters, sessions
                 <label className="wide-field">Cancellation reason<textarea value={form.cancellation_reason} rows="5" onChange={(event) => updateField("cancellation_reason", event.target.value)} /></label>
               </div>
             )}
-            {order && <div className="notice-state">Workflow target: {order.order_number} for {order.patient_name || order.patient_id}.</div>}
+            {order && <div className="notice-state">Workflow target: {order.order_number} for <TableCellValue value={order.patient_name || order.patient_id} field="patient" user={user} />.</div>}
             <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
           </div>
         )}
@@ -3319,7 +3402,7 @@ function OrderWorkflowModal({ type, order, token, patients, encounters, sessions
   );
 }
 
-function ClinicalOrdersPage({ token, navigate }) {
+function ClinicalOrdersPage({ token, navigate, user }) {
   const [orders, setOrders] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [patients, setPatients] = useState([]);
@@ -3400,6 +3483,7 @@ function ClinicalOrdersPage({ token, navigate }) {
           <p className="eyebrow">Orders / results</p>
           <h2>Orders Worklist</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("create")}><UploadCloud size={16} />Create Order</button>
@@ -3412,7 +3496,7 @@ function ClinicalOrdersPage({ token, navigate }) {
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Order, patient, indication" /></label>
           <label>Date<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
           <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{orderStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
-          <label>Patient<select value={patientFilter} onChange={(event) => setPatientFilter(event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+          <label>Patient<select value={patientFilter} onChange={(event) => setPatientFilter(event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>)}</select></label>
           <label>Encounter<select value={encounterFilter} onChange={(event) => setEncounterFilter(event.target.value)}><option value="">All</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number}</option>)}</select></label>
           <label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="">All</option>{orderPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
           <label>Result<select value={resultFlagFilter} onChange={(event) => setResultFlagFilter(event.target.value)}><option value="">All</option>{orderResultFlagOptions.map((flag) => <option key={flag}>{flag}</option>)}</select></label>
@@ -3432,7 +3516,7 @@ function ClinicalOrdersPage({ token, navigate }) {
                   {orders.map((order) => (
                     <tr key={order.order_id} className={order.has_critical_unacknowledged ? "order-critical-row" : ""}>
                       <td>{order.order_number}</td>
-                      <td>{order.patient_name || order.patient_id}</td>
+                      <td><TableCellValue value={order.patient_name || order.patient_id} field="patient" user={user} /></td>
                       <td>{order.catalog_code || order.catalog_name}</td>
                       <td>{order.priority}</td>
                       <td><StatusPill status={order.status} /></td>
@@ -3450,7 +3534,7 @@ function ClinicalOrdersPage({ token, navigate }) {
                 <div className="section-heading-row">
                   <div>
                     <p className="eyebrow">{selectedOrder.order_number}</p>
-                    <h3>{selectedOrder.patient_name || selectedOrder.patient_id}</h3>
+                    <h3><TableCellValue value={selectedOrder.patient_name || selectedOrder.patient_id} field="patient" user={user} /></h3>
                   </div>
                   <ResultFlagPill flag={selectedOrder.result_flag} />
                 </div>
@@ -3462,7 +3546,7 @@ function ClinicalOrdersPage({ token, navigate }) {
                   { field: "Status", value: selectedOrder.status },
                   { field: "Ordered", value: formatDateTime(selectedOrder.ordered_at) },
                   { field: "Critical ack", value: unacknowledged.length ? "Required" : "Current" },
-                ]} columns={["field", "value"]} />
+                ]} columns={["field", "value"]} user={user} />
                 <div className="clinical-actions detail-actions">
                   <button type="button" onClick={() => setModalType("result")}><Activity size={16} />Enter Result</button>
                   <button type="button" onClick={() => setModalType("acknowledge")}><ShieldCheck size={16} />Acknowledge</button>
@@ -3484,7 +3568,7 @@ function ClinicalOrdersPage({ token, navigate }) {
                 { field: "Screening", value: selectedOrder.screening_session_number || "No screening" },
                 { field: "Appointment", value: selectedOrder.appointment_number || "No appointment" },
                 { field: "Indication", value: selectedOrder.clinical_indication },
-              ]} columns={["field", "value"]} />
+              ]} columns={["field", "value"]} user={user} />
             </section>
             <section>
               <h3>Result Summary</h3>
@@ -3494,7 +3578,7 @@ function ClinicalOrdersPage({ token, navigate }) {
                 { field: "Flag", value: selectedOrder.result_flag },
                 { field: "Critical unacknowledged", value: unacknowledged.length },
                 { field: "Resulted", value: formatDateTime(latestResult?.resulted_at) },
-              ]} columns={["field", "value"]} />
+              ]} columns={["field", "value"]} user={user} />
             </section>
             <section>
               <h3>Downstream Actions</h3>
@@ -3514,7 +3598,7 @@ function ClinicalOrdersPage({ token, navigate }) {
                     {(selectedOrder.results || []).map((result) => (
                       <tr key={result.result_id} className={result.critical_flag ? "order-critical-row" : result.abnormal_flag ? "order-abnormal-row" : ""}>
                         <td>{result.result_name}</td>
-                        <td>{result.result_value}</td>
+                        <td><TableCellValue value={result.result_value} field="result_value" user={user} /></td>
                         <td>{result.result_unit || ""}</td>
                         <td>{result.reference_range || ""}</td>
                         <td><ResultFlagPill flag={result.critical_flag ? "critical" : result.abnormal_flag ? "abnormal" : result.result_status} /></td>
@@ -3529,11 +3613,11 @@ function ClinicalOrdersPage({ token, navigate }) {
             </section>
             <section>
               <h3>Correction History</h3>
-              <Table rows={(selectedOrder.results || []).filter((result) => result.corrected_from_result_id).map((result) => ({ result: result.result_name, value: result.result_value, corrects: result.corrected_from_result_id, at: formatDateTime(result.resulted_at) }))} columns={["result", "value", "corrects", "at"]} />
+              <Table rows={(selectedOrder.results || []).filter((result) => result.corrected_from_result_id).map((result) => ({ result: result.result_name, value: result.result_value, corrects: result.corrected_from_result_id, at: formatDateTime(result.resulted_at) }))} columns={["result", "value", "corrects", "at"]} user={user} />
             </section>
             <section>
               <h3>Recent Audit / Status</h3>
-              <Table rows={(selectedOrder.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} />
+              <Table rows={(selectedOrder.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} user={user} />
             </section>
           </div>
           <section>
@@ -3547,6 +3631,7 @@ function ClinicalOrdersPage({ token, navigate }) {
           type={modalType}
           order={modalType === "create" ? null : selectedOrder}
           token={token}
+          user={user}
           patients={patients}
           encounters={encounters}
           sessions={sessions}
@@ -3687,7 +3772,7 @@ function carePlanContextLabel(carePlan) {
   return carePlan?.order_number || carePlan?.encounter_number || carePlan?.screening_session_number || "Direct care plan";
 }
 
-function CarePlanWorkflowModal({ type, carePlan, token, patients, encounters, sessions, orders, onClose, onSuccess }) {
+function CarePlanWorkflowModal({ type, carePlan, token, user, patients, encounters, sessions, orders, onClose, onSuccess }) {
   const [form, setForm] = useState(() => defaultCarePlanForm(type, carePlan, patients, encounters, sessions, orders));
   const [step, setStep] = useState("form");
   const [preview, setPreview] = useState(null);
@@ -3760,11 +3845,11 @@ function CarePlanWorkflowModal({ type, carePlan, token, patients, encounters, se
           <div className="stacked-form">
             {type === "create" && (
               <div className="form-grid">
-                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
-                <label>Encounter<select value={form.encounter_id} onChange={(event) => updateField("encounter_id", event.target.value)}><option value="">No encounter</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {encounter.patient_name || encounter.patient_id}</option>)}</select></label>
-                <label>Screening<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {session.patient_name || session.patient_id}</option>)}</select></label>
-                <label>Order<select value={form.order_id} onChange={(event) => updateOrder(event.target.value)}><option value="">No order</option>{orders.map((order) => <option key={order.order_id} value={order.order_id}>{order.order_number} - {order.patient_name || order.patient_id} ({order.result_flag})</option>)}</select></label>
-                <label>Order result<select value={form.order_result_id} onChange={(event) => updateField("order_result_id", event.target.value)}><option value="">No result</option>{linkedOrderResults.map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {result.result_value}{result.critical_flag ? " (critical)" : result.abnormal_flag ? " (abnormal)" : ""}</option>)}</select></label>
+                <label>Patient / donor<select value={form.patient_id} onChange={(event) => updateField("patient_id", event.target.value)}><option value="">Select patient</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>)}</select></label>
+                <label>Encounter<select value={form.encounter_id} onChange={(event) => updateField("encounter_id", event.target.value)}><option value="">No encounter</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number} - {clinicalDisplayText(encounter.patient_name || encounter.patient_id, "patient", user)}</option>)}</select></label>
+                <label>Screening<select value={form.screening_session_id} onChange={(event) => updateField("screening_session_id", event.target.value)}><option value="">No screening</option>{sessions.map((session) => <option key={session.session_id} value={session.session_id}>{session.session_number} - {clinicalDisplayText(session.patient_name || session.patient_id, "patient", user)}</option>)}</select></label>
+                <label>Order<select value={form.order_id} onChange={(event) => updateOrder(event.target.value)}><option value="">No order</option>{orders.map((order) => <option key={order.order_id} value={order.order_id}>{order.order_number} - {clinicalDisplayText(order.patient_name || order.patient_id, "patient", user)} ({order.result_flag})</option>)}</select></label>
+                <label>Order result<select value={form.order_result_id} onChange={(event) => updateField("order_result_id", event.target.value)}><option value="">No result</option>{linkedOrderResults.map((result) => <option key={result.result_id} value={result.result_id}>{result.result_name} - {clinicalDisplayText(result.result_value, "result_value", user)}{result.critical_flag ? " (critical)" : result.abnormal_flag ? " (abnormal)" : ""}</option>)}</select></label>
                 <label>Plan type<input value={form.plan_type} onChange={(event) => updateField("plan_type", event.target.value)} /></label>
                 <label>Priority<select value={form.priority} onChange={(event) => updateField("priority", event.target.value)}>{carePlanPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
                 <label>Start date<input type="date" value={form.start_date} onChange={(event) => updateField("start_date", event.target.value)} /></label>
@@ -3822,7 +3907,7 @@ function CarePlanWorkflowModal({ type, carePlan, token, patients, encounters, se
                 <label className="wide-field">Closure reason<textarea value={form.closure_reason} rows="4" onChange={(event) => updateField("closure_reason", event.target.value)} /></label>
               </div>
             )}
-            {carePlan && <div className="notice-state">Workflow target: {carePlan.care_plan_number} for {carePlan.patient_name || carePlan.patient_id}.</div>}
+            {carePlan && <div className="notice-state">Workflow target: {carePlan.care_plan_number} for <TableCellValue value={carePlan.patient_name || carePlan.patient_id} field="patient" user={user} />.</div>}
             <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
           </div>
         )}
@@ -3861,7 +3946,7 @@ function CarePlanWorkflowModal({ type, carePlan, token, patients, encounters, se
   );
 }
 
-function ClinicalCarePlansPage({ token, navigate }) {
+function ClinicalCarePlansPage({ token, navigate, user }) {
   const [carePlans, setCarePlans] = useState([]);
   const [patients, setPatients] = useState([]);
   const [encounters, setEncounters] = useState([]);
@@ -3940,6 +4025,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
           <p className="eyebrow">Care plans / case management</p>
           <h2>Care Plan Worklist</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("create")}><Activity size={16} />Create Care Plan</button>
@@ -3953,7 +4039,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
           <label>Start date<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
           <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All</option>{carePlanStatusOptions.map((statusName) => <option key={statusName}>{statusName}</option>)}</select></label>
           <label>Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}><option value="">All</option>{carePlanPriorityOptions.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
-          <label>Patient<select value={patientFilter} onChange={(event) => setPatientFilter(event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient)}</option>)}</select></label>
+          <label>Patient<select value={patientFilter} onChange={(event) => setPatientFilter(event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>)}</select></label>
           <label>Encounter<select value={encounterFilter} onChange={(event) => setEncounterFilter(event.target.value)}><option value="">All</option>{encounters.map((encounter) => <option key={encounter.encounter_id} value={encounter.encounter_id}>{encounter.encounter_number}</option>)}</select></label>
           <label>Order context<select value={orderContextFilter} onChange={(event) => setOrderContextFilter(event.target.value)}><option value="">All</option><option value="true">With order/result</option><option value="false">Without order</option></select></label>
           <label>Result<select value={resultFlagFilter} onChange={(event) => setResultFlagFilter(event.target.value)}><option value="">All</option>{carePlanResultFlagOptions.map((flag) => <option key={flag}>{flag}</option>)}</select></label>
@@ -3973,7 +4059,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
                   {carePlans.map((carePlan) => (
                     <tr key={carePlan.care_plan_id} className={carePlan.has_critical_unacknowledged ? "order-critical-row" : ""}>
                       <td>{carePlan.care_plan_number}</td>
-                      <td>{carePlan.patient_name || carePlan.patient_id}</td>
+                      <td><TableCellValue value={carePlan.patient_name || carePlan.patient_id} field="patient" user={user} /></td>
                       <td>{carePlanContextLabel(carePlan)}</td>
                       <td><PriorityChip priority={carePlan.priority} /></td>
                       <td><StatusPill status={carePlan.status} /></td>
@@ -4003,7 +4089,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
                   { field: "Result flag", value: selectedCarePlan.result_flag },
                   { field: "Critical ack", value: selectedCarePlan.has_critical_unacknowledged ? "Required" : "Current" },
                   { field: "Latest progress", value: latestProgress ? formatDateTime(latestProgress.created_at) : "No progress note" },
-                ]} columns={["field", "value"]} />
+                ]} columns={["field", "value"]} user={user} />
                 <div className="clinical-actions detail-actions">
                   <button type="button" onClick={() => setModalType("goal")}><CheckCircle2 size={16} />Goal</button>
                   <button type="button" onClick={() => setModalType("intervention")}><Activity size={16} />Intervention</button>
@@ -4027,7 +4113,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
                 { field: "Screening", value: selectedCarePlan.screening_session_number || "No screening" },
                 { field: "Order", value: selectedCarePlan.order_number || "No order" },
                 { field: "Order result", value: selectedCarePlan.order_result_summary || "No linked result" },
-              ]} columns={["field", "value"]} />
+              ]} columns={["field", "value"]} user={user} />
             </section>
             <section>
               <h3>Plan Summary</h3>
@@ -4037,7 +4123,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
                 { field: "Target", value: formatDate(selectedCarePlan.target_date) },
                 { field: "Reason", value: selectedCarePlan.reason },
                 { field: "Closed", value: formatDateTime(selectedCarePlan.closed_at) },
-              ]} columns={["field", "value"]} />
+              ]} columns={["field", "value"]} user={user} />
             </section>
             <section>
               <h3>Downstream Actions</h3>
@@ -4048,18 +4134,18 @@ function ClinicalCarePlansPage({ token, navigate }) {
             </section>
           </div>
           <div className="care-plan-detail-grid">
-            <section><h3>Goals</h3><Table rows={(selectedCarePlan.goals || []).map((goal) => ({ goal: goal.goal, status: goal.status, priority: goal.priority || "", target: formatDate(goal.target_date), notes: goal.notes || "" }))} columns={["goal", "status", "priority", "target", "notes"]} /></section>
-            <section><h3>Interventions</h3><Table rows={(selectedCarePlan.interventions || []).map((intervention) => ({ intervention: intervention.intervention, type: intervention.intervention_type, owner: intervention.owner || "", due: formatDate(intervention.due_date), status: intervention.status }))} columns={["intervention", "type", "owner", "due", "status"]} /></section>
-            <section><h3>Tasks</h3><Table rows={(selectedCarePlan.tasks || []).map((task) => ({ title: task.title, owner: task.owner, due: formatDate(task.due_date), priority: task.priority, status: task.status, completed: formatDateTime(task.completed_at) }))} columns={["title", "owner", "due", "priority", "status", "completed"]} /></section>
-            <section><h3>Care Team</h3><Table rows={(selectedCarePlan.team_members || []).map((member) => ({ member: member.member_name, role: member.role, primary: member.is_primary ? "Yes" : "No" }))} columns={["member", "role", "primary"]} /></section>
-            <section className="care-plan-wide-section"><h3>Progress Timeline</h3><Table rows={(selectedCarePlan.progress_notes || []).map((note) => ({ at: formatDateTime(note.created_at), status_update: note.status_update || "", note: note.progress_note }))} columns={["at", "status_update", "note"]} /></section>
+            <section><h3>Goals</h3><Table rows={(selectedCarePlan.goals || []).map((goal) => ({ goal: goal.goal, status: goal.status, priority: goal.priority || "", target: formatDate(goal.target_date), notes: goal.notes || "" }))} columns={["goal", "status", "priority", "target", "notes"]} user={user} /></section>
+            <section><h3>Interventions</h3><Table rows={(selectedCarePlan.interventions || []).map((intervention) => ({ intervention: intervention.intervention, type: intervention.intervention_type, owner: intervention.owner || "", due: formatDate(intervention.due_date), status: intervention.status }))} columns={["intervention", "type", "owner", "due", "status"]} user={user} /></section>
+            <section><h3>Tasks</h3><Table rows={(selectedCarePlan.tasks || []).map((task) => ({ title: task.title, owner: task.owner, due: formatDate(task.due_date), priority: task.priority, status: task.status, completed: formatDateTime(task.completed_at) }))} columns={["title", "owner", "due", "priority", "status", "completed"]} user={user} /></section>
+            <section><h3>Care Team</h3><Table rows={(selectedCarePlan.team_members || []).map((member) => ({ member: member.member_name, role: member.role, primary: member.is_primary ? "Yes" : "No" }))} columns={["member", "role", "primary"]} user={user} /></section>
+            <section className="care-plan-wide-section"><h3>Progress Timeline</h3><Table rows={(selectedCarePlan.progress_notes || []).map((note) => ({ at: formatDateTime(note.created_at), status_update: note.status_update || "", note: note.progress_note }))} columns={["at", "status_update", "note"]} user={user} /></section>
             <section><h3>Closure</h3><Table rows={[
               { field: "Status", value: selectedCarePlan.status },
               { field: "Closed at", value: formatDateTime(selectedCarePlan.closed_at) },
               { field: "Closure reason", value: selectedCarePlan.closure_reason || "" },
               { field: "Outcome summary", value: selectedCarePlan.outcome_summary || "" },
-            ]} columns={["field", "value"]} /></section>
-            <section><h3>Recent Audit / Status</h3><Table rows={(selectedCarePlan.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} /></section>
+            ]} columns={["field", "value"]} user={user} /></section>
+            <section><h3>Recent Audit / Status</h3><Table rows={(selectedCarePlan.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} user={user} /></section>
           </div>
         </>
       )}
@@ -4068,6 +4154,7 @@ function ClinicalCarePlansPage({ token, navigate }) {
           type={modalType}
           carePlan={modalType === "create" ? null : selectedCarePlan}
           token={token}
+          user={user}
           patients={patients}
           encounters={encounters}
           sessions={sessions}
@@ -4237,7 +4324,7 @@ function claimLineOptions(queue, claimId) {
   return queue?.claims?.find((claim) => String(claim.claim_id) === String(claimId))?.lines || [];
 }
 
-function BillingWorkflowModal({ type, token, account, patients, encounters, orders, carePlans, queue, onClose, onSuccess }) {
+function BillingWorkflowModal({ type, token, user, account, patients, encounters, orders, carePlans, queue, onClose, onSuccess }) {
   const [form, setForm] = useState(() => defaultBillingForm(type, account, patients, queue));
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState("");
@@ -4317,7 +4404,7 @@ function BillingWorkflowModal({ type, token, account, patients, encounters, orde
               <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value, patient_insurance_id: "", charge_ids: [] })}>
                 <option value="">Select patient</option>
                 {patients.map((patient) => (
-                  <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id} - {patientDisplayName(patient)}</option>
+                  <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>
                 ))}
               </select>
             </label>
@@ -4328,7 +4415,7 @@ function BillingWorkflowModal({ type, token, account, patients, encounters, orde
               <select value={form.patient_insurance_id} onChange={(event) => setForm({ ...form, patient_insurance_id: event.target.value })}>
                 <option value="">Manual or self-pay</option>
                 {insuranceOptions.map((insurance) => (
-                  <option key={insurance.insurance_id} value={insurance.insurance_id}>{insurance.payer_name} - {insurance.member_id || "member pending"}</option>
+                  <option key={insurance.insurance_id} value={insurance.insurance_id}>{clinicalDisplayText(insurance.payer_name, "payer_name", user)} - {insurance.member_id ? clinicalDisplayText(insurance.member_id, "member_id", user) : "member pending"}</option>
                 ))}
               </select>
             </label>
@@ -4385,7 +4472,7 @@ function BillingWorkflowModal({ type, token, account, patients, encounters, orde
                   <select value={form.care_plan_task_id} onChange={(event) => setForm({ ...form, care_plan_task_id: event.target.value })}>
                     <option value="">None</option>
                     {patientCarePlans.find((carePlan) => String(carePlan.care_plan_id) === String(form.care_plan_id))?.tasks?.map((task) => (
-                      <option key={task.task_id} value={task.task_id}>{task.title} - {task.status}</option>
+                      <option key={task.task_id} value={task.task_id}>{clinicalDisplayText(task.title, "title", user)} - {task.status}</option>
                     ))}
                   </select>
                 </label>
@@ -4540,7 +4627,7 @@ function BillingWorkflowModal({ type, token, account, patients, encounters, orde
   );
 }
 
-function ClinicalBillingPage({ token, navigate }) {
+function ClinicalBillingPage({ token, navigate, user }) {
   const [queue, setQueue] = useState({ accounts: [], charges: [], claims: [], payments: [], denials: [], insurance_verifications: [] });
   const [patients, setPatients] = useState([]);
   const [encounters, setEncounters] = useState([]);
@@ -4604,6 +4691,7 @@ function ClinicalBillingPage({ token, navigate }) {
           <p className="eyebrow">Revenue cycle foundation</p>
           <h2>Billing / Insurance</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalType("verify")}><ShieldCheck size={16} />Verify Insurance</button>
@@ -4617,7 +4705,7 @@ function ClinicalBillingPage({ token, navigate }) {
         <div className="billing-filter">
           <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Patient, account, claim, charge" /></label>
           <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All</option>{billingStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label>Patient<select value={filters.patient_id} onChange={(event) => updateFilter("patient_id", event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id}</option>)}</select></label>
+          <label>Patient<select value={filters.patient_id} onChange={(event) => updateFilter("patient_id", event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{clinicalDisplayText(patient.patient_id, "patient_id", user)}</option>)}</select></label>
           <label>Payer<input value={filters.payer} onChange={(event) => updateFilter("payer", event.target.value)} /></label>
           <label>Date<input type="date" value={filters.date} onChange={(event) => updateFilter("date", event.target.value)} /></label>
           <label>Claim<select value={filters.claim_status} onChange={(event) => updateFilter("claim_status", event.target.value)}><option value="">All</option>{billingClaimStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
@@ -4640,7 +4728,7 @@ function ClinicalBillingPage({ token, navigate }) {
               <div className="workflow-list">
                 {queue.accounts.length ? queue.accounts.map((account) => (
                   <button type="button" className="workflow-row" key={account.account_id} onClick={() => setSelectedAccountId(account.account_id)}>
-                    <span>{account.account_number} - {account.patient_name}</span>
+                    <span>{account.account_number} - <TableCellValue value={account.patient_name} field="patient_name" user={user} /></span>
                     <span>{formatMoney(account.balance)}</span>
                     <StatusPill status={account.status} />
                   </button>
@@ -4652,8 +4740,8 @@ function ClinicalBillingPage({ token, navigate }) {
               {selectedAccount ? (
                 <div className="info-list compact">
                   <p><strong>{selectedAccount.account_number}</strong></p>
-                  <p>{selectedAccount.patient_id} - {selectedAccount.patient_name}</p>
-                  <p>{selectedAccount.payer_name || "No payer selected"}</p>
+                  <p><TableCellValue value={selectedAccount.patient_id} field="patient_id" user={user} /> - <TableCellValue value={selectedAccount.patient_name} field="patient_name" user={user} /></p>
+                  <p><TableCellValue value={selectedAccount.payer_name || "No payer selected"} field="payer_name" user={user} /></p>
                   <div className="summary-grid">
                     <span>Charges <strong>{formatMoney(selectedAccount.total_charges)}</strong></span>
                     <span>Payments <strong>{formatMoney(selectedAccount.total_payments)}</strong></span>
@@ -4667,15 +4755,15 @@ function ClinicalBillingPage({ token, navigate }) {
           <div className="billing-detail-grid">
             <section>
               <h3>Insurance Verification</h3>
-              <Table rows={queue.insurance_verifications.slice(0, 6)} columns={["patient_id", "payer_name", "verification_status", "verified_at"]} />
+              <Table rows={queue.insurance_verifications.slice(0, 6)} columns={["patient_id", "payer_name", "verification_status", "verified_at"]} user={user} />
             </section>
             <section>
               <h3>Charges</h3>
-              <Table rows={queue.charges.slice(0, 8)} columns={["charge_number", "patient_id", "code", "total_amount", "status"]} />
+              <Table rows={queue.charges.slice(0, 8)} columns={["charge_number", "patient_id", "code", "total_amount", "status"]} user={user} />
             </section>
             <section>
               <h3>Claims</h3>
-              <Table rows={queue.claims.slice(0, 8)} columns={["claim_number", "patient_id", "payer_name", "balance", "status"]} />
+              <Table rows={queue.claims.slice(0, 8)} columns={["claim_number", "patient_id", "payer_name", "balance", "status"]} user={user} />
             </section>
             <section>
               <h3>Payments</h3>
@@ -4683,7 +4771,7 @@ function ClinicalBillingPage({ token, navigate }) {
             </section>
             <section>
               <h3>Denial / Rework</h3>
-              <Table rows={queue.denials.slice(0, 8)} columns={["claim_number", "denial_code", "denial_reason", "status", "due_date"]} />
+              <Table rows={queue.denials.slice(0, 8)} columns={["claim_number", "denial_code", "denial_reason", "status", "due_date"]} user={user} />
             </section>
             <section>
               <h3>Handoffs</h3>
@@ -4699,6 +4787,7 @@ function ClinicalBillingPage({ token, navigate }) {
         <BillingWorkflowModal
           type={modalType}
           token={token}
+          user={user}
           account={selectedAccount}
           patients={patients}
           encounters={encounters}
@@ -4817,6 +4906,7 @@ function defaultQualityForm(type, selectedEvent, patients) {
     workflow: "",
     entity_type: "",
     entity_id: "",
+    export_profile: "compliance_evidence",
     include_quality_history: true,
   };
 }
@@ -4922,6 +5012,7 @@ function qualityPayload(type, form) {
     workflow: form.workflow,
     entity_type: form.entity_type,
     entity_id: form.entity_id,
+    export_profile: form.export_profile,
     include_quality_history: Boolean(form.include_quality_history),
   });
 }
@@ -4967,7 +5058,7 @@ function qualityPatientContextRows(event) {
   ].filter((row) => row.value);
 }
 
-function QualityWorkflowModal({ type, token, selectedEvent, patients, appointments, sessions, encounters, orders, carePlans, billingQueue, onClose, onSuccess }) {
+function QualityWorkflowModal({ type, token, user, selectedEvent, patients, appointments, sessions, encounters, orders, carePlans, billingQueue, onClose, onSuccess }) {
   const [form, setForm] = useState(() => defaultQualityForm(type, selectedEvent, patients));
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState("");
@@ -5051,7 +5142,7 @@ function QualityWorkflowModal({ type, token, selectedEvent, patients, appointmen
               <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value, appointment_id: "", screening_session_id: "", encounter_id: "", order_id: "", order_result_id: "", care_plan_id: "", charge_id: "", claim_id: "", payment_id: "", denial_id: "" })}>
                 <option value="">Select patient</option>
                 {patients.map((patient) => (
-                  <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id} - {patientDisplayName(patient)}</option>
+                  <option key={patient.patient_id} value={patient.patient_id}>{patientOptionLabel(patient, user)}</option>
                 ))}
               </select>
             </label>
@@ -5145,6 +5236,7 @@ function QualityWorkflowModal({ type, token, selectedEvent, patients, appointmen
                 <label>Actor<input value={form.actor} onChange={(event) => setForm({ ...form, actor: event.target.value })} /></label>
                 <label>Entity type<input value={form.entity_type} onChange={(event) => setForm({ ...form, entity_type: event.target.value })} /></label>
                 <label>Entity ID<input value={form.entity_id} onChange={(event) => setForm({ ...form, entity_id: event.target.value })} /></label>
+                <label>Export profile<select value={form.export_profile} onChange={(event) => setForm({ ...form, export_profile: event.target.value })}>{EXPORT_PROFILE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
               </div>
               <div className="preference-list">
                 {qualityExportModuleOptions.map((module) => (
@@ -5155,13 +5247,23 @@ function QualityWorkflowModal({ type, token, selectedEvent, patients, appointmen
                 ))}
                 <label className="checkbox-row"><input type="checkbox" checked={form.include_quality_history} onChange={(event) => setForm({ ...form, include_quality_history: event.target.checked })} />Include quality status history</label>
               </div>
+              <ExportProfileIndicator profile={form.export_profile} />
+              {exportProfileInfo(form.export_profile).warning && (
+                <div className="notice-state">{exportProfileInfo(form.export_profile).warning}</div>
+              )}
             </>
           )}
           {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
           {preview && (
             <div className="notice-state">
               <strong>{preview.validation_status}</strong> - {preview.summary}
-              <pre>{JSON.stringify({ warnings: preview.warnings, blocking_issues: preview.blocking_issues, changes: preview.changes }, null, 2)}</pre>
+              <Table rows={[
+                { field: "Preview hash", value: preview.preview_hash },
+                { field: "Export profile", value: preview.changes?.export_profile || form.export_profile },
+                { field: "Workflow operations", value: preview.changes?.evidence_summary?.workflow_operation_count ?? "" },
+              ]} columns={["field", "value"]} />
+              {preview.blocking_issues?.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}>{issue.message}</div>)}
+              {preview.warnings?.map((warning) => <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}>{warning.message}</div>)}
             </div>
           )}
           {message && <div className="message">{message}</div>}
@@ -5178,7 +5280,7 @@ function QualityWorkflowModal({ type, token, selectedEvent, patients, appointmen
   );
 }
 
-function ClinicalQualityPage({ token, navigate }) {
+function ClinicalQualityPage({ token, navigate, user }) {
   const [filters, setFilters] = useState({ q: "", status: "", severity: "", category: "", owner: "", source_module: "", patient_id: "", date_from: "", date_to: "" });
   const [dashboard, setDashboard] = useState(null);
   const [events, setEvents] = useState([]);
@@ -5290,6 +5392,7 @@ function ClinicalQualityPage({ token, navigate }) {
           <p className="eyebrow">Quality / Compliance expansion</p>
           <h2>Quality</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => openWorkflow("event")}><AlertTriangle size={16} />Create Quality Event</button>
@@ -5308,13 +5411,15 @@ function ClinicalQualityPage({ token, navigate }) {
           <label>Category<select value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}><option value="">All</option>{qualityCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
           <label>Owner<input value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)} /></label>
           <label>Source<select value={filters.source_module} onChange={(event) => updateFilter("source_module", event.target.value)}><option value="">All</option>{qualitySourceModuleOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label>Patient<select value={filters.patient_id} onChange={(event) => updateFilter("patient_id", event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id}</option>)}</select></label>
+          <label>Patient<select value={filters.patient_id} onChange={(event) => updateFilter("patient_id", event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{clinicalDisplayText(patient.patient_id, "patient_id", user)}</option>)}</select></label>
           <button type="button" onClick={loadQuality}><RefreshCw size={16} />Apply</button>
         </div>
       </section>
       {error && <div className="error-state">{error}</div>}
       {loading ? <div className="notice-state">Loading quality work queue...</div> : (
         <>
+          <ExportProfileIndicator profile={auditEvidence.export_profile || "audit_metadata"} />
+          <div className="notice-state">{exportProfileInfo(auditEvidence.export_profile || "audit_metadata").warning}</div>
           <div className="content-grid">
             <MetricCard label="Open Events" value={formatNumber(dashboard?.open_events)} tone={dashboard?.open_events ? "warning" : "neutral"} />
             <MetricCard label="Overdue" value={formatNumber(dashboard?.overdue_events)} tone={dashboard?.overdue_events ? "warning" : "neutral"} />
@@ -5327,7 +5432,7 @@ function ClinicalQualityPage({ token, navigate }) {
               <div className="workflow-list">
                 {events.length ? events.map((event) => (
                   <button type="button" className="workflow-row" key={event.event_id} onClick={() => setSelectedEventId(event.event_id)}>
-                    <span>{event.event_number} - {event.category}<br /><span className="muted">{event.patient_id || "No patient"} {event.owner ? `- ${event.owner}` : ""}</span></span>
+                    <span>{event.event_number} - {event.category}<br /><span className="muted"><TableCellValue value={event.patient_id || "No patient"} field="patient_id" user={user} /> {event.owner ? `- ${event.owner}` : ""}</span></span>
                     <span className="chip-list"><QualitySeverityChip severity={event.severity} /><StatusPill status={event.status} /></span>
                   </button>
                 )) : <div className="empty-state">No quality events match the current filters.</div>}
@@ -5338,7 +5443,7 @@ function ClinicalQualityPage({ token, navigate }) {
               {selectedEvent ? (
                 <div className="info-list compact">
                   <p><strong>{selectedEvent.event_number}</strong></p>
-                  <p>{selectedEvent.description}</p>
+                  <p><TableCellValue value={selectedEvent.description} field="description" user={user} /></p>
                   <div className="chip-list"><QualitySeverityChip severity={selectedEvent.severity} /><StatusPill status={selectedEvent.status} /></div>
                   <div className="summary-grid">
                     <span>Owner <strong>{selectedEvent.owner || "Unassigned"}</strong></span>
@@ -5353,27 +5458,27 @@ function ClinicalQualityPage({ token, navigate }) {
           <div className="quality-detail-grid">
             <section>
               <h3>Linked Context</h3>
-              <Table rows={qualityPatientContextRows(selectedEvent)} columns={["context", "value"]} />
+              <Table rows={qualityPatientContextRows(selectedEvent)} columns={["context", "value"]} user={user} />
             </section>
             <section>
               <h3>Investigation Timeline</h3>
-              <Table rows={(selectedEvent?.investigations || []).map((item) => ({ created_at: formatDateTime(item.created_at), owner: item.owner || "", note: item.note, root_cause: item.root_cause_category || "" }))} columns={["created_at", "owner", "note", "root_cause"]} />
+              <Table rows={(selectedEvent?.investigations || []).map((item) => ({ created_at: formatDateTime(item.created_at), owner: item.owner || "", note: item.note, root_cause: item.root_cause_category || "" }))} columns={["created_at", "owner", "note", "root_cause"]} user={user} />
             </section>
             <section>
               <h3>Status History</h3>
-              <Table rows={(selectedEvent?.status_history || []).map((item) => ({ changed_at: formatDateTime(item.changed_at), from: item.from_status || "", to: item.to_status, reason: item.reason }))} columns={["changed_at", "from", "to", "reason"]} />
+              <Table rows={(selectedEvent?.status_history || []).map((item) => ({ changed_at: formatDateTime(item.changed_at), from: item.from_status || "", to: item.to_status, reason: item.reason }))} columns={["changed_at", "from", "to", "reason"]} user={user} />
             </section>
             <section>
               <h3>Adverse Events</h3>
-              <Table rows={adverseEvents.slice(0, 8).map((event) => ({ event: event.adverse_event_number, patient: event.patient_id, type: event.event_type, severity: event.severity, status: event.status }))} columns={["event", "patient", "type", "severity", "status"]} />
+              <Table rows={adverseEvents.slice(0, 8).map((event) => ({ event: event.adverse_event_number, patient: event.patient_id, type: event.event_type, severity: event.severity, status: event.status }))} columns={["event", "patient", "type", "severity", "status"]} user={user} />
             </section>
             <section>
               <h3>Audit Evidence</h3>
-              <Table rows={operations} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} />
+              <Table rows={operations} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} user={user} />
             </section>
             <section>
               <h3>Compliance Exports</h3>
-              <Table rows={exports.slice(0, 8).map((item) => ({ export: item.export_number, status: item.status, generated_at: formatDateTime(item.generated_at), evidence: item.evidence_summary?.workflow_operation_count || 0 }))} columns={["export", "status", "generated_at", "evidence"]} />
+              <Table rows={exports.slice(0, 8).map((item) => ({ export: item.export_number, status: item.status, generated_at: formatDateTime(item.generated_at), profile: item.export_profile, evidence: item.evidence_summary?.workflow_operation_count || 0 }))} columns={["export", "status", "generated_at", "profile", "evidence"]} />
             </section>
             <section>
               <h3>CAPA / Deviation Links</h3>
@@ -5393,6 +5498,7 @@ function ClinicalQualityPage({ token, navigate }) {
         <QualityWorkflowModal
           type={modalType}
           token={token}
+          user={user}
           selectedEvent={selectedEvent}
           patients={patients}
           appointments={appointments}
@@ -5439,6 +5545,7 @@ function reportModuleLabel(key) {
 }
 
 function reportMetricValue(metric) {
+  if (isSuppressedCell(metric?.value)) return <ClinicalSuppressedMetric cell={metric.value} />;
   const value = Number(metric?.value || 0);
   const label = String(metric?.label || "").toLowerCase();
   if (metric?.unit === "currency" || ["balance", "charges", "payment", "adjustment", "amount"].some((term) => label.includes(term))) {
@@ -5447,10 +5554,20 @@ function reportMetricValue(metric) {
   return Number.isInteger(value) ? formatNumber(value) : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function countSortValue(count) {
+  if (isSuppressedCell(count)) return -1;
+  return Number(count || 0);
+}
+
+function visibleReportCount(count) {
+  if (isSuppressedCell(count)) return 0;
+  return Number(count || 0);
+}
+
 function countRows(counts, labelColumn = "category") {
   return Object.entries(counts || {})
     .map(([label, count]) => ({ [labelColumn]: label, count }))
-    .sort((left, right) => Number(right.count) - Number(left.count));
+    .sort((left, right) => countSortValue(right.count) - countSortValue(left.count));
 }
 
 function reportTableConfig(definition, report) {
@@ -5521,7 +5638,7 @@ function reportTableConfig(definition, report) {
   return { rows: [], columns: ["metric", "value"] };
 }
 
-function ReportPanel({ definition, report }) {
+function ReportPanel({ definition, report, user }) {
   const config = reportTableConfig(definition, report);
   return (
     <section>
@@ -5534,7 +5651,7 @@ function ReportPanel({ definition, report }) {
           <span key={metric.label}>{metric.label}<strong>{reportMetricValue(metric)}</strong></span>
         ))}
       </div>
-      <Table rows={config.rows.slice(0, 10)} columns={config.columns} />
+      <Table rows={config.rows.slice(0, 10)} columns={config.columns} user={user} />
       {(report?.warnings || []).map((warning) => (
         <div className="notice-state compact-notice" key={`${definition.key}-${warning.warning_type}`}>{warning.message}</div>
       ))}
@@ -5546,6 +5663,7 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
   const [form, setForm] = useState(() => ({
     modules: reportModuleOptions.map((item) => item.key),
     export_format: "json",
+    export_profile: filters.export_profile || "aggregate_safe",
     include_detail: false,
     date_from: filters.date_from,
     date_to: filters.date_to,
@@ -5587,6 +5705,7 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
       workflow: form.workflow,
       entity_type: form.entity_type,
       entity_id: form.entity_id,
+      export_profile: form.export_profile,
       reason: form.reason,
     });
   }
@@ -5648,6 +5767,7 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
             <label>Date from<input type="date" value={form.date_from} onChange={(event) => setForm({ ...form, date_from: event.target.value })} /></label>
             <label>Date to<input type="date" value={form.date_to} onChange={(event) => setForm({ ...form, date_to: event.target.value })} /></label>
             <label>Format<select value={form.export_format} onChange={(event) => setForm({ ...form, export_format: event.target.value })}><option value="json">JSON</option><option value="csv">CSV</option></select></label>
+            <label>Export profile<select value={form.export_profile} onChange={(event) => setForm({ ...form, export_profile: event.target.value })}>{EXPORT_PROFILE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
             <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="">All</option>{reportStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
             <label>Audit module<select value={form.module} onChange={(event) => setForm({ ...form, module: event.target.value })}><option value="">All</option>{reportModuleOptions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
             <label>Workflow<input value={form.workflow} onChange={(event) => setForm({ ...form, workflow: event.target.value })} placeholder="reports.analytics_export" /></label>
@@ -5668,6 +5788,10 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
             </label>
           </div>
           <label>Reason<textarea rows="3" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} /></label>
+          <ExportProfileIndicator profile={form.export_profile} suppression={preview?.suppression} />
+          {exportProfileInfo(form.export_profile).warning && (
+            <div className="notice-state">{exportProfileInfo(form.export_profile).warning}</div>
+          )}
           {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
           {preview && (
             <div className="preview-panel">
@@ -5694,7 +5818,7 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
   );
 }
 
-function ClinicalReportsPage({ token, navigate }) {
+function ClinicalReportsPage({ token, navigate, user }) {
   const [filters, setFilters] = useState({
     date_from: defaultDateInput(-30),
     date_to: defaultDateInput(0),
@@ -5702,6 +5826,7 @@ function ClinicalReportsPage({ token, navigate }) {
     module: "",
     actor: "",
     workflow: "",
+    export_profile: "aggregate_safe",
   });
   const [dashboard, setDashboard] = useState(null);
   const [reports, setReports] = useState({});
@@ -5750,7 +5875,8 @@ function ClinicalReportsPage({ token, navigate }) {
     export: item.export_number,
     status: item.status,
     modules: (item.modules || []).length,
-    rows: Object.values(item.row_counts || {}).reduce((total, count) => total + Number(count || 0), 0),
+    rows: Object.values(item.row_counts || {}).reduce((total, count) => total + visibleReportCount(count), 0),
+    profile: item.payload_metadata?.export_profile || item.export_profile || "aggregate_safe",
     format: item.export_format,
     generated_at: formatDateTime(item.generated_at),
   }));
@@ -5762,6 +5888,7 @@ function ClinicalReportsPage({ token, navigate }) {
           <p className="eyebrow">Reporting / analytics readiness</p>
           <h2>Reports</h2>
           <StatusPill status="Active" />
+          <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => setModalOpen(true)}><BarChart3 size={16} />Generate Export</button>
@@ -5774,6 +5901,7 @@ function ClinicalReportsPage({ token, navigate }) {
           <label>Date from<input type="date" value={filters.date_from} onChange={(event) => updateFilter("date_from", event.target.value)} /></label>
           <label>Date to<input type="date" value={filters.date_to} onChange={(event) => updateFilter("date_to", event.target.value)} /></label>
           <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All</option>{reportStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Export profile<select value={filters.export_profile} onChange={(event) => updateFilter("export_profile", event.target.value)}>{EXPORT_PROFILE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
           <label>Audit module<select value={filters.module} onChange={(event) => updateFilter("module", event.target.value)}><option value="">All</option>{reportModuleOptions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
           <label>Workflow<input value={filters.workflow} onChange={(event) => updateFilter("workflow", event.target.value)} /></label>
           <label>Actor<input value={filters.actor} onChange={(event) => updateFilter("actor", event.target.value)} /></label>
@@ -5783,6 +5911,10 @@ function ClinicalReportsPage({ token, navigate }) {
       {error && <div className="error-state">{error}</div>}
       {loading ? <div className="notice-state">Loading reporting datasets...</div> : (
         <>
+          <ExportProfileIndicator profile={filters.export_profile} suppression={dashboard?.suppression} />
+          {exportProfileInfo(filters.export_profile).warning && (
+            <div className="notice-state">{exportProfileInfo(filters.export_profile).warning}</div>
+          )}
           <div className="content-grid">
             {(dashboard?.metrics || []).map((metric) => (
               <MetricCard key={metric.label} label={metric.label} value={reportMetricValue(metric)} tone={metric.tone} />
@@ -5790,18 +5922,18 @@ function ClinicalReportsPage({ token, navigate }) {
           </div>
           <div className="reports-detail-grid">
             {reportModuleOptions.map((definition) => (
-              <ReportPanel key={definition.key} definition={definition} report={reports[definition.key]} />
+              <ReportPanel key={definition.key} definition={definition} report={reports[definition.key]} user={user} />
             ))}
             <section>
               <div className="section-heading-row">
                 <h3>Analytics Exports</h3>
                 <button type="button" onClick={() => setModalOpen(true)}><UploadCloud size={15} />New Export</button>
               </div>
-              <Table rows={exportRows} columns={["export", "status", "modules", "rows", "format", "generated_at"]} />
+              <Table rows={exportRows} columns={["export", "status", "modules", "rows", "profile", "format", "generated_at"]} />
             </section>
             <section>
               <h3>Recent Audit</h3>
-              <Table rows={(dashboard?.recent_audit_operations || []).map((operation) => ({ workflow: operation.workflow, entity_type: operation.entity_type, entity_id: operation.entity_id, actor: operation.actor, timestamp: formatDateTime(operation.timestamp) }))} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} />
+              <Table rows={(dashboard?.recent_audit_operations || []).map((operation) => ({ workflow: operation.workflow, entity_type: operation.entity_type, entity_id: operation.entity_id, actor: operation.actor, timestamp: formatDateTime(operation.timestamp) }))} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} user={user} />
             </section>
             <section>
               <h3>Handoffs</h3>
@@ -6171,7 +6303,7 @@ function adminRowText(row) {
   return Object.values(row || {}).map((value) => (typeof value === "object" ? JSON.stringify(value) : String(value ?? ""))).join(" ").toLowerCase();
 }
 
-function ClinicalAdminPage({ token, navigate }) {
+function ClinicalAdminPage({ token, navigate, user }) {
   const [dashboard, setDashboard] = useState(null);
   const [configVersions, setConfigVersions] = useState([]);
   const [rbac, setRbac] = useState({ roles: [] });
@@ -6297,39 +6429,39 @@ function ClinicalAdminPage({ token, navigate }) {
   );
 }
 
-function ClinicalModuleSection({ section, route, token, navigate }) {
+function ClinicalModuleSection({ section, route, token, navigate, user }) {
   if (section.id === "clinical_admin") {
-    return <ClinicalAdminPage token={token} navigate={navigate} />;
+    return <ClinicalAdminPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_quality") {
-    return <ClinicalQualityPage token={token} navigate={navigate} />;
+    return <ClinicalQualityPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_reports") {
-    return <ClinicalReportsPage token={token} navigate={navigate} />;
+    return <ClinicalReportsPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_billing") {
-    return <ClinicalBillingPage token={token} navigate={navigate} />;
+    return <ClinicalBillingPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_care_plans") {
-    return <ClinicalCarePlansPage token={token} navigate={navigate} />;
+    return <ClinicalCarePlansPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_orders") {
-    return <ClinicalOrdersPage token={token} navigate={navigate} />;
+    return <ClinicalOrdersPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_encounters") {
-    return <ClinicalEncountersPage token={token} navigate={navigate} />;
+    return <ClinicalEncountersPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_patients") {
-    return <ClinicalPatientsPage token={token} navigate={navigate} />;
+    return <ClinicalPatientsPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_scheduling") {
-    return <ClinicalSchedulingPage token={token} navigate={navigate} />;
+    return <ClinicalSchedulingPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_screening") {
-    return <ClinicalScreeningPage token={token} navigate={navigate} />;
+    return <ClinicalScreeningPage token={token} navigate={navigate} user={user} />;
   }
   if (section.id === "clinical_patient_detail") {
-    return <ClinicalPatientDetailPage token={token} route={route} navigate={navigate} />;
+    return <ClinicalPatientDetailPage token={token} route={route} navigate={navigate} user={user} />;
   }
   return (
     <ClinicalShellPlaceholder
@@ -6483,14 +6615,14 @@ function AccessDenied({ section, user }) {
   );
 }
 
-function SectionBody({ active, activeSection, route, status, token, refresh, navigate }) {
+function SectionBody({ active, activeSection, route, status, token, user, refresh, navigate }) {
   const validation = status?.latest_validation || {};
   const manifest = status?.latest_export_manifest || {};
   const freshness = status?.source_freshness?.freshness || [];
   const runs = status?.recent_runs || [];
 
   if (active?.startsWith("clinical_")) {
-    return <ClinicalModuleSection section={activeSection} route={route} token={token} navigate={navigate} />;
+    return <ClinicalModuleSection section={activeSection} route={route} token={token} user={user} navigate={navigate} />;
   }
   if (active === "dashboard") return <OperationsSection status={status} />;
   if (active === "referrals") {
@@ -6856,6 +6988,7 @@ function App() {
             route={route}
             status={status || {}}
             token={token}
+            user={user}
             refresh={refresh}
             navigate={navigate}
           />

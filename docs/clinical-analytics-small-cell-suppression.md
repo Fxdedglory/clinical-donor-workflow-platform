@@ -2,6 +2,8 @@
 
 Post-RC-04 update date: 2026-06-13
 
+Post-RC-05 UI display update date: 2026-06-13
+
 ## Purpose
 
 Clinical aggregate reports and analytics export row-count contracts can expose re-identification risk when a nonzero cohort is very small. Post-RC-04 adds deterministic small-cell suppression for safe report/export profiles.
@@ -45,15 +47,28 @@ Suppressed cells use this shape:
 
 Analytics export commits persist suppression metadata in export payload metadata and workflow audit changes. Suppressed export item row counts are stored as `0` to prevent downstream readers from treating hidden cohorts as visible rows.
 
+## Frontend Display
+
+Post-RC-05 renders suppressed aggregate values with `ClinicalSuppressedMetric`:
+
+```text
+Suppressed
+Small-cell suppression < 5
+```
+
+The component intentionally does not render the hidden raw count in visible text, tooltip text, or `aria-label` content. Reports dashboards and analytics export previews use the same display helper when API cells include `suppressed: true`.
+
 ## Validation
 
 Focused coverage lives in:
 
 - `tests/test_clinical_reports.py`
 - `tests/test_clinical_route_permission_drift.py`
+- `tests/test_clinical_ui_privacy_helpers.py`
 
 Run:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\test_clinical_reports.py tests\test_clinical_route_permission_drift.py tests\test_clinical_phi_redaction.py
+.\.venv\Scripts\python.exe -m pytest tests\test_clinical_ui_privacy_helpers.py
 ```

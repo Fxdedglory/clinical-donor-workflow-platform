@@ -6,6 +6,8 @@ Post-RC-02 hardening update date: 2026-06-13
 
 Post-RC-04 small-cell suppression update date: 2026-06-13
 
+Post-RC-05 UI masking update date: 2026-06-13
+
 Scope: operational clinical models, workflow audit payloads, reports, and export metadata currently implemented under the clinical platform.
 
 ## Inventory Summary
@@ -56,9 +58,11 @@ Post-RC-02 also added reusable export profiles, and Post-RC-04 added small-cell 
 - `internal_detail`: internal detailed profile requiring export, audit, or admin permission.
 - `compliance_evidence`: compliance evidence profile requiring compliance, audit, QMS, or admin permission.
 
+Post-RC-05 adds a frontend display foundation for the highest-risk clinical UI surfaces. It masks direct patient identifiers, contact data, insurance identifiers, sensitive free text, result values, care plan narratives, billing denial reasons, and audit entity identifiers when the existing user role/profile context is external or unavailable. Internal clinical, QA, operations, admin, audit, and export-capable roles may see operational detail when backend access already permits it. See `docs/clinical-ui-phi-masking.md`.
+
 Remaining future needs:
 
-1. Define role-aware field visibility for live UI rendering of demographics, contacts, insurance identifiers, clinical notes, results, and billing identifiers.
+1. Replace the lightweight UI masking helper with a centralized approved field visibility policy if partner-facing clinical views or granular non-care roles are added.
 2. Add production-grade free-text redaction review for notes, adverse event descriptions, investigation findings, denial notes, and audit reasons.
 3. Add object-storage/WORM controls for immutable export artifacts if external delivery is later approved.
 4. Add production policy signoff for which roles may request `internal_detail` and `compliance_evidence`.
