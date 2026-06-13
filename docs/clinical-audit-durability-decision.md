@@ -1,6 +1,6 @@
 # Clinical Audit Durability Decision
 
-Status: Post-RC database-backed audit foundation implemented; WORM mirror foundation implemented; cloud provider integration pending
+Status: Post-RC database-backed audit foundation implemented; WORM mirror and manifest readiness foundation implemented; cloud provider integration pending
 
 RC0 decision date: 2026-06-12
 
@@ -9,6 +9,8 @@ RC1 update date: 2026-06-13
 Post-RC implementation date: 2026-06-13
 
 Post-RC-06 WORM mirror foundation date: 2026-06-13
+
+Post-RC-07 WORM provider readiness date: 2026-06-13
 
 Historical RC1 status: RC1 implementation plan documented in `docs/clinical-audit-durability-implementation-plan.md`.
 
@@ -46,6 +48,14 @@ Database audit rows include operation id, workflow, entity type, entity id, acto
 
 Mirror attempt rows include operation id, mirror mode, mirror status, payload profile, mirrored timestamp, mirror URI, checksum, error text, dry-run flag, and created timestamp.
 
+Post-RC-07 adds deterministic signed manifest and recovery drill foundations. Manifest metadata is stored in:
+
+```text
+operational.clinical_workflow_audit_mirror_manifests
+```
+
+Manifest rows include manifest id, status, mirror mode/provider, URI prefix, audit event count, manifest checksum, signature placeholder metadata, retention policy, legal hold reference, manifest URI, generated timestamp, generated actor, and created timestamp.
+
 ## Why This Is Acceptable For RC0
 
 - The file-backed audit trail is simple, testable, and already covered by module tests.
@@ -80,7 +90,8 @@ Durability mirror foundation:
 - Added `backend/app/services/clinical_audit_mirror.py`.
 - Supports disabled mode, local filesystem simulation, provider placeholder configuration, deterministic checksum, optional/required failure policy, and replay of unmirrored DB audit rows.
 - Added append-only `operational.clinical_workflow_audit_mirror_events`.
-- Real cloud SDK integration, immutable retention configuration, legal hold automation, and signed manifests remain pending.
+- Added deterministic signed manifest, verification, and recovery drill foundation in Post-RC-07.
+- Real cloud SDK integration, immutable retention configuration, legal hold automation, and real cryptographic signing remain pending.
 
 ## Remaining Hardening Plan
 
@@ -88,8 +99,8 @@ Durability mirror foundation:
 2. Backfill existing `metadata/workflow_operations.json` using `backfill_workflow_operations_from_json`.
 3. Verify audit evidence and report activity endpoints read DB rows after backfill.
 4. Configure approved object-storage/WORM target after deployment storage and retention settings are approved.
-5. Add real provider SDK integration and signed manifest support for evidence packages.
-6. Add operational backup/restore drills for `operational.clinical_workflow_audit_events` and mirror verification.
+5. Add real provider SDK integration and real signature support for evidence packages.
+6. Execute operational backup/restore drills for `operational.clinical_workflow_audit_events`, mirror records, manifest records, and object checksums.
 
 ## RC0 Decision
 
@@ -134,3 +145,15 @@ Completed post-RC scope:
 4. Added replay/backfill helper for unmirrored DB audit rows.
 5. Added production gate checks when `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 6. Deferred real cloud provider SDK integration, legal hold automation, provider retention policy creation, and signed manifests.
+
+## Post-RC-07 Follow-Up
+
+`CLINICAL-POST-RC-07` adds provider-readiness hardening:
+
+1. Added deterministic manifest generation over successful mirror attempts.
+2. Added append-only `operational.clinical_workflow_audit_mirror_manifests`.
+3. Added checksum-placeholder signature metadata for local/test readiness without real signing keys.
+4. Added local mirror verification for missing payloads, checksum mismatches, and manifest mismatches.
+5. Added read-only recovery drill summary for DB audit rows versus mirror evidence.
+6. Added production gate checks for required manifest, signature, retention, and legal-hold settings.
+7. Deferred real cloud SDK integration, provider-side retention enforcement, legal-hold automation, and real cryptographic signatures.

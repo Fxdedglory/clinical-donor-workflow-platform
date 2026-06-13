@@ -3363,6 +3363,32 @@ class ClinicalWorkflowAuditMirrorEvent(Base):
     )
 
 
+class ClinicalWorkflowAuditMirrorManifest(Base):
+    __tablename__ = "clinical_workflow_audit_mirror_manifests"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    manifest_id: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    manifest_status: Mapped[str] = mapped_column(String(40), nullable=False, default="generated", index=True)
+    mirror_mode: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(120), nullable=False, default="", index=True)
+    uri_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audit_event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+    manifest_checksum: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    signature_status: Mapped[str] = mapped_column(String(40), nullable=False, default="not_required", index=True)
+    signature_algorithm: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    signature_key_ref: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    retention_policy: Mapped[str] = mapped_column(String(180), nullable=False, default="", index=True)
+    legal_hold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    legal_hold_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    manifest_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    generated_by: Mapped[str] = mapped_column(String(180), nullable=False, default="system", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
 class ClinicalReportExport(Base):
     __tablename__ = "clinical_report_exports"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}

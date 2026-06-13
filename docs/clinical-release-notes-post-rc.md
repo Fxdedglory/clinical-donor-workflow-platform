@@ -123,3 +123,25 @@ Date: 2026-06-13
 - Configure immutable retention, legal hold, access logging, lifecycle policy, and recovery checks in the selected provider.
 - Add signed manifests or evidence package signing if compliance owners require tamper-evident export packages.
 - Keep external warehouse, FHIR/HL7, Power BI, clearinghouse, notification delivery, and approval execution integrations out of scope until separately approved.
+
+## WORM Provider Readiness, Manifests, And Recovery Drills
+
+Update: CLINICAL-POST-RC-07
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_audit_manifest.py` with deterministic manifest generation, manifest checksums, checksum-placeholder signatures, local verification, and recovery drill summaries.
+- Added append-only `operational.clinical_workflow_audit_mirror_manifests` via migration `202606130003_clinical_audit_worm_manifests.py`.
+- Added manifest persistence helpers for accepted evidence packages.
+- Added local mirror verification for missing payloads, checksum mismatches, and manifest/object mismatches.
+- Added read-only recovery drill summaries comparing DB audit rows to successful mirror events.
+- Added production startup gate checks for required retention policy, legal hold reference, manifest policy, and signature key reference.
+- Added tests for manifest determinism, checksum changes, persistence, verification, recovery drill behavior, and provider readiness gates.
+- Added `docs/clinical-audit-worm-recovery-drill.md` and `docs/clinical-audit-worm-retention-legal-hold.md`; updated WORM mirror, durability, migration, production readiness, security readiness, and security gate docs.
+
+## Remaining Post-RC-07 Items
+
+- Implement real cloud provider SDK upload/list/checksum verification.
+- Configure and validate provider-side immutable retention and legal hold.
+- Replace checksum-placeholder signatures with approved cryptographic signing and key management.
+- Execute environment-specific recovery drills with compliance and database owner signoff.

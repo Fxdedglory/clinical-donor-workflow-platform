@@ -66,6 +66,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit_object_mirror_container": "",
     "audit_object_mirror_prefix": "workflow-audit",
     "audit_object_mirror_allow_local_production_simulation": False,
+    "audit_object_mirror_retention_policy": "",
+    "audit_object_mirror_legal_hold_required": False,
+    "audit_object_mirror_legal_hold_reference": "",
+    "audit_object_mirror_manifest_required": False,
+    "audit_object_mirror_signature_required": False,
+    "audit_object_mirror_signature_algorithm": "sha256-placeholder",
+    "audit_object_mirror_signature_key_ref": "",
     "default_analytics_export_profile": DEFAULT_AGGREGATE_EXPORT_PROFILE,
     "default_compliance_export_profile": DEFAULT_COMPLIANCE_EXPORT_PROFILE,
     "default_audit_export_profile": DEFAULT_AUDIT_EXPORT_PROFILE,
@@ -316,6 +323,65 @@ def validate_production_security_gates(
         ),
         default=False,
     )
+    mirror_retention_policy = _text(
+        _get(
+            source,
+            "audit_object_mirror_retention_policy",
+            "AUDIT_OBJECT_MIRROR_RETENTION_POLICY",
+            default=DEFAULT_CONFIG["audit_object_mirror_retention_policy"],
+        )
+    )
+    legal_hold_required = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_legal_hold_required",
+            "AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED",
+            default=DEFAULT_CONFIG["audit_object_mirror_legal_hold_required"],
+        ),
+        default=False,
+    )
+    legal_hold_reference = _text(
+        _get(
+            source,
+            "audit_object_mirror_legal_hold_reference",
+            "AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE",
+            default=DEFAULT_CONFIG["audit_object_mirror_legal_hold_reference"],
+        )
+    )
+    manifest_required = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_manifest_required",
+            "AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED",
+            default=DEFAULT_CONFIG["audit_object_mirror_manifest_required"],
+        ),
+        default=False,
+    )
+    signature_required = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_signature_required",
+            "AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED",
+            default=DEFAULT_CONFIG["audit_object_mirror_signature_required"],
+        ),
+        default=False,
+    )
+    signature_algorithm = _text(
+        _get(
+            source,
+            "audit_object_mirror_signature_algorithm",
+            "AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM",
+            default=DEFAULT_CONFIG["audit_object_mirror_signature_algorithm"],
+        )
+    )
+    signature_key_ref = _text(
+        _get(
+            source,
+            "audit_object_mirror_signature_key_ref",
+            "AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF",
+            default=DEFAULT_CONFIG["audit_object_mirror_signature_key_ref"],
+        )
+    )
     if mirror_required and mirror_mode in DISABLED_AUDIT_OBJECT_MIRROR_MODES:
         add("audit_object_mirror_required_but_disabled", "AUDIT_OBJECT_MIRROR_REQUIRED=true requires AUDIT_OBJECT_MIRROR_MODE to be configured.")
     if mirror_required and mirror_mode in PLACEHOLDER_AUDIT_OBJECT_MIRROR_MODES:
@@ -330,6 +396,32 @@ def validate_production_security_gates(
             "audit_object_mirror_local_without_simulation_flag",
             "Local filesystem audit mirror cannot satisfy required production WORM storage unless explicitly marked as simulation.",
         )
+    if mirror_required and manifest_required and not mirror_retention_policy:
+        add(
+            "audit_object_mirror_retention_policy_missing",
+            "AUDIT_OBJECT_MIRROR_RETENTION_POLICY is required when mirror manifests are required.",
+        )
+    if mirror_required and legal_hold_required and not legal_hold_reference:
+        add(
+            "audit_object_mirror_legal_hold_reference_missing",
+            "AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE is required when legal hold is required.",
+        )
+    if mirror_required and signature_required and not manifest_required:
+        add(
+            "audit_object_mirror_signature_requires_manifest",
+            "AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true requires AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true.",
+        )
+    if mirror_required and manifest_required and signature_required:
+        if not signature_algorithm or _normalized(signature_algorithm) in DISABLED_AUDIT_OBJECT_MIRROR_MODES:
+            add(
+                "audit_object_mirror_signature_algorithm_missing",
+                "AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM is required when signed manifests are required.",
+            )
+        if not signature_key_ref:
+            add(
+                "audit_object_mirror_signature_key_ref_missing",
+                "AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF is required when signed manifests are required.",
+            )
 
     try:
         analytics_profile = _configured_profile(

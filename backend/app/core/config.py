@@ -61,6 +61,16 @@ class Settings(BaseSettings):
         default=False,
         alias="AUDIT_OBJECT_MIRROR_ALLOW_LOCAL_PRODUCTION_SIMULATION",
     )
+    audit_object_mirror_retention_policy: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_RETENTION_POLICY")
+    audit_object_mirror_legal_hold_required: bool = Field(default=False, alias="AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED")
+    audit_object_mirror_legal_hold_reference: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE")
+    audit_object_mirror_manifest_required: bool = Field(default=False, alias="AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED")
+    audit_object_mirror_signature_required: bool = Field(default=False, alias="AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED")
+    audit_object_mirror_signature_algorithm: str = Field(
+        default="sha256-placeholder",
+        alias="AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM",
+    )
+    audit_object_mirror_signature_key_ref: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF")
     default_analytics_export_profile: str = Field(default="aggregate_safe", alias="DEFAULT_ANALYTICS_EXPORT_PROFILE")
     default_compliance_export_profile: str = Field(default="compliance_evidence", alias="DEFAULT_COMPLIANCE_EXPORT_PROFILE")
     default_audit_export_profile: str = Field(default="audit_metadata", alias="DEFAULT_AUDIT_EXPORT_PROFILE")

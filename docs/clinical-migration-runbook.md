@@ -6,6 +6,8 @@ RC2 verification date: 2026-06-13
 
 Post-RC audit durability update date: 2026-06-13
 
+Post-RC WORM manifest update date: 2026-06-13
+
 Scope: clinical platform migrations introduced from Sprint 2 through Sprint 11 plus Post-RC audit durability migrations. Sprint 1 was shell/API foundation only and did not add a broad clinical migration.
 
 ## Expected Migration Order
@@ -26,6 +28,7 @@ Apply migrations in revision order:
 | Sprint 11 | `202606120010` | `202606120010_clinical_reports.py` | Report exports, export items, report status history, report RBAC grants. |
 | Post-RC-01 | `202606130001` | `202606130001_clinical_workflow_audit_events.py` | Append-only DB-backed workflow audit events. |
 | Post-RC-06 | `202606130002` | `202606130002_clinical_audit_worm_mirror.py` | Append-only audit object/WORM mirror attempt ledger. |
+| Post-RC-07 | `202606130003` | `202606130003_clinical_audit_worm_manifests.py` | Append-only audit mirror manifest metadata ledger. |
 
 ## Local Validation Commands
 
@@ -79,10 +82,11 @@ If the local database is already at head, `alembic upgrade head` should be idemp
 - Do not downgrade after real clinical workflow commits without explicit data-retention approval.
 - Downgrading Sprint 11 removes clinical report export tables and `reports.read` / `reports.export` grants.
 - Downgrading Post-RC audit migrations removes DB audit or mirror metadata tables; do not downgrade after real workflow commits without evidence-retention approval.
+- Downgrading Post-RC-07 removes manifest metadata; do not downgrade after accepted evidence packages without compliance approval.
 
 ## Known Migration Risks
 
 - Role-permission grants depend on expected seeded role names in `operational.dim_role`.
 - JSON fields in clinical tables are PostgreSQL JSON columns; downstream BI extracts should validate shape before production use.
-- Workflow operation audit is DB-backed after Post-RC-01 and has a mirror attempt ledger after Post-RC-06. Real object-storage provider retention/legal-hold setup remains outside Alembic.
+- Workflow operation audit is DB-backed after Post-RC-01, has a mirror attempt ledger after Post-RC-06, and has manifest metadata after Post-RC-07. Real object-storage provider retention/legal-hold setup remains outside Alembic.
 - Large production data volumes may require index review before reporting exports are used heavily.

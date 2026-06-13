@@ -2,8 +2,20 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.models import ClinicalWorkflowAuditEvent, ClinicalWorkflowAuditMirrorEvent
+from app.models import (
+    ClinicalWorkflowAuditEvent,
+    ClinicalWorkflowAuditMirrorEvent,
+    ClinicalWorkflowAuditMirrorManifest,
+)
 from app.schemas.clinical import WorkflowOperation
+from app.services.clinical_audit_manifest import (
+    AuditManifestConfig,
+    audit_manifest_checksum,
+    audit_mirror_recovery_drill_summary,
+    generate_audit_mirror_manifest,
+    record_audit_mirror_manifest,
+    verify_mirror_inventory,
+)
 from app.services.clinical_audit_mirror import (
     AUDIT_MIRROR_STATUS_FAILED,
     AUDIT_MIRROR_STATUS_MIRRORED,
@@ -47,14 +59,18 @@ class _WorkflowAuditDb:
         self,
         audit_events: list[ClinicalWorkflowAuditEvent] | None = None,
         mirror_events: list[ClinicalWorkflowAuditMirrorEvent] | None = None,
+        manifest_events: list[ClinicalWorkflowAuditMirrorManifest] | None = None,
     ) -> None:
         self.audit_events = audit_events or []
         self.mirror_events = mirror_events or []
+        self.manifest_events = manifest_events or []
         self.committed = False
         self.rolled_back = False
 
     def execute(self, statement, *_args, **_kwargs):
         sql = _compiled(statement)
+        if "clinical_workflow_audit_mirror_manifests" in sql:
+            return _Rows(self.manifest_events)
         if "clinical_workflow_audit_mirror_events" in sql:
             return _Rows(self.mirror_events)
         if "clinical_workflow_audit_events" in sql:
@@ -66,6 +82,8 @@ class _WorkflowAuditDb:
             self.audit_events.append(row)
         if isinstance(row, ClinicalWorkflowAuditMirrorEvent) and row not in self.mirror_events:
             self.mirror_events.append(row)
+        if isinstance(row, ClinicalWorkflowAuditMirrorManifest) and row not in self.manifest_events:
+            self.manifest_events.append(row)
 
     def flush(self) -> None:
         timestamp = datetime.now(UTC)
@@ -77,6 +95,11 @@ class _WorkflowAuditDb:
         for index, event in enumerate(self.mirror_events, start=1):
             if event.mirror_event_id is None:
                 event.mirror_event_id = index
+            if event.created_at is None:
+                event.created_at = timestamp
+        for index, event in enumerate(self.manifest_events, start=1):
+            if event.id is None:
+                event.id = index
             if event.created_at is None:
                 event.created_at = timestamp
 
@@ -104,6 +127,22 @@ def _operation(**overrides) -> WorkflowOperation:
     }
     values.update(overrides)
     return WorkflowOperation(**values)
+
+
+def _mirror_event(**overrides) -> ClinicalWorkflowAuditMirrorEvent:
+    values = {
+        "operation_id": "manifest-op-001",
+        "mirror_mode": "local_filesystem",
+        "mirror_status": AUDIT_MIRROR_STATUS_MIRRORED,
+        "payload_profile": "audit_metadata",
+        "mirrored_at": datetime(2026, 6, 13, 12, 0, tzinfo=UTC),
+        "mirror_uri": "local-worm://clinical-audit/workflow-audit/quality.event_create/2026/06/manifest-op-001.json",
+        "mirror_checksum": "sha256-manifest-001",
+        "mirror_error": None,
+        "dry_run": False,
+    }
+    values.update(overrides)
+    return ClinicalWorkflowAuditMirrorEvent(**values)
 
 
 def test_db_audit_event_created_on_append_and_required_fields_populated(tmp_path: Path) -> None:
@@ -381,3 +420,179 @@ def test_audit_object_mirror_replay_dry_run_does_not_write_or_record(tmp_path: P
     assert result["mirrored"] == 0
     assert db.mirror_events == []
     assert not (tmp_path / "worm").exists()
+
+
+def test_audit_mirror_manifest_generation_is_deterministic_and_includes_inventory() -> None:
+    generated_at = datetime(2026, 6, 13, 13, 0, tzinfo=UTC)
+    config = AuditManifestConfig(
+        environment="test",
+        generated_by="audit-system",
+        mirror_mode="local_filesystem",
+        provider="local",
+        uri_prefix="local-worm://clinical-audit",
+        retention_policy="RET-7Y-WORM",
+        legal_hold=True,
+        legal_hold_reference="LH-CLINICAL-001",
+        signature_required=True,
+        signature_key_ref="local-placeholder-key-v1",
+    )
+    events = [
+        _mirror_event(operation_id="manifest-op-002", mirror_checksum="sha256-002"),
+        _mirror_event(operation_id="manifest-op-001", mirror_checksum="sha256-001"),
+    ]
+
+    first = generate_audit_mirror_manifest(events, config=config, generated_at=generated_at)
+    second = generate_audit_mirror_manifest(events, config=config, generated_at=generated_at)
+    unsigned = {key: value for key, value in first.items() if key not in {"manifest_checksum", "signature"}}
+
+    assert first == second
+    assert first["audit_event_count"] == 2
+    assert first["operation_ids"] == ["manifest-op-001", "manifest-op-002"]
+    assert [item["checksum"] for item in first["objects"]] == ["sha256-001", "sha256-002"]
+    assert first["retention"]["policy_reference"] == "RET-7Y-WORM"
+    assert first["retention"]["legal_hold"] is True
+    assert first["signature_status"] == "checksum_placeholder"
+    assert first["signature"].startswith("placeholder:")
+    assert first["manifest_checksum"] == audit_manifest_checksum(unsigned)
+
+
+def test_audit_mirror_manifest_checksum_changes_when_inventory_changes() -> None:
+    config = AuditManifestConfig(environment="test", mirror_mode="local_filesystem")
+    generated_at = datetime(2026, 6, 13, 13, 0, tzinfo=UTC)
+
+    base = generate_audit_mirror_manifest(
+        [_mirror_event(operation_id="manifest-op-001", mirror_checksum="sha256-001")],
+        config=config,
+        generated_at=generated_at,
+    )
+    changed = generate_audit_mirror_manifest(
+        [
+            _mirror_event(operation_id="manifest-op-001", mirror_checksum="sha256-001"),
+            _mirror_event(operation_id="manifest-op-002", mirror_checksum="sha256-002"),
+        ],
+        config=config,
+        generated_at=generated_at,
+    )
+
+    assert base["manifest_checksum"] != changed["manifest_checksum"]
+    assert base["manifest_id"] != changed["manifest_id"]
+
+
+def test_audit_mirror_manifest_persistence_records_append_only_metadata() -> None:
+    db = _WorkflowAuditDb()
+    manifest = generate_audit_mirror_manifest(
+        [_mirror_event(operation_id="persisted-manifest-op", mirror_checksum="sha256-persisted")],
+        config=AuditManifestConfig(environment="test", mirror_mode="local_filesystem"),
+        generated_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+    )
+
+    row = record_audit_mirror_manifest(db, manifest)
+
+    assert row in db.manifest_events
+    assert row.id == 1
+    assert row.manifest_id == manifest["manifest_id"]
+    assert row.manifest_checksum == manifest["manifest_checksum"]
+    assert row.audit_event_count == 1
+    assert row.manifest_status == "generated"
+    assert db.committed is True
+
+
+def test_local_mirror_verification_passes_for_valid_payload(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="verify-valid-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+
+    result = verify_mirror_inventory(db.mirror_events, config=mirror_config)
+
+    assert result["checked"] == 1
+    assert result["verified"] == 1
+    assert result["missing"] == 0
+    assert result["mismatched"] == 0
+
+
+def test_local_mirror_verification_detects_missing_payload(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="verify-missing-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+    for mirror_file in mirror_config.local_root.rglob("*.json"):
+        mirror_file.unlink()
+
+    result = verify_mirror_inventory(db.mirror_events, config=mirror_config)
+
+    assert result["verified"] == 0
+    assert result["missing"] == 1
+    assert result["results"][0]["status"] == "missing"
+
+
+def test_local_mirror_verification_detects_checksum_mismatch(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="verify-mismatch-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+    mirror_file = next(mirror_config.local_root.rglob("*.json"))
+    mirror_file.write_text(json.dumps({"tampered": True}, indent=2), encoding="utf-8")
+
+    result = verify_mirror_inventory(db.mirror_events, config=mirror_config)
+
+    assert result["verified"] == 0
+    assert result["mismatched"] == 1
+    assert result["results"][0]["status"] == "checksum_mismatch"
+
+
+def test_mirror_verification_detects_manifest_object_mismatch(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="verify-manifest-mismatch-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+    manifest = generate_audit_mirror_manifest(
+        db.mirror_events,
+        config=AuditManifestConfig(environment="test", mirror_mode="local_filesystem"),
+        generated_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+    )
+    manifest["objects"][0]["checksum"] = "sha256-wrong"
+
+    result = verify_mirror_inventory(db.mirror_events, config=mirror_config, manifest=manifest)
+
+    assert result["manifest_mismatched"] == 1
+    assert result["results"][0]["status"] == "manifest_mismatch"
+
+
+def test_audit_mirror_recovery_drill_compares_db_rows_to_mirror_records(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="recovery-mirrored-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+    db.add(workflow_operation_to_audit_event(_operation(operation_id="recovery-missing-op")))
+    db.flush()
+
+    result = audit_mirror_recovery_drill_summary(db, config=mirror_config)
+
+    assert result["source_deleted"] is False
+    assert result["selected_audit_event_count"] == 2
+    assert result["successful_mirror_event_count"] == 1
+    assert result["missing_mirror_count"] == 1
+    assert result["missing_mirror_operation_ids"] == ["recovery-missing-op"]
+    assert result["verification"]["verified"] == 1
+    assert result["recovery_ready"] is False

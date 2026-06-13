@@ -146,6 +146,78 @@ def test_production_mode_passes_when_required_local_mirror_is_explicitly_simulat
     assert result.passed is True
 
 
+def test_production_mode_fails_when_required_manifest_signature_settings_are_missing() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="",
+            AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF="",
+        )
+    )
+
+    assert "audit_object_mirror_retention_policy_missing" in codes
+    assert "audit_object_mirror_signature_key_ref_missing" in codes
+
+
+def test_production_mode_fails_when_signature_is_required_without_manifest() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF="key-v1",
+        )
+    )
+
+    assert "audit_object_mirror_signature_requires_manifest" in codes
+
+
+def test_production_mode_fails_when_required_legal_hold_reference_is_missing() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE="",
+        )
+    )
+
+    assert "audit_object_mirror_legal_hold_reference_missing" in codes
+
+
+def test_production_mode_passes_with_required_mirror_manifest_signature_config() -> None:
+    result = validate_production_security_gates(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM="sha256-placeholder",
+            AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF="audit-manifest-key-v1",
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE="LH-CLINICAL-AUDIT",
+        )
+    )
+
+    assert result.passed is True
+
+
 def test_production_mode_fails_when_analytics_profile_is_unsafe() -> None:
     codes = _failure_codes(_safe_production_config(DEFAULT_ANALYTICS_EXPORT_PROFILE="internal_detail"))
 

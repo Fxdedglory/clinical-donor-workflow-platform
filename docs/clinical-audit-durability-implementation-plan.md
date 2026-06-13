@@ -4,9 +4,11 @@ RC1 planning date: 2026-06-13
 
 Post-RC implementation date: 2026-06-13
 
-Status: Database-backed workflow audit foundation implemented in `CLINICAL-POST-RC-01`. Object/WORM mirror foundation implemented in `CLINICAL-POST-RC-06`; real cloud provider integration remains planned.
+Status: Database-backed workflow audit foundation implemented in `CLINICAL-POST-RC-01`. Object/WORM mirror foundation implemented in `CLINICAL-POST-RC-06`. Signed manifest, verification, and recovery drill foundation implemented in `CLINICAL-POST-RC-07`; real cloud provider integration remains planned.
 
 Post-RC-06 WORM mirror foundation date: 2026-06-13
+
+Post-RC-07 provider readiness date: 2026-06-13
 
 ## Current Audit Behavior
 
@@ -44,6 +46,7 @@ Quality audit evidence and report audit activity readers use DB rows first and f
 | Audit transaction boundary | Current writer records DB audit after the clinical commit succeeds, preserving workflow success but not making the audit insert part of the original domain transaction. |
 | Backfill execution pending | Existing JSON rows must be backfilled in each target environment before DB-only evidence review. |
 | Backup policy pending | Production backup/restore must explicitly include `operational.clinical_workflow_audit_events`. |
+| Placeholder signatures only | Manifest signing is checksum-derived for readiness and tests; real key-backed signatures remain future work. |
 
 ## Recommended Production Target
 
@@ -95,11 +98,38 @@ Table: `operational.clinical_workflow_audit_mirror_events`
 | `dry_run` | boolean indexed | True for replay preview. |
 | `created_at` | timestamptz indexed | Insert timestamp. |
 
+### Manifest Table Shape
+
+Migration: `database/migrations/versions/202606130003_clinical_audit_worm_manifests.py`
+
+Table: `operational.clinical_workflow_audit_mirror_manifests`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | integer primary key | Internal primary key. |
+| `manifest_id` | string unique indexed | Deterministic public manifest id. |
+| `manifest_status` | string indexed | `generated` for the foundation. |
+| `mirror_mode` | string indexed | Mirror mode represented by the manifest. |
+| `provider` | string indexed | Future provider or local placeholder. |
+| `uri_prefix` | text nullable | Object URI prefix represented by the manifest. |
+| `audit_event_count` | integer indexed | Number of mirrored audit objects in the manifest. |
+| `manifest_checksum` | string indexed | SHA-256 over canonical unsigned manifest JSON. |
+| `signature_status` | string indexed | `not_required` or `checksum_placeholder`. |
+| `signature_algorithm` | string nullable | Placeholder or future real signing algorithm. |
+| `signature_key_ref` | string nullable | Key reference or placeholder reference. |
+| `retention_policy` | string indexed | Retention policy reference. |
+| `legal_hold` | boolean indexed | Legal hold expected for the package. |
+| `legal_hold_reference` | text nullable | Legal hold reference. |
+| `manifest_uri` | text nullable | Future object URI for the manifest payload. |
+| `generated_at` | timestamptz indexed | Manifest generation timestamp. |
+| `generated_by` | string indexed | System actor. |
+| `created_at` | timestamptz indexed | Insert timestamp. |
+
 ### Append-Only Controls
 
 - Migration adds a trigger that rejects `UPDATE` and `DELETE` for defense in depth.
-- Production DB role review should grant application runtime role `INSERT` and `SELECT` on audit and mirror tables.
-- Production DB role review should not grant application runtime `UPDATE` or `DELETE` on audit or mirror tables.
+- Production DB role review should grant application runtime role `INSERT` and `SELECT` on audit, mirror, and manifest tables.
+- Production DB role review should not grant application runtime `UPDATE` or `DELETE` on audit, mirror, or manifest tables.
 - Add indexes for workflow, entity, actor, timestamp, confirmation, and operation id.
 - Consider row-level security only after reporting/query paths are finalized.
 
@@ -123,6 +153,28 @@ Mirror content should include:
 
 The mirror should be treated as durability and evidence packaging support, not as the primary operational query store.
 
+## Signed Manifest And Verification Foundation
+
+Post-RC-07 adds `backend/app/services/clinical_audit_manifest.py`.
+
+Implemented:
+
+- deterministic manifest generation over successful non-dry-run mirror events;
+- manifest id derived from mirror inventory and readiness settings;
+- manifest checksum over canonical JSON;
+- checksum-placeholder signature support without real key material;
+- append-only manifest metadata persistence;
+- local simulation checksum verification;
+- manifest/object mismatch detection;
+- read-only recovery drill summary for selected audit rows.
+
+Not implemented:
+
+- provider SDK checksum readback;
+- provider-side retention or legal-hold creation;
+- real cryptographic signing;
+- automated restore or production mutation.
+
 ## Migration Sequence
 
 1. Apply Alembic migration `202606130001_clinical_workflow_audit_events.py`.
@@ -132,8 +184,10 @@ The mirror should be treated as durability and evidence packaging support, not a
 5. Confirm `/api/clinical/quality/audit-evidence` reads DB-backed operations with database-first reads.
 6. Confirm `/api/clinical/reports/audit-activity` reads DB-backed operations with database-first reads.
 7. Apply Alembic migration `202606130002_clinical_audit_worm_mirror.py`.
-8. Configure `AUDIT_OBJECT_MIRROR_MODE` for disabled, local simulation, or future object provider placeholder.
-9. Keep filesystem JSON as a compatibility mirror/fallback during the next hardening cycle.
+8. Apply Alembic migration `202606130003_clinical_audit_worm_manifests.py`.
+9. Configure `AUDIT_OBJECT_MIRROR_MODE` for disabled, local simulation, or future object provider placeholder.
+10. Configure retention, legal hold, manifest, and signature policy flags only after compliance approval.
+11. Keep filesystem JSON as a compatibility mirror/fallback during the next hardening cycle.
 
 ## Backfill Plan
 
@@ -153,6 +207,15 @@ The mirror should be treated as durability and evidence packaging support, not a
 5. Record mirror attempt status, URI, checksum, and error if not running dry-run.
 6. Preserve DB audit rows and JSON source without deleting or rewriting them.
 
+## Manifest And Recovery Drill Plan
+
+1. Generate a manifest over successful mirror events for the selected window or package.
+2. Persist manifest metadata to `operational.clinical_workflow_audit_mirror_manifests` if the package is accepted.
+3. Verify local simulation objects by recomputing SHA-256 checksums.
+4. Compare manifest object URI/checksum entries to mirror records.
+5. Run `audit_mirror_recovery_drill_summary` to report missing mirror rows, missing objects, checksum mismatches, and manifest mismatches.
+6. Keep the drill read-only until a separate restore or replay procedure is approved.
+
 ## Validation Strategy
 
 Automated validation should cover:
@@ -164,7 +227,10 @@ Automated validation should cover:
 - readers prefer database rows over filesystem JSON;
 - object mirror failures are surfaced and retried without losing database audit rows;
 - replay mirrors unmirrored DB audit rows and skips successful mirror attempts;
-- application runtime cannot update or delete audit or mirror rows.
+- manifest generation is deterministic and checksum-sensitive;
+- local mirror verification detects missing and mismatched payloads;
+- recovery drill compares DB audit rows to mirror evidence;
+- application runtime cannot update or delete audit, mirror, or manifest rows.
 
 Manual validation should cover:
 
@@ -172,7 +238,8 @@ Manual validation should cover:
 - reports audit activity reflects newly committed operations;
 - backup and restore include audit rows;
 - object-storage immutability/retention and legal hold settings are enabled in production.
+- signed manifests and recovery drill reports are retained with evidence packages.
 
 ## Future Sprint Scope
 
-The next sprint should add real provider SDK integration, signed manifest support, provider-specific retention/legal-hold automation, environment-specific replay execution guidance, and operational backup/restore verification for audit and mirror evidence.
+The next sprint should add real provider SDK integration, provider-specific retention/legal-hold automation, real signature support, environment-specific replay execution guidance, and operational backup/restore verification for audit and mirror evidence.
