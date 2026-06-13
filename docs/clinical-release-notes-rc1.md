@@ -4,6 +4,8 @@ Release candidate: RC1 Security / Production Readiness Pass
 
 Review date: 2026-06-13
 
+RC2 dependency update: the Vite/esbuild advisories recorded in RC1 were remediated in RC2 with a bounded Vite 8 and React plugin 6 upgrade.
+
 ## Baseline
 
 Latest accepted baseline commit:
@@ -61,7 +63,7 @@ npm run build
 
 - Production workflow audit storage is not yet database-backed.
 - PHI/ePHI masking and redaction are documented but not implemented.
-- Frontend dependency audit has unresolved high-severity Vite/esbuild advisories.
+- Frontend dependency audit had unresolved high-severity Vite/esbuild advisories in RC1; this was resolved in RC2.
 - Production startup does not yet reject unsafe default secrets and cookie settings.
 - Generic foundation workflow commit endpoint is confirmation-guarded but not user-authenticated.
 - Report audit activity currently rides on report-read access and should be reviewed for least privilege.
@@ -71,7 +73,7 @@ npm run build
 
 1. Implement database-backed append-only workflow audit and backfill existing JSON operations.
 2. Add production startup safety gates for secret/cookie/MFA/encryption defaults.
-3. Upgrade Vite/esbuild with full frontend regression validation.
+3. Continue frontend dependency audit checks after the RC2 Vite/esbuild remediation.
 4. Add generated route-permission and export-permission drift tests.
 5. Define and implement PHI masking/export profiles.
 6. Complete external identity/MFA production design before broad go-live.

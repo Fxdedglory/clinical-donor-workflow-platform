@@ -2,6 +2,8 @@
 
 RC1 review date: 2026-06-13
 
+RC2 update date: 2026-06-13
+
 Scope: Release Candidate Security / Production Readiness Pass. This review documents the current security posture without adding new clinical modules or introducing new heavyweight scanners.
 
 ## Repository-Native Review Process
@@ -15,6 +17,18 @@ Scope: Release Candidate Security / Production Readiness Pass. This review docum
 | Python dependency inventory | `pyproject.toml`, `requirements.txt` | No repo-native vulnerability scanner such as `pip-audit` or `safety` is configured. Do not add one in RC1 without platform approval. |
 | Frontend dependency review | `cd frontend; npm audit --audit-level=high` | Failed with two high-severity advisories through Vite/esbuild. Suggested npm fix requires a Vite 8 major upgrade, so remediation is deferred to RC2 compatibility testing. |
 | Frontend dependency inventory | `frontend/package.json`, `frontend/package-lock.json` | Lockfile is present. Current Vite dependency resolves to Vite 7.x and esbuild 0.27.x in the lockfile. |
+
+## RC2 Dependency Update
+
+RC2 completed the bounded frontend dependency remediation:
+
+- upgraded `vite` from `^7.2.4` to `^8.0.16`;
+- upgraded `@vitejs/plugin-react` from `^5.1.1` to `^6.0.2`;
+- confirmed local Node `v24.11.0` satisfies Vite 8 and plugin engine requirements;
+- ran `npm run build` successfully with Vite `8.0.16`;
+- ran `npm audit --audit-level=high` successfully with `found 0 vulnerabilities`.
+
+No RC2 Vite/esbuild release exception remains open.
 
 ## Sensitive Configuration Handling
 
@@ -51,7 +65,7 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 
 | Finding | Severity | Evidence | RC1 disposition | Remediation |
 | --- | --- | --- | --- | --- |
-| Vite/esbuild advisories from `npm audit` | High | `npm audit --audit-level=high` reports two high-severity advisories and recommends a Vite 8 major upgrade. | Not fixed in RC1 because the suggested fix is a build-tool major upgrade. | RC2: test Vite 8 upgrade, run frontend build/regression checks, and update lockfile intentionally. |
+| Vite/esbuild advisories from `npm audit` | High | RC1 `npm audit --audit-level=high` reported two high-severity advisories and recommended a Vite 8 major upgrade. | Resolved in RC2 with bounded Vite 8 / React plugin 6 upgrade. | Continue to run `npm audit --audit-level=high` in release validation. |
 | Production defaults are fail-open if not overridden | High | `SECRET_KEY`, `COOKIE_SECURE=false`, `MFA_DEV_BYPASS_CODE=000000`, and optional encryption keys exist as defaults/examples. | Documented. No code gate added in RC1. | RC2: add startup validation that rejects unsafe defaults when `APP_ENV=prod`. |
 | Workflow audit remains filesystem-backed | High | `metadata/workflow_operations.json` full-file append pattern. | Documented in audit durability plan. | RC2: implement database-backed append-only audit table and migration/backfill. |
 | Generic foundation workflow commit lacks user auth | Medium | `/api/clinical/workflows/commit` requires confirmation header but does not require an authenticated user. | Documented as a gap. | RC2: either restrict to admin/test contexts or require authenticated clinical admin permission. |
@@ -61,7 +75,7 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 ## Remediation Plan
 
 1. Add a production startup safety check for `APP_ENV=prod` that rejects default `SECRET_KEY`, insecure cookie settings, predictable MFA bypass, and missing production encryption settings.
-2. Upgrade and validate Vite/esbuild through a dedicated frontend dependency hardening task.
+2. Keep frontend dependency audit in release validation after the RC2 Vite 8 remediation.
 3. Add database-backed workflow operation audit storage with append-only database permissions and object-storage mirroring.
 4. Split report audit activity and export metadata permissions where compliance owners require least-privilege separation.
 5. Add CI-visible vulnerability scanning for Python and frontend dependencies using approved tooling.

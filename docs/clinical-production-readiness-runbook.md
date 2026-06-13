@@ -2,6 +2,8 @@
 
 RC1 review date: 2026-06-13
 
+RC2 update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -55,7 +57,7 @@ Run from the frontend directory:
 npm run build
 ```
 
-RC1 also used these readiness checks:
+RC1 and RC2 also used these readiness checks:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip check
@@ -63,7 +65,7 @@ cd frontend
 npm audit --audit-level=high
 ```
 
-`npm audit` currently reports high-severity Vite/esbuild advisories whose suggested fix requires a Vite 8 major upgrade. Treat that as an RC2 dependency-hardening blocker before production signoff.
+RC2 upgraded Vite and the React plugin to resolve the RC1 Vite/esbuild advisories. `npm audit --audit-level=high` now reports zero vulnerabilities in the frontend package set.
 
 ## Manual QA Checklist Reference
 
@@ -113,8 +115,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 
 ## Known Limitations
 
-- Workflow operation audit remains filesystem-backed in RC1.
+- Workflow operation audit remains filesystem-backed in RC2.
 - No full PHI masking/redaction framework exists yet.
-- Vite/esbuild audit advisories remain open pending RC2 upgrade testing.
+- Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup does not yet fail closed on unsafe default secrets/cookie settings.
 - Analytics/compliance exports are metadata/evidence contracts only; external warehouse, FHIR/HL7, Power BI, clearinghouse, and notification delivery integrations remain out of scope.

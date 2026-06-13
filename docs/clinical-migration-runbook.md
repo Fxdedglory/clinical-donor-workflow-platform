@@ -2,6 +2,8 @@
 
 RC0 inventory date: 2026-06-12
 
+RC2 verification date: 2026-06-13
+
 Scope: clinical platform migrations introduced from Sprint 2 through Sprint 11. Sprint 1 was shell/API foundation only and did not add a broad clinical migration.
 
 ## Expected Migration Order
@@ -73,9 +75,9 @@ If the local database is already at head, `alembic upgrade head` should be idemp
 - Do not downgrade after real clinical workflow commits without explicit data-retention approval.
 - Downgrading Sprint 11 removes clinical report export tables and `reports.read` / `reports.export` grants.
 
-## Known RC0 Migration Risks
+## Known Migration Risks
 
 - Role-permission grants depend on expected seeded role names in `operational.dim_role`.
 - JSON fields in clinical tables are PostgreSQL JSON columns; downstream BI extracts should validate shape before production use.
-- Workflow operation audit remains filesystem-backed in RC0 and is not migrated into database tables yet.
+- Workflow operation audit remains filesystem-backed in RC2 and is not migrated into database tables yet.
 - Large production data volumes may require index review before reporting exports are used heavily.
