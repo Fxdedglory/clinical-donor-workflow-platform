@@ -231,8 +231,8 @@ const clinicalSections = [
     label: "Quality",
     route: "/clinical/quality",
     icon: AlertTriangle,
-    status: "Planned workflow",
-    workflows: ["Create quality event", "Create CAPA", "Export audit evidence"],
+    status: "Active",
+    workflows: ["Create quality event", "Create adverse event", "Add investigation", "Link CAPA", "Close quality event", "Export audit evidence"],
   },
   {
     id: "clinical_reports",
@@ -4815,7 +4815,706 @@ function ClinicalBillingPage({ token, navigate }) {
   );
 }
 
+const qualityStatusOptions = ["open", "under_review", "investigation", "capa_required", "pending_approval", "closed", "cancelled"];
+const qualitySeverityOptions = ["low", "medium", "high", "severe", "critical"];
+const qualityCategoryOptions = ["process_deviation", "patient_safety", "documentation", "billing", "screening", "encounter", "order_result", "care_plan", "compliance"];
+const qualitySourceModuleOptions = ["clinical_quality", "clinical_screening", "clinical_encounters", "clinical_orders", "clinical_care_plans", "clinical_billing"];
+const qualityExportModuleOptions = ["quality", "screening", "encounters", "orders", "care_plans", "billing"];
+
+function QualitySeverityChip({ severity }) {
+  const normalized = severity || "medium";
+  const lower = normalized.toLowerCase();
+  const tone = lower === "critical" || lower === "severe" ? "danger" : lower === "high" ? "warning" : "neutral";
+  return <span className={cx("priority-chip", tone)}>{normalized}</span>;
+}
+
+function qualityWorkflowTitle(type) {
+  return {
+    event: "Create Quality Event",
+    adverse: "Create Adverse Event",
+    investigation: "Add Investigation",
+    capa: "Link / Plan CAPA",
+    close: "Close Quality Event",
+    export: "Generate Compliance Export",
+  }[type];
+}
+
+function defaultQualityForm(type, selectedEvent, patients) {
+  const patient = selectedEvent?.patient_id || patients?.[0]?.patient_id || "";
+  if (type === "event") {
+    return {
+      patient_id: patient,
+      category: "process_deviation",
+      severity: "medium",
+      status: "open",
+      owner: "",
+      due_date: defaultDateInput(14),
+      source_module: "clinical_quality",
+      description: "",
+      appointment_id: "",
+      screening_session_id: "",
+      encounter_id: "",
+      order_id: "",
+      order_result_id: "",
+      care_plan_id: "",
+      charge_id: "",
+      claim_id: "",
+      payment_id: "",
+      denial_id: "",
+      deviation_id: "",
+      capa_id: "",
+    };
+  }
+  if (type === "adverse") {
+    return {
+      patient_id: patient,
+      quality_event_id: selectedEvent?.event_id || "",
+      event_type: "patient_safety",
+      severity: selectedEvent?.severity || "medium",
+      event_at: new Date().toISOString().slice(0, 16),
+      description: "",
+      immediate_action_taken: "",
+      reporter: "",
+      follow_up_required: false,
+      status: "open",
+      screening_session_id: "",
+      encounter_id: selectedEvent?.encounter_id || "",
+      order_id: selectedEvent?.order_id || "",
+      order_result_id: selectedEvent?.order_result_id || "",
+      care_plan_id: selectedEvent?.care_plan_id || "",
+    };
+  }
+  if (type === "investigation") {
+    return {
+      note: "",
+      evidence_summary: "",
+      owner: selectedEvent?.owner || "",
+      finding: "",
+      root_cause_category: "",
+      corrective_action_recommendation: "",
+      follow_up_due_date: defaultDateInput(7),
+      status_after: "investigation",
+    };
+  }
+  if (type === "capa") {
+    return {
+      existing_capa_id: selectedEvent?.capa_id || "",
+      create_planned_capa: !selectedEvent?.capa_id,
+      root_cause: "",
+      corrective_action_owner: selectedEvent?.owner || "",
+      due_date: defaultDateInput(30),
+    };
+  }
+  if (type === "close") {
+    return {
+      resolution_summary: "",
+      closure_reason: "",
+    };
+  }
+  return {
+    date_from: "",
+    date_to: defaultDateInput(0),
+    modules: ["quality"],
+    actor: "",
+    workflow: "",
+    entity_type: "",
+    entity_id: "",
+    include_quality_history: true,
+  };
+}
+
+function qualityPreviewEndpoint(type, selectedEvent) {
+  return {
+    event: "/api/clinical/quality/events/preview",
+    adverse: "/api/clinical/quality/adverse-events/preview",
+    investigation: `/api/clinical/quality/events/${selectedEvent?.event_id}/investigation/preview`,
+    capa: `/api/clinical/quality/events/${selectedEvent?.event_id}/capa/preview`,
+    close: `/api/clinical/quality/events/${selectedEvent?.event_id}/close/preview`,
+    export: "/api/clinical/quality/compliance-exports/preview",
+  }[type];
+}
+
+function qualityCommitEndpoint(type, selectedEvent) {
+  return {
+    event: "/api/clinical/quality/events",
+    adverse: "/api/clinical/quality/adverse-events",
+    investigation: `/api/clinical/quality/events/${selectedEvent?.event_id}/investigation`,
+    capa: `/api/clinical/quality/events/${selectedEvent?.event_id}/capa`,
+    close: `/api/clinical/quality/events/${selectedEvent?.event_id}/close`,
+    export: "/api/clinical/quality/compliance-exports",
+  }[type];
+}
+
+function qualityPayload(type, form) {
+  if (type === "event") {
+    return compactPayload({
+      patient_id: form.patient_id,
+      category: form.category,
+      severity: form.severity,
+      status: form.status,
+      owner: form.owner,
+      due_date: form.due_date,
+      source_module: form.source_module,
+      description: form.description,
+      appointment_id: numberOrUndefined(form.appointment_id),
+      screening_session_id: numberOrUndefined(form.screening_session_id),
+      encounter_id: numberOrUndefined(form.encounter_id),
+      order_id: numberOrUndefined(form.order_id),
+      order_result_id: numberOrUndefined(form.order_result_id),
+      care_plan_id: numberOrUndefined(form.care_plan_id),
+      charge_id: numberOrUndefined(form.charge_id),
+      claim_id: numberOrUndefined(form.claim_id),
+      payment_id: numberOrUndefined(form.payment_id),
+      denial_id: numberOrUndefined(form.denial_id),
+      deviation_id: numberOrUndefined(form.deviation_id),
+      capa_id: numberOrUndefined(form.capa_id),
+    });
+  }
+  if (type === "adverse") {
+    return compactPayload({
+      patient_id: form.patient_id,
+      quality_event_id: numberOrUndefined(form.quality_event_id),
+      event_type: form.event_type,
+      severity: form.severity,
+      event_at: form.event_at,
+      description: form.description,
+      immediate_action_taken: form.immediate_action_taken,
+      reporter: form.reporter,
+      follow_up_required: Boolean(form.follow_up_required),
+      status: form.status,
+      screening_session_id: numberOrUndefined(form.screening_session_id),
+      encounter_id: numberOrUndefined(form.encounter_id),
+      order_id: numberOrUndefined(form.order_id),
+      order_result_id: numberOrUndefined(form.order_result_id),
+      care_plan_id: numberOrUndefined(form.care_plan_id),
+    });
+  }
+  if (type === "investigation") {
+    return compactPayload({
+      note: form.note,
+      evidence_summary: form.evidence_summary,
+      owner: form.owner,
+      finding: form.finding,
+      root_cause_category: form.root_cause_category,
+      corrective_action_recommendation: form.corrective_action_recommendation,
+      follow_up_due_date: form.follow_up_due_date,
+      status_after: form.status_after,
+    });
+  }
+  if (type === "capa") {
+    return compactPayload({
+      existing_capa_id: numberOrUndefined(form.existing_capa_id),
+      create_planned_capa: Boolean(form.create_planned_capa),
+      root_cause: form.root_cause,
+      corrective_action_owner: form.corrective_action_owner,
+      due_date: form.due_date,
+    });
+  }
+  if (type === "close") {
+    return compactPayload({
+      resolution_summary: form.resolution_summary,
+      closure_reason: form.closure_reason,
+    });
+  }
+  return compactPayload({
+    date_from: form.date_from,
+    date_to: form.date_to,
+    modules: form.modules,
+    actor: form.actor,
+    workflow: form.workflow,
+    entity_type: form.entity_type,
+    entity_id: form.entity_id,
+    include_quality_history: Boolean(form.include_quality_history),
+  });
+}
+
+function validateQualityWorkflow(type, form, selectedEvent) {
+  const issues = [];
+  if (["investigation", "capa", "close"].includes(type) && !selectedEvent) issues.push("Select a quality event.");
+  if (type === "event") {
+    for (const field of ["category", "severity", "status", "source_module", "description"]) {
+      if (!form[field]) issues.push(`${field.replaceAll("_", " ")} is required.`);
+    }
+  }
+  if (type === "adverse") {
+    for (const field of ["patient_id", "event_type", "severity", "event_at", "description", "reporter"]) {
+      if (!form[field]) issues.push(`${field.replaceAll("_", " ")} is required.`);
+    }
+  }
+  if (type === "investigation" && !form.note) issues.push("Investigation note is required.");
+  if (type === "capa" && !form.existing_capa_id && !form.create_planned_capa) issues.push("Select an existing CAPA or create a planned CAPA link.");
+  if (type === "close") {
+    if (!form.resolution_summary) issues.push("Resolution summary is required.");
+    if (!form.closure_reason) issues.push("Closure reason is required.");
+  }
+  return issues;
+}
+
+function qualityPatientContextRows(event) {
+  if (!event) return [];
+  return [
+    { context: "Patient", value: event.patient_id ? `${event.patient_id} - ${event.patient_name || ""}` : "Not linked" },
+    { context: "Appointment", value: event.appointment_number || event.appointment_id || "" },
+    { context: "Screening", value: event.screening_session_number || event.screening_session_id || "" },
+    { context: "Encounter", value: event.encounter_number || event.encounter_id || "" },
+    { context: "Order", value: event.order_number || event.order_id || "" },
+    { context: "Result", value: event.order_result_summary || event.order_result_id || "" },
+    { context: "Care Plan", value: event.care_plan_number || event.care_plan_id || "" },
+    { context: "Charge", value: event.charge_number || event.charge_id || "" },
+    { context: "Claim", value: event.claim_number || event.claim_id || "" },
+    { context: "Payment", value: event.payment_reference || event.payment_id || "" },
+    { context: "Denial", value: event.denial_code || event.denial_id || "" },
+    { context: "Deviation", value: event.deviation_code || event.deviation_id || "" },
+    { context: "CAPA", value: event.capa_code || event.capa_id || "" },
+  ].filter((row) => row.value);
+}
+
+function QualityWorkflowModal({ type, token, selectedEvent, patients, appointments, sessions, encounters, orders, carePlans, billingQueue, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultQualityForm(type, selectedEvent, patients));
+  const [preview, setPreview] = useState(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const validationIssues = validateQualityWorkflow(type, form, selectedEvent);
+  const patientAppointments = appointments.filter((item) => item.patient_id === form.patient_id);
+  const patientSessions = sessions.filter((item) => item.patient_id === form.patient_id);
+  const patientEncounters = encounters.filter((item) => item.patient_id === form.patient_id);
+  const patientOrders = orders.filter((item) => item.patient_id === form.patient_id);
+  const patientCarePlans = carePlans.filter((item) => item.patient_id === form.patient_id);
+  const patientCharges = (billingQueue?.charges || []).filter((item) => item.patient_id === form.patient_id);
+  const patientClaims = (billingQueue?.claims || []).filter((item) => item.patient_id === form.patient_id);
+  const patientPayments = (billingQueue?.payments || []).filter((item) => item.patient_id === form.patient_id);
+  const patientDenials = (billingQueue?.denials || []).filter((item) => {
+    const claim = patientClaims.find((claimItem) => claimItem.claim_id === item.claim_id);
+    return Boolean(claim);
+  });
+  const selectedOrderResults = patientOrders.find((order) => String(order.order_id) === String(form.order_id))?.results || [];
+
+  function toggleModule(module) {
+    setForm((current) => ({
+      ...current,
+      modules: current.modules.includes(module)
+        ? current.modules.filter((item) => item !== module)
+        : [...current.modules, module],
+    }));
+  }
+
+  async function previewWorkflow(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    if (validationIssues.length) return;
+    try {
+      const payload = await apiRequest(qualityPreviewEndpoint(type, selectedEvent), {
+        token,
+        method: "POST",
+        body: qualityPayload(type, form),
+      });
+      setPreview(payload);
+      setMessage(payload.validation_status === "failed" ? "Preview has blocking issues." : "Preview ready for confirmation.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function commitWorkflow() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await apiRequest(qualityCommitEndpoint(type, selectedEvent), {
+        token,
+        method: "POST",
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...qualityPayload(type, form), preview_hash: preview?.preview_hash },
+      });
+      setMessage(`Committed ${result.operation_id}.`);
+      onSuccess(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="workflow-modal quality-modal">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Quality workflow</p>
+            <h3>{qualityWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        <form className="stacked-form" onSubmit={previewWorkflow}>
+          {["event", "adverse"].includes(type) && (
+            <label>
+              Patient
+              <select value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value, appointment_id: "", screening_session_id: "", encounter_id: "", order_id: "", order_result_id: "", care_plan_id: "", charge_id: "", claim_id: "", payment_id: "", denial_id: "" })}>
+                <option value="">Select patient</option>
+                {patients.map((patient) => (
+                  <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id} - {patientDisplayName(patient)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {type === "event" && (
+            <>
+              <div className="form-grid">
+                <label>Category<select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>{qualityCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Severity<select value={form.severity} onChange={(event) => setForm({ ...form, severity: event.target.value })}>{qualitySeverityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{qualityStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Source module<select value={form.source_module} onChange={(event) => setForm({ ...form, source_module: event.target.value })}>{qualitySourceModuleOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Owner<input value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
+                <label>Due date<input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} /></label>
+              </div>
+              <div className="form-grid">
+                <label>Appointment<select value={form.appointment_id} onChange={(event) => setForm({ ...form, appointment_id: event.target.value })}><option value="">None</option>{patientAppointments.map((item) => <option key={item.appointment_id} value={item.appointment_id}>{item.appointment_number} - {item.status}</option>)}</select></label>
+                <label>Screening<select value={form.screening_session_id} onChange={(event) => setForm({ ...form, screening_session_id: event.target.value })}><option value="">None</option>{patientSessions.map((item) => <option key={item.session_id} value={item.session_id}>{item.session_number} - {item.status}</option>)}</select></label>
+                <label>Encounter<select value={form.encounter_id} onChange={(event) => setForm({ ...form, encounter_id: event.target.value })}><option value="">None</option>{patientEncounters.map((item) => <option key={item.encounter_id} value={item.encounter_id}>{item.encounter_number} - {item.status}</option>)}</select></label>
+                <label>Order<select value={form.order_id} onChange={(event) => setForm({ ...form, order_id: event.target.value, order_result_id: "" })}><option value="">None</option>{patientOrders.map((item) => <option key={item.order_id} value={item.order_id}>{item.order_number} - {item.status}</option>)}</select></label>
+                <label>Order result<select value={form.order_result_id} onChange={(event) => setForm({ ...form, order_result_id: event.target.value })}><option value="">None</option>{selectedOrderResults.map((item) => <option key={item.result_id} value={item.result_id}>{item.result_name} - {item.result_status}</option>)}</select></label>
+                <label>Care plan<select value={form.care_plan_id} onChange={(event) => setForm({ ...form, care_plan_id: event.target.value })}><option value="">None</option>{patientCarePlans.map((item) => <option key={item.care_plan_id} value={item.care_plan_id}>{item.care_plan_number} - {item.status}</option>)}</select></label>
+                <label>Charge<select value={form.charge_id} onChange={(event) => setForm({ ...form, charge_id: event.target.value })}><option value="">None</option>{patientCharges.map((item) => <option key={item.charge_id} value={item.charge_id}>{item.charge_number} - {item.status}</option>)}</select></label>
+                <label>Claim<select value={form.claim_id} onChange={(event) => setForm({ ...form, claim_id: event.target.value })}><option value="">None</option>{patientClaims.map((item) => <option key={item.claim_id} value={item.claim_id}>{item.claim_number} - {item.status}</option>)}</select></label>
+                <label>Payment<select value={form.payment_id} onChange={(event) => setForm({ ...form, payment_id: event.target.value })}><option value="">None</option>{patientPayments.map((item) => <option key={item.payment_id} value={item.payment_id}>{item.claim_number} - {formatMoney(item.payment_amount)}</option>)}</select></label>
+                <label>Denial<select value={form.denial_id} onChange={(event) => setForm({ ...form, denial_id: event.target.value })}><option value="">None</option>{patientDenials.map((item) => <option key={item.denial_id} value={item.denial_id}>{item.denial_code || item.denial_id} - {item.status}</option>)}</select></label>
+                <label>Deviation ID<input value={form.deviation_id} onChange={(event) => setForm({ ...form, deviation_id: event.target.value })} /></label>
+                <label>CAPA ID<input value={form.capa_id} onChange={(event) => setForm({ ...form, capa_id: event.target.value })} /></label>
+              </div>
+              <label>Description<textarea rows="4" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+            </>
+          )}
+          {type === "adverse" && (
+            <>
+              <div className="form-grid">
+                <label>Quality event<input value={form.quality_event_id} onChange={(event) => setForm({ ...form, quality_event_id: event.target.value })} /></label>
+                <label>Event type<input value={form.event_type} onChange={(event) => setForm({ ...form, event_type: event.target.value })} /></label>
+                <label>Severity<select value={form.severity} onChange={(event) => setForm({ ...form, severity: event.target.value })}>{qualitySeverityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Event time<input type="datetime-local" value={form.event_at} onChange={(event) => setForm({ ...form, event_at: event.target.value })} /></label>
+                <label>Reporter<input value={form.reporter} onChange={(event) => setForm({ ...form, reporter: event.target.value })} /></label>
+                <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{qualityStatusOptions.filter((item) => item !== "closed").map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              </div>
+              <label className="checkbox-row"><input type="checkbox" checked={form.follow_up_required} onChange={(event) => setForm({ ...form, follow_up_required: event.target.checked })} />Follow-up required</label>
+              <div className="form-grid">
+                <label>Screening<select value={form.screening_session_id} onChange={(event) => setForm({ ...form, screening_session_id: event.target.value })}><option value="">None</option>{patientSessions.map((item) => <option key={item.session_id} value={item.session_id}>{item.session_number}</option>)}</select></label>
+                <label>Encounter<select value={form.encounter_id} onChange={(event) => setForm({ ...form, encounter_id: event.target.value })}><option value="">None</option>{patientEncounters.map((item) => <option key={item.encounter_id} value={item.encounter_id}>{item.encounter_number}</option>)}</select></label>
+                <label>Order<select value={form.order_id} onChange={(event) => setForm({ ...form, order_id: event.target.value, order_result_id: "" })}><option value="">None</option>{patientOrders.map((item) => <option key={item.order_id} value={item.order_id}>{item.order_number}</option>)}</select></label>
+                <label>Order result<select value={form.order_result_id} onChange={(event) => setForm({ ...form, order_result_id: event.target.value })}><option value="">None</option>{selectedOrderResults.map((item) => <option key={item.result_id} value={item.result_id}>{item.result_name}</option>)}</select></label>
+                <label>Care plan<select value={form.care_plan_id} onChange={(event) => setForm({ ...form, care_plan_id: event.target.value })}><option value="">None</option>{patientCarePlans.map((item) => <option key={item.care_plan_id} value={item.care_plan_id}>{item.care_plan_number}</option>)}</select></label>
+              </div>
+              <label>Description<textarea rows="4" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+              <label>Immediate action taken<textarea rows="3" value={form.immediate_action_taken} onChange={(event) => setForm({ ...form, immediate_action_taken: event.target.value })} /></label>
+            </>
+          )}
+          {type === "investigation" && (
+            <>
+              <label>Investigation note<textarea rows="4" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
+              <div className="form-grid">
+                <label>Owner<input value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} /></label>
+                <label>Follow-up due<input type="date" value={form.follow_up_due_date} onChange={(event) => setForm({ ...form, follow_up_due_date: event.target.value })} /></label>
+                <label>Status after<select value={form.status_after} onChange={(event) => setForm({ ...form, status_after: event.target.value })}>{["under_review", "investigation", "capa_required", "pending_approval"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Root cause category<input value={form.root_cause_category} onChange={(event) => setForm({ ...form, root_cause_category: event.target.value })} /></label>
+              </div>
+              <label>Evidence summary<textarea rows="3" value={form.evidence_summary} onChange={(event) => setForm({ ...form, evidence_summary: event.target.value })} /></label>
+              <label>Finding<textarea rows="3" value={form.finding} onChange={(event) => setForm({ ...form, finding: event.target.value })} /></label>
+              <label>Corrective action recommendation<textarea rows="3" value={form.corrective_action_recommendation} onChange={(event) => setForm({ ...form, corrective_action_recommendation: event.target.value })} /></label>
+            </>
+          )}
+          {type === "capa" && (
+            <>
+              <div className="form-grid">
+                <label>Existing CAPA ID<input value={form.existing_capa_id} onChange={(event) => setForm({ ...form, existing_capa_id: event.target.value })} /></label>
+                <label>Due date<input type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} /></label>
+                <label>Corrective action owner<input value={form.corrective_action_owner} onChange={(event) => setForm({ ...form, corrective_action_owner: event.target.value })} /></label>
+              </div>
+              <label className="checkbox-row"><input type="checkbox" checked={form.create_planned_capa} onChange={(event) => setForm({ ...form, create_planned_capa: event.target.checked })} />Create planned CAPA link</label>
+              <label>Root cause<textarea rows="3" value={form.root_cause} onChange={(event) => setForm({ ...form, root_cause: event.target.value })} /></label>
+            </>
+          )}
+          {type === "close" && (
+            <>
+              <label>Resolution summary<textarea rows="4" value={form.resolution_summary} onChange={(event) => setForm({ ...form, resolution_summary: event.target.value })} /></label>
+              <label>Closure reason<textarea rows="3" value={form.closure_reason} onChange={(event) => setForm({ ...form, closure_reason: event.target.value })} /></label>
+            </>
+          )}
+          {type === "export" && (
+            <>
+              <div className="form-grid">
+                <label>Date from<input type="date" value={form.date_from} onChange={(event) => setForm({ ...form, date_from: event.target.value })} /></label>
+                <label>Date to<input type="date" value={form.date_to} onChange={(event) => setForm({ ...form, date_to: event.target.value })} /></label>
+                <label>Workflow<input value={form.workflow} onChange={(event) => setForm({ ...form, workflow: event.target.value })} placeholder="quality.event_create" /></label>
+                <label>Actor<input value={form.actor} onChange={(event) => setForm({ ...form, actor: event.target.value })} /></label>
+                <label>Entity type<input value={form.entity_type} onChange={(event) => setForm({ ...form, entity_type: event.target.value })} /></label>
+                <label>Entity ID<input value={form.entity_id} onChange={(event) => setForm({ ...form, entity_id: event.target.value })} /></label>
+              </div>
+              <div className="preference-list">
+                {qualityExportModuleOptions.map((module) => (
+                  <label className="checkbox-row" key={module}>
+                    <input type="checkbox" checked={form.modules.includes(module)} onChange={() => toggleModule(module)} />
+                    {module.replaceAll("_", " ")}
+                  </label>
+                ))}
+                <label className="checkbox-row"><input type="checkbox" checked={form.include_quality_history} onChange={(event) => setForm({ ...form, include_quality_history: event.target.checked })} />Include quality status history</label>
+              </div>
+            </>
+          )}
+          {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
+          {preview && (
+            <div className="notice-state">
+              <strong>{preview.validation_status}</strong> - {preview.summary}
+              <pre>{JSON.stringify({ warnings: preview.warnings, blocking_issues: preview.blocking_issues, changes: preview.changes }, null, 2)}</pre>
+            </div>
+          )}
+          {message && <div className="message">{message}</div>}
+          {error && <div className="error-state">{error}</div>}
+          <button type="submit"><FileCheck2 size={16} />Preview</button>
+          <button type="button" onClick={commitWorkflow} disabled={!preview || preview.validation_status === "failed" || submitting}>
+            <ShieldCheck size={16} />
+            Commit
+          </button>
+          <div className="notice-state">Commit will send X-Confirm-Generation: true and append a quality workflow audit entry.</div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function ClinicalQualityPage({ token, navigate }) {
+  const [filters, setFilters] = useState({ q: "", status: "", severity: "", category: "", owner: "", source_module: "", patient_id: "", date_from: "", date_to: "" });
+  const [dashboard, setDashboard] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [adverseEvents, setAdverseEvents] = useState([]);
+  const [auditEvidence, setAuditEvidence] = useState({ operations: [], quality_status_history: [], compliance_exports: [] });
+  const [exports, setExports] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [encounters, setEncounters] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [carePlans, setCarePlans] = useState([]);
+  const [billingQueue, setBillingQueue] = useState({ charges: [], claims: [], payments: [], denials: [] });
+  const [selectedEventId, setSelectedEventId] = useState(null);
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const selectedEvent = events.find((event) => event.event_id === selectedEventId) || events[0] || null;
+
+  function updateFilter(field, value) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function openWorkflow(type) {
+    setError("");
+    if (["investigation", "capa", "close"].includes(type) && !selectedEvent) {
+      setError("Select a quality event before using this workflow.");
+      return;
+    }
+    setModalType(type);
+  }
+
+  async function loadQuality() {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    try {
+      const [
+        dashboardPayload,
+        eventPayload,
+        adversePayload,
+        evidencePayload,
+        exportPayload,
+        patientPayload,
+        appointmentPayload,
+        sessionPayload,
+        encounterPayload,
+        orderPayload,
+        carePlanPayload,
+        billingPayload,
+      ] = await Promise.all([
+        apiRequest("/api/clinical/quality/dashboard", { token }),
+        apiRequest(`/api/clinical/quality/events${params.toString() ? `?${params}` : ""}`, { token }),
+        apiRequest("/api/clinical/quality/adverse-events", { token }),
+        apiRequest("/api/clinical/quality/audit-evidence?module=quality", { token }),
+        apiRequest("/api/clinical/quality/compliance-exports", { token }),
+        apiRequest("/api/clinical/patients?limit=500", { token }),
+        apiRequest("/api/clinical/scheduling/appointments?limit=500", { token }).catch(() => ({ appointments: [] })),
+        apiRequest("/api/clinical/screening/sessions?limit=500", { token }).catch(() => ({ sessions: [] })),
+        apiRequest("/api/clinical/encounters?limit=500", { token }).catch(() => ({ encounters: [] })),
+        apiRequest("/api/clinical/orders?limit=500", { token }).catch(() => ({ orders: [] })),
+        apiRequest("/api/clinical/care-plans?limit=500", { token }).catch(() => ({ care_plans: [] })),
+        apiRequest("/api/clinical/billing/work-queue", { token }).catch(() => ({ charges: [], claims: [], payments: [], denials: [] })),
+      ]);
+      const nextEvents = eventPayload.events || [];
+      setDashboard(dashboardPayload);
+      setEvents(nextEvents);
+      setAdverseEvents(adversePayload.adverse_events || []);
+      setAuditEvidence(evidencePayload);
+      setExports(exportPayload.exports || []);
+      setPatients(patientPayload.patients || []);
+      setAppointments(appointmentPayload.appointments || []);
+      setSessions(sessionPayload.sessions || []);
+      setEncounters(encounterPayload.encounters || []);
+      setOrders(orderPayload.orders || []);
+      setCarePlans(carePlanPayload.care_plans || []);
+      setBillingQueue(billingPayload);
+      setSelectedEventId((current) => (nextEvents.some((event) => event.event_id === current) ? current : nextEvents[0]?.event_id || null));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadQuality();
+  }, [token]);
+
+  function workflowSuccess() {
+    loadQuality();
+  }
+
+  const operations = (auditEvidence.operations || []).slice(-8).reverse().map((operation) => ({
+    workflow: operation.workflow,
+    entity_type: operation.entity_type,
+    entity_id: operation.entity_id,
+    actor: operation.actor,
+    timestamp: operation.timestamp,
+  }));
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Quality / Compliance expansion</p>
+          <h2>Quality</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => openWorkflow("event")}><AlertTriangle size={16} />Create Quality Event</button>
+          <button type="button" onClick={() => openWorkflow("adverse")}><HeartPulse size={16} />Create Adverse Event</button>
+          <button type="button" onClick={() => openWorkflow("investigation")}><FileCheck2 size={16} />Add Investigation</button>
+          <button type="button" onClick={() => openWorkflow("capa")}><ShieldCheck size={16} />Link CAPA</button>
+          <button type="button" onClick={() => openWorkflow("close")}><CheckCircle2 size={16} />Close Event</button>
+          <button type="button" onClick={() => openWorkflow("export")}><UploadCloud size={16} />Export Evidence</button>
+        </div>
+      </section>
+      <section>
+        <div className="quality-filter">
+          <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Event, patient, CAPA, deviation" /></label>
+          <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All</option>{qualityStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Severity<select value={filters.severity} onChange={(event) => updateFilter("severity", event.target.value)}><option value="">All</option>{qualitySeverityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Category<select value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}><option value="">All</option>{qualityCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Owner<input value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)} /></label>
+          <label>Source<select value={filters.source_module} onChange={(event) => updateFilter("source_module", event.target.value)}><option value="">All</option>{qualitySourceModuleOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Patient<select value={filters.patient_id} onChange={(event) => updateFilter("patient_id", event.target.value)}><option value="">All</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patient.patient_id}</option>)}</select></label>
+          <button type="button" onClick={loadQuality}><RefreshCw size={16} />Apply</button>
+        </div>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading ? <div className="notice-state">Loading quality work queue...</div> : (
+        <>
+          <div className="content-grid">
+            <MetricCard label="Open Events" value={formatNumber(dashboard?.open_events)} tone={dashboard?.open_events ? "warning" : "neutral"} />
+            <MetricCard label="Overdue" value={formatNumber(dashboard?.overdue_events)} tone={dashboard?.overdue_events ? "warning" : "neutral"} />
+            <MetricCard label="Adverse Open" value={formatNumber(dashboard?.adverse_events_open)} tone={dashboard?.adverse_events_open ? "warning" : "neutral"} />
+            <MetricCard label="Exports" value={formatNumber(dashboard?.compliance_exports)} />
+          </div>
+          <div className="split quality-layout">
+            <section>
+              <h3>Quality Event Worklist</h3>
+              <div className="workflow-list">
+                {events.length ? events.map((event) => (
+                  <button type="button" className="workflow-row" key={event.event_id} onClick={() => setSelectedEventId(event.event_id)}>
+                    <span>{event.event_number} - {event.category}<br /><span className="muted">{event.patient_id || "No patient"} {event.owner ? `- ${event.owner}` : ""}</span></span>
+                    <span className="chip-list"><QualitySeverityChip severity={event.severity} /><StatusPill status={event.status} /></span>
+                  </button>
+                )) : <div className="empty-state">No quality events match the current filters.</div>}
+              </div>
+            </section>
+            <section>
+              <h3>Event Detail</h3>
+              {selectedEvent ? (
+                <div className="info-list compact">
+                  <p><strong>{selectedEvent.event_number}</strong></p>
+                  <p>{selectedEvent.description}</p>
+                  <div className="chip-list"><QualitySeverityChip severity={selectedEvent.severity} /><StatusPill status={selectedEvent.status} /></div>
+                  <div className="summary-grid">
+                    <span>Owner <strong>{selectedEvent.owner || "Unassigned"}</strong></span>
+                    <span>Due <strong>{selectedEvent.due_date ? formatDate(selectedEvent.due_date) : "None"}</strong></span>
+                    <span>Source <strong>{selectedEvent.source_module}</strong></span>
+                    <span>CAPA <strong>{selectedEvent.capa_code || selectedEvent.capa_id || "None"}</strong></span>
+                  </div>
+                </div>
+              ) : <div className="empty-state">Select or create a quality event.</div>}
+            </section>
+          </div>
+          <div className="quality-detail-grid">
+            <section>
+              <h3>Linked Context</h3>
+              <Table rows={qualityPatientContextRows(selectedEvent)} columns={["context", "value"]} />
+            </section>
+            <section>
+              <h3>Investigation Timeline</h3>
+              <Table rows={(selectedEvent?.investigations || []).map((item) => ({ created_at: formatDateTime(item.created_at), owner: item.owner || "", note: item.note, root_cause: item.root_cause_category || "" }))} columns={["created_at", "owner", "note", "root_cause"]} />
+            </section>
+            <section>
+              <h3>Status History</h3>
+              <Table rows={(selectedEvent?.status_history || []).map((item) => ({ changed_at: formatDateTime(item.changed_at), from: item.from_status || "", to: item.to_status, reason: item.reason }))} columns={["changed_at", "from", "to", "reason"]} />
+            </section>
+            <section>
+              <h3>Adverse Events</h3>
+              <Table rows={adverseEvents.slice(0, 8).map((event) => ({ event: event.adverse_event_number, patient: event.patient_id, type: event.event_type, severity: event.severity, status: event.status }))} columns={["event", "patient", "type", "severity", "status"]} />
+            </section>
+            <section>
+              <h3>Audit Evidence</h3>
+              <Table rows={operations} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} />
+            </section>
+            <section>
+              <h3>Compliance Exports</h3>
+              <Table rows={exports.slice(0, 8).map((item) => ({ export: item.export_number, status: item.status, generated_at: formatDateTime(item.generated_at), evidence: item.evidence_summary?.workflow_operation_count || 0 }))} columns={["export", "status", "generated_at", "evidence"]} />
+            </section>
+            <section>
+              <h3>CAPA / Deviation Links</h3>
+              <Table rows={(selectedEvent?.links || []).map((link) => ({ type: link.entity_type, id: link.entity_id, label: link.label || "" }))} columns={["type", "id", "label"]} />
+            </section>
+            <section>
+              <h3>Handoffs</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/admin")}><span>Quality categories and approval paths</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Quality compliance reports</span><StatusPill status="Planned workflow" /></button>
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+      {modalType && (
+        <QualityWorkflowModal
+          type={modalType}
+          token={token}
+          selectedEvent={selectedEvent}
+          patients={patients}
+          appointments={appointments}
+          sessions={sessions}
+          encounters={encounters}
+          orders={orders}
+          carePlans={carePlans}
+          billingQueue={billingQueue}
+          onClose={() => setModalType("")}
+          onSuccess={workflowSuccess}
+        />
+      )}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_quality") {
+    return <ClinicalQualityPage token={token} navigate={navigate} />;
+  }
   if (section.id === "clinical_billing") {
     return <ClinicalBillingPage token={token} navigate={navigate} />;
   }

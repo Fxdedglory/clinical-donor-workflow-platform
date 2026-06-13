@@ -405,7 +405,8 @@ section,
 .encounter-filter,
 .orders-filter,
 .care-plan-filter,
-.billing-filter {
+.billing-filter,
+.quality-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
@@ -433,11 +434,18 @@ section,
     minmax(130px, 170px) minmax(130px, 160px) minmax(130px, 160px) auto;
 }
 
+.quality-filter {
+  grid-template-columns:
+    minmax(190px, 1fr) minmax(120px, 150px) minmax(120px, 150px) minmax(150px, 190px)
+    minmax(130px, 170px) minmax(160px, 210px) minmax(150px, 190px) auto;
+}
+
 .schedule-layout,
 .screening-layout,
 .encounter-layout,
 .orders-layout,
-.care-plan-layout {
+.care-plan-layout,
+.quality-layout {
   align-items: start;
 }
 
@@ -445,7 +453,8 @@ section,
 .encounter-detail-grid,
 .orders-detail-grid,
 .care-plan-detail-grid,
-.billing-detail-grid {
+.billing-detail-grid,
+.quality-detail-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -491,6 +500,21 @@ section,
 
 .billing-modal {
   max-width: 860px;
+}
+
+.quality-modal {
+  max-width: 980px;
+}
+
+.chip-list {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip-list .status-pill {
+  margin-bottom: 0;
 }
 
 .orders-wide-section,
@@ -831,11 +855,13 @@ pre {
   .orders-filter,
   .care-plan-filter,
   .billing-filter,
+  .quality-filter,
   .screening-detail-grid,
   .encounter-detail-grid,
   .orders-detail-grid,
   .care-plan-detail-grid,
-  .billing-detail-grid {
+  .billing-detail-grid,
+  .quality-detail-grid {
     grid-template-columns: 1fr;
   }
 

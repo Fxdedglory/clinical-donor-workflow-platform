@@ -25,10 +25,10 @@ Important repository state from Sprint 0:
 | Orders / Results | Sprint 6 adds generic clinical order catalog, order placement, result entry/correction, abnormal/critical flags, acknowledgement, cancellation, status history, RBAC, audit, and an operational UI. | Add specimen accessioning, laboratory interface ingestion, reference-range engines, richer correction policy, infectious disease fact reconciliation, and downstream Billing handoff. |
 | Care Plans | Sprint 7 adds patient-linked care plans, goals, interventions, tasks, team assignment, progress timeline, closure, RBAC, audit, and an operational UI. | Add richer task lifecycle updates, cross-plan case load balancing, referral automation, and downstream Billing/Quality handoff. |
 | Billing / Insurance | Sprint 8 adds billing accounts, insurance verification, charge capture, claim drafts/lines, payment posting, denial/rework, RBAC, audit, and an operational UI. | Add real clearinghouse submission, EDI 837/835, prior authorization, coding master data ingestion, appeals, and payer integrations. |
-| Quality / Compliance | Deviation, CAPA, audit, and QMS concepts exist. | Add `/clinical/quality` workflows, adverse events, audit evidence export, severity classification, and closure approval. |
+| Quality / Compliance | Sprint 9 adds patient-linked quality events, adverse events, investigations, CAPA/deviation linkage, closure approval, audit evidence, compliance export, RBAC, tests, and an operational UI. | Add admin-managed quality categories, approval paths, investigation templates, external response routing, and report-ready compliance packages. |
 | Reporting / Analytics | Dashboards, monitoring, and export metadata exist. | Add clinical module reports with date/status/entity filters and export surfaces. |
 | Clinical Administration | System admin and RBAC exist. | Add versioned clinical templates, appointment types, screening rules, note templates, order catalogs, billing code lists, quality categories, and approval paths. |
-| Audit / Workflow Operations | Database audit and transition history exist. | Add roadmap-level preview/commit audit records in `metadata/workflow_operations.json`. |
+| Audit / Workflow Operations | Database audit, transition history, and append-only workflow operation audit exist across clinical modules. | Add retention policy, export signing, and report packaging controls. |
 
 ## Sprint 1 Implemented Scope
 
@@ -435,11 +435,71 @@ Implemented billing foundation:
 - Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover insurance verification validation/commit/audit, charge context validation and account creation/reuse, claim totals and claim lines, payment balance/status behavior, denial capture/work queue behavior, and external partner mutation rejection.
 
+## Sprint 9 Implemented Scope
+
+Sprint 9 implements Quality / Compliance as the clinical quality foundation while preserving the existing donor QMS, deviation, and CAPA assets.
+
+Implemented quality/compliance foundation:
+
+- Existing QMS/CAPA/deviation assets reused:
+  - `operational.fact_deviation`
+  - `operational.fact_capa`
+  - existing audit and workflow operation helpers
+- Persistent quality entities:
+  - `operational.clinical_quality_events`
+  - `operational.clinical_adverse_events`
+  - `operational.clinical_quality_event_links`
+  - `operational.clinical_quality_investigations`
+  - `operational.clinical_quality_approvals`
+  - `operational.clinical_compliance_exports`
+  - `operational.clinical_quality_status_history`
+- Alembic migration `202606120008_clinical_quality`.
+- Quality RBAC permissions:
+  - `quality.read`
+  - `quality.manage`
+  - `quality.close`
+  - `quality.export`
+- Backend `/api/clinical/quality` endpoints:
+  - `GET /api/clinical/quality/events`
+  - `GET /api/clinical/quality/events/{event_id}`
+  - `POST /api/clinical/quality/events/preview`
+  - `POST /api/clinical/quality/events`
+  - `POST /api/clinical/quality/events/{event_id}/investigation/preview`
+  - `POST /api/clinical/quality/events/{event_id}/investigation`
+  - `POST /api/clinical/quality/events/{event_id}/capa/preview`
+  - `POST /api/clinical/quality/events/{event_id}/capa`
+  - `POST /api/clinical/quality/events/{event_id}/close/preview`
+  - `POST /api/clinical/quality/events/{event_id}/close`
+  - `GET /api/clinical/quality/adverse-events`
+  - `POST /api/clinical/quality/adverse-events/preview`
+  - `POST /api/clinical/quality/adverse-events`
+  - `GET /api/clinical/quality/audit-evidence`
+  - `GET /api/clinical/quality/compliance-exports`
+  - `POST /api/clinical/quality/compliance-exports/preview`
+  - `POST /api/clinical/quality/compliance-exports`
+  - `GET /api/clinical/quality/dashboard`
+- Quality events capture category, severity, status, owner, due date, source module, description, and linked clinical context across patient, appointment, screening, encounter, order/result, care plan, charge, claim, payment, denial, deviation, and CAPA.
+- Adverse events link to a patient and may link to screening, encounter, order/result, care plan, and quality event context; severe and critical events produce investigation/supervisor review warnings.
+- Investigation commits append notes/evidence and status history without overwriting prior investigation records.
+- CAPA workflow can link an existing `fact_capa` record or create a planned CAPA link without redesigning the existing QMS CAPA model.
+- Closure requires resolution summary and closure reason, records approval, moves the event to `closed`, and blocks further investigation/CAPA/closure mutations.
+- Compliance export preview summarizes workflow operation evidence and quality status history; commit persists an export record without external regulator submission.
+- Successful commits append workflow operations for:
+  - `quality.event_create`
+  - `quality.adverse_event_create`
+  - `quality.investigation_add`
+  - `quality.capa_link`
+  - `quality.event_close`
+  - `quality.compliance_export`
+- Frontend `/clinical/quality` is now an operational quality workspace with dashboard cards, quality event worklist, adverse event worklist, filters, linked context, investigation timeline, status history, CAPA/deviation links, audit evidence, compliance exports, and Administration/Reports handoffs.
+- Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover link validation, missing/invalid/valid confirmation headers, audit file creation, audit append preservation, adverse event warnings/commit, investigation append, closed mutation block, CAPA reuse, closure approval, compliance export preview/commit/audit evidence, and external partner mutation rejection.
+
 ## Future Sprint Sequence
 
-1. Quality / Compliance: quality events, adverse events, CAPA lifecycle, audit viewer, compliance export, and closure approval.
-2. Clinical Administration: versioned templates, rules, catalogs, approval paths, and admin preview/commit.
-3. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Clinical Administration: versioned templates, rules, catalogs, quality categories, approval paths, and admin preview/commit.
+2. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+3. External compliance packages: retention policy, export signing, external response routing, and regulator-ready submission packaging.
 
 ## Validation Commands
 

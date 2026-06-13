@@ -2633,6 +2633,377 @@ class ClinicalBillingStatusHistory(Base):
     charge: Mapped[ClinicalCharge | None] = relationship(back_populates="status_history")
 
 
+class ClinicalQualityEvent(Base):
+    __tablename__ = "clinical_quality_events"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    event_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    patient_pk: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=True, index=True
+    )
+    appointment_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.appointments.appointment_id"), nullable=True, index=True
+    )
+    screening_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=True, index=True
+    )
+    encounter_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_encounters.encounter_id"), nullable=True, index=True
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_orders.order_id"), nullable=True, index=True
+    )
+    order_result_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_order_results.result_id"), nullable=True, index=True
+    )
+    care_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_care_plans.care_plan_id"), nullable=True, index=True
+    )
+    charge_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_charges.charge_id"), nullable=True, index=True
+    )
+    claim_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_claims.claim_id"), nullable=True, index=True
+    )
+    payment_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_payments.payment_id"), nullable=True, index=True
+    )
+    denial_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_denials.denial_id"), nullable=True, index=True
+    )
+    deviation_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_deviation.deviation_id"), nullable=True, index=True
+    )
+    capa_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.fact_capa.capa_id"), nullable=True, index=True
+    )
+    category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open", index=True)
+    owner: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    source_module: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_quality", index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    resolution_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    closure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    patient: Mapped[Patient | None] = relationship()
+    appointment: Mapped[Appointment | None] = relationship()
+    screening_session: Mapped[ClinicalScreeningSession | None] = relationship()
+    encounter: Mapped[ClinicalEncounter | None] = relationship()
+    order: Mapped[ClinicalOrder | None] = relationship()
+    order_result: Mapped[ClinicalOrderResult | None] = relationship()
+    care_plan: Mapped[ClinicalCarePlan | None] = relationship()
+    charge: Mapped[ClinicalCharge | None] = relationship()
+    claim: Mapped[ClinicalClaim | None] = relationship()
+    payment: Mapped[ClinicalPayment | None] = relationship()
+    denial: Mapped[ClinicalDenial | None] = relationship()
+    deviation: Mapped["Deviation | None"] = relationship()
+    capa: Mapped["CAPA | None"] = relationship()
+    investigations: Mapped[list["ClinicalQualityInvestigation"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan"
+    )
+    approvals: Mapped[list["ClinicalQualityApproval"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan"
+    )
+    links: Mapped[list["ClinicalQualityEventLink"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan"
+    )
+    status_history: Mapped[list["ClinicalQualityStatusHistory"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan"
+    )
+
+    @property
+    def patient_id(self) -> str | None:
+        return self.patient.patient_id if self.patient else None
+
+    @property
+    def patient_name(self) -> str | None:
+        if not self.patient:
+            return None
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+    @property
+    def appointment_number(self) -> str | None:
+        return self.appointment.appointment_number if self.appointment else None
+
+    @property
+    def screening_session_number(self) -> str | None:
+        return self.screening_session.session_number if self.screening_session else None
+
+    @property
+    def encounter_number(self) -> str | None:
+        return self.encounter.encounter_number if self.encounter else None
+
+    @property
+    def order_number(self) -> str | None:
+        return self.order.order_number if self.order else None
+
+    @property
+    def order_result_summary(self) -> str | None:
+        if not self.order_result:
+            return None
+        return f"{self.order_result.result_name}: {self.order_result.result_value}"
+
+    @property
+    def care_plan_number(self) -> str | None:
+        return self.care_plan.care_plan_number if self.care_plan else None
+
+    @property
+    def charge_number(self) -> str | None:
+        return self.charge.charge_number if self.charge else None
+
+    @property
+    def claim_number(self) -> str | None:
+        return self.claim.claim_number if self.claim else None
+
+    @property
+    def payment_reference(self) -> str | None:
+        return self.payment.reference_number if self.payment else None
+
+    @property
+    def denial_code(self) -> str | None:
+        return self.denial.denial_code if self.denial else None
+
+    @property
+    def deviation_code(self) -> str | None:
+        return self.deviation.deviation_code if self.deviation else None
+
+    @property
+    def capa_code(self) -> str | None:
+        return self.capa.capa_code if self.capa else None
+
+
+class ClinicalAdverseEvent(Base):
+    __tablename__ = "clinical_adverse_events"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    adverse_event_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    adverse_event_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    quality_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_quality_events.event_id"), nullable=True, index=True
+    )
+    patient_pk: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.patients.patient_pk"), nullable=False, index=True
+    )
+    screening_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_screening_sessions.session_id"), nullable=True, index=True
+    )
+    encounter_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_encounters.encounter_id"), nullable=True, index=True
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_orders.order_id"), nullable=True, index=True
+    )
+    order_result_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_order_results.result_id"), nullable=True, index=True
+    )
+    care_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_care_plans.care_plan_id"), nullable=True, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    immediate_action_taken: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reporter: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    follow_up_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    quality_event: Mapped[ClinicalQualityEvent | None] = relationship()
+    patient: Mapped[Patient] = relationship()
+    screening_session: Mapped[ClinicalScreeningSession | None] = relationship()
+    encounter: Mapped[ClinicalEncounter | None] = relationship()
+    order: Mapped[ClinicalOrder | None] = relationship()
+    order_result: Mapped[ClinicalOrderResult | None] = relationship()
+    care_plan: Mapped[ClinicalCarePlan | None] = relationship()
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient.patient_id if self.patient else str(self.patient_pk)
+
+    @property
+    def patient_name(self) -> str:
+        if not self.patient:
+            return ""
+        return " ".join(part for part in [self.patient.first_name, self.patient.middle_name, self.patient.last_name] if part)
+
+    @property
+    def quality_event_number(self) -> str | None:
+        return self.quality_event.event_number if self.quality_event else None
+
+    @property
+    def screening_session_number(self) -> str | None:
+        return self.screening_session.session_number if self.screening_session else None
+
+    @property
+    def encounter_number(self) -> str | None:
+        return self.encounter.encounter_number if self.encounter else None
+
+    @property
+    def order_number(self) -> str | None:
+        return self.order.order_number if self.order else None
+
+    @property
+    def order_result_summary(self) -> str | None:
+        if not self.order_result:
+            return None
+        return f"{self.order_result.result_name}: {self.order_result.result_value}"
+
+    @property
+    def care_plan_number(self) -> str | None:
+        return self.care_plan.care_plan_number if self.care_plan else None
+
+
+class ClinicalQualityEventLink(Base):
+    __tablename__ = "clinical_quality_event_links"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    link_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_quality_events.event_id"), nullable=False, index=True
+    )
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    label: Mapped[str | None] = mapped_column(String(220), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    event: Mapped[ClinicalQualityEvent] = relationship(back_populates="links")
+
+
+class ClinicalQualityInvestigation(Base):
+    __tablename__ = "clinical_quality_investigations"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    investigation_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_quality_events.event_id"), nullable=False, index=True
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    finding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    root_cause_category: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    corrective_action_recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    follow_up_due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    event: Mapped[ClinicalQualityEvent] = relationship(back_populates="investigations")
+
+
+class ClinicalQualityApproval(Base):
+    __tablename__ = "clinical_quality_approvals"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    approval_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_quality_events.event_id"), nullable=False, index=True
+    )
+    approval_type: Mapped[str] = mapped_column(String(80), nullable=False, default="closure", index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="approved", index=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    approved_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+    event: Mapped[ClinicalQualityEvent] = relationship(back_populates="approvals")
+
+
+class ClinicalComplianceExport(Base):
+    __tablename__ = "clinical_compliance_exports"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    export_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    export_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    date_from: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    date_to: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    modules: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    criteria: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    evidence_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="generated", index=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    generated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+
+
+class ClinicalQualityStatusHistory(Base):
+    __tablename__ = "clinical_quality_status_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_quality_events.event_id"), nullable=False, index=True
+    )
+    from_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    event: Mapped[ClinicalQualityEvent] = relationship(back_populates="status_history")
+
+
 class DonorScreening(Base):
     __tablename__ = "fact_donor_screening"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}

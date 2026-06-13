@@ -31,6 +31,7 @@ from app.routes import (
     clinical_encounters,
     clinical_orders,
     clinical_patients,
+    clinical_quality,
     clinical_screening,
     clinical_scheduling,
     dashboard,
@@ -146,6 +147,7 @@ app.include_router(clinical_care_plans.router)
 app.include_router(clinical_encounters.router)
 app.include_router(clinical_orders.router)
 app.include_router(clinical_patients.router)
+app.include_router(clinical_quality.router)
 app.include_router(clinical_screening.router)
 app.include_router(clinical_scheduling.router)
 app.include_router(vendors.router)

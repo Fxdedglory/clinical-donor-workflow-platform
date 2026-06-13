@@ -109,8 +109,15 @@ CLINICAL_MODULES = [
         label="Quality",
         route="/clinical/quality",
         api_namespace="/api/clinical/quality",
-        status="planned_workflow",
-        workflows=["Create quality event", "Create CAPA", "Export audit evidence"],
+        status="active",
+        workflows=[
+            "Create quality event",
+            "Create adverse event",
+            "Add investigation",
+            "Link CAPA",
+            "Close quality event",
+            "Export audit evidence",
+        ],
     ),
     ClinicalModuleRead(
         module_id="reports",
