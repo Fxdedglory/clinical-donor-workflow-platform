@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { ClinicalShellPlaceholder } from "./pages/clinical/ClinicalShellPlaceholder";
+import { clinicalPatientDetailSection, clinicalPatientId, clinicalSections } from "./pages/clinical/clinicalRoutes";
+
 function resolvePublicBase() {
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/Clinical")) {
     return "/Clinical";
@@ -161,128 +164,6 @@ const sections = [
   },
 ];
 
-const clinicalSections = [
-  {
-    id: "clinical_dashboard",
-    label: "Clinical Dashboard",
-    route: "/clinical/dashboard",
-    icon: HeartPulse,
-    status: "Foundation pending",
-    workflows: ["Operational overview", "Workflow operation activity"],
-  },
-  {
-    id: "clinical_patients",
-    label: "Patients / Donors",
-    route: "/clinical/patients",
-    icon: UserPlus,
-    status: "Active",
-    workflows: ["Create patient/donor", "Edit demographics", "Capture consent"],
-  },
-  {
-    id: "clinical_scheduling",
-    label: "Scheduling",
-    route: "/clinical/scheduling",
-    icon: CalendarDays,
-    status: "Active",
-    workflows: ["Book appointment", "Reschedule appointment", "Cancel appointment", "Check in appointment", "Mark no-show"],
-  },
-  {
-    id: "clinical_screening",
-    label: "Donor Screening",
-    route: "/clinical/screening",
-    icon: CheckCircle2,
-    status: "Active",
-    workflows: ["Start screening", "Commit questionnaire", "Capture vitals", "Preview eligibility", "Commit result", "Supervisor override"],
-  },
-  {
-    id: "clinical_encounters",
-    label: "Encounters",
-    route: "/clinical/encounters",
-    icon: FileCheck2,
-    status: "Active",
-    workflows: ["Create encounter", "Save draft note", "Sign and lock note", "Amend signed note", "Add diagnosis/problem", "Add allergy", "Add medication"],
-  },
-  {
-    id: "clinical_orders",
-    label: "Orders / Results",
-    route: "/clinical/orders",
-    icon: UploadCloud,
-    status: "Active",
-    workflows: ["Create order", "Receive result", "Correct result", "Acknowledge critical result", "Cancel order"],
-  },
-  {
-    id: "clinical_care_plans",
-    label: "Care Plans",
-    route: "/clinical/care-plans",
-    icon: Activity,
-    status: "Active",
-    workflows: ["Create care plan", "Add goal", "Add intervention", "Add task", "Update progress", "Close care plan"],
-  },
-  {
-    id: "clinical_billing",
-    label: "Billing",
-    route: "/clinical/billing",
-    icon: Database,
-    status: "Active",
-    workflows: ["Verify insurance", "Capture charge", "Create claim draft", "Post payment", "Capture denial"],
-  },
-  {
-    id: "clinical_quality",
-    label: "Quality",
-    route: "/clinical/quality",
-    icon: AlertTriangle,
-    status: "Active",
-    workflows: ["Create quality event", "Create adverse event", "Add investigation", "Link CAPA", "Close quality event", "Export audit evidence"],
-  },
-  {
-    id: "clinical_reports",
-    label: "Reports",
-    route: "/clinical/reports",
-    icon: BarChart3,
-    status: "Active",
-    workflows: [
-      "Dashboard aggregates",
-      "Patient throughput",
-      "Scheduling utilization",
-      "Screening outcomes",
-      "Deferral trends",
-      "Encounter volume",
-      "Orders and results",
-      "Care plan aging",
-      "Billing work queue",
-      "Quality trends",
-      "Audit activity",
-      "Analytics export preview",
-      "Analytics export commit",
-    ],
-  },
-  {
-    id: "clinical_admin",
-    label: "Clinical Admin",
-    route: "/clinical/admin",
-    icon: ShieldCheck,
-    status: "Active",
-    workflows: [
-      "Manage appointment types",
-      "Manage provider schedule templates",
-      "Version screening templates and rules",
-      "Manage note templates and order catalog",
-      "Manage billing codes and quality categories",
-      "Manage approval paths and notification templates",
-      "Review RBAC overview",
-    ],
-  },
-];
-
-const clinicalPatientDetailSection = {
-  id: "clinical_patient_detail",
-  label: "Patient / Donor Detail",
-  route: "/clinical/patients/:id",
-  icon: User,
-  status: "Foundation pending",
-  workflows: ["Profile review", "Consent timeline", "Workflow audit"],
-};
-
 const navigationSections = [...sections, ...clinicalSections];
 const routeToSection = Object.fromEntries(navigationSections.map((section) => [section.route, section.id]));
 const sectionById = Object.fromEntries(
@@ -319,11 +200,6 @@ function browserRoute() {
     path = path.slice(PUBLIC_BASE.length) || "/";
   }
   return normalizeRoute(path);
-}
-
-function clinicalPatientId(route) {
-  const match = normalizeRoute(route).match(/^\/clinical\/patients\/([^/]+)$/);
-  return match ? decodeURIComponent(match[1]) : "";
 }
 
 async function apiRequest(path, { token, method = "GET", body, headers: customHeaders = {} } = {}) {
@@ -6455,76 +6331,14 @@ function ClinicalModuleSection({ section, route, token, navigate }) {
   if (section.id === "clinical_patient_detail") {
     return <ClinicalPatientDetailPage token={token} route={route} navigate={navigate} />;
   }
-  const patientId = clinicalPatientId(route);
-  const moduleRoute = patientId ? "/clinical/patients" : section.route;
-  const detailRows = patientId
-    ? [
-        { field: "Record", value: patientId },
-        { field: "Status", value: "Foundation pending" },
-        { field: "Commit Guard", value: "X-Confirm-Generation: true" },
-      ]
-    : [
-        { field: "Route", value: moduleRoute },
-        { field: "Status", value: section.status },
-        { field: "API", value: "/api/clinical" },
-      ];
-
   return (
-    <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Clinical platform shell</p>
-          <h2>{section.label}</h2>
-          <StatusPill status={section.status} />
-        </div>
-        <div className="clinical-actions">
-          <button type="button" onClick={() => navigate("/clinical/dashboard")}>
-            <HeartPulse size={16} />
-            Dashboard
-          </button>
-          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients")}>
-            <UserPlus size={16} />
-            Patients
-          </button>
-          {section.id === "clinical_patients" && (
-            <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients/PT-000001")}>
-              <User size={16} />
-              Sample Detail
-            </button>
-          )}
-        </div>
-      </section>
-      <div className="split">
-        <section>
-          <h3>Workflow Readiness</h3>
-          <div className="workflow-list">
-            {section.workflows.map((workflow) => (
-              <div className="workflow-row" key={workflow}>
-                <span>{workflow}</span>
-                <StatusPill status="Planned workflow" />
-              </div>
-            ))}
-          </div>
-        </section>
-        <section>
-          <h3>Foundation Contract</h3>
-          <Table rows={detailRows} columns={["field", "value"]} />
-        </section>
-      </div>
-      {patientId && (
-        <section>
-          <h3>Patient / Donor Snapshot</h3>
-          <Table
-            rows={[
-              { field: "Demographics", value: "Foundation pending" },
-              { field: "Consent", value: "Planned workflow" },
-              { field: "Duplicate Review", value: "Planned workflow" },
-            ]}
-            columns={["field", "value"]}
-          />
-        </section>
-      )}
-    </div>
+    <ClinicalShellPlaceholder
+      section={section}
+      route={route}
+      navigate={navigate}
+      StatusPill={StatusPill}
+      Table={Table}
+    />
   );
 }
 
