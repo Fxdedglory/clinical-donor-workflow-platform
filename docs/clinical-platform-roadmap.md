@@ -25,9 +25,9 @@ Important repository state from Sprint 0:
 | Orders / Results | Sprint 6 adds generic clinical order catalog, order placement, result entry/correction, abnormal/critical flags, acknowledgement, cancellation, status history, RBAC, audit, and an operational UI. | Add specimen accessioning, laboratory interface ingestion, reference-range engines, richer correction policy, infectious disease fact reconciliation, and downstream Billing handoff. |
 | Care Plans | Sprint 7 adds patient-linked care plans, goals, interventions, tasks, team assignment, progress timeline, closure, RBAC, audit, and an operational UI. | Add richer task lifecycle updates, cross-plan case load balancing, referral automation, and downstream Billing/Quality handoff. |
 | Billing / Insurance | Sprint 8 adds billing accounts, insurance verification, charge capture, claim drafts/lines, payment posting, denial/rework, RBAC, audit, and an operational UI. | Add real clearinghouse submission, EDI 837/835, prior authorization, coding master data ingestion, appeals, and payer integrations. |
-| Quality / Compliance | Sprint 9 adds patient-linked quality events, adverse events, investigations, CAPA/deviation linkage, closure approval, audit evidence, compliance export, RBAC, tests, and an operational UI. | Add admin-managed quality categories, approval paths, investigation templates, external response routing, and report-ready compliance packages. |
+| Quality / Compliance | Sprint 9 adds patient-linked quality events, adverse events, investigations, CAPA/deviation linkage, closure approval, audit evidence, compliance export, RBAC, tests, and an operational UI. Sprint 10 adds admin-managed quality categories and approval paths. | Add investigation templates, external response routing, and report-ready compliance packages. |
 | Reporting / Analytics | Dashboards, monitoring, and export metadata exist. | Add clinical module reports with date/status/entity filters and export surfaces. |
-| Clinical Administration | System admin and RBAC exist. | Add versioned clinical templates, appointment types, screening rules, note templates, order catalogs, billing code lists, quality categories, and approval paths. |
+| Clinical Administration | Sprint 10 adds versioned clinical templates, appointment types, provider schedule templates, screening and deferral rules, note templates, order catalogs, billing code lists, quality categories, approval paths, notification templates, RBAC overview, tests, and an operational UI. | Add advanced approval execution, notification delivery, recurring schedule engines, and production policy review workflows. |
 | Audit / Workflow Operations | Database audit, transition history, and append-only workflow operation audit exist across clinical modules. | Add retention policy, export signing, and report packaging controls. |
 
 ## Sprint 1 Implemented Scope
@@ -495,10 +495,98 @@ Implemented quality/compliance foundation:
 - Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover link validation, missing/invalid/valid confirmation headers, audit file creation, audit append preservation, adverse event warnings/commit, investigation append, closed mutation block, CAPA reuse, closure approval, compliance export preview/commit/audit evidence, and external partner mutation rejection.
 
+## Sprint 10 Implemented Scope
+
+Sprint 10 implements Clinical Administration as the configuration-management foundation for clinical workflows while preserving existing donor, QMS, CAPA, deviation, scheduling, encounter, orders, billing, and quality modules.
+
+Implemented administration foundation:
+
+- Existing clinical configuration reused:
+  - `operational.appointment_types`
+  - `operational.clinical_providers`
+  - `operational.clinical_note_templates`
+  - `operational.clinical_order_catalog_items`
+  - existing RBAC roles and permissions
+  - existing QMS/CAPA/deviation records
+- Persistent administration entities:
+  - `operational.clinical_admin_config_versions`
+  - `operational.clinical_admin_approval_paths`
+  - `operational.clinical_admin_approval_steps`
+  - `operational.clinical_notification_templates`
+  - `operational.clinical_provider_schedule_templates`
+  - `operational.clinical_screening_template_versions`
+  - `operational.clinical_eligibility_rule_versions`
+  - `operational.clinical_deferral_rule_versions`
+  - `operational.clinical_billing_code_catalog`
+  - `operational.clinical_quality_categories`
+  - `operational.clinical_quality_severity_matrix`
+  - `operational.clinical_admin_status_history`
+- Alembic migration `202606120009_clinical_admin`.
+- Clinical Administration RBAC permissions:
+  - `clinical_admin.read`
+  - `clinical_admin.manage`
+- Backend `/api/clinical/admin` endpoints:
+  - `GET /api/clinical/admin/dashboard`
+  - `GET /api/clinical/admin/config-versions`
+  - `GET /api/clinical/admin/appointment-types`
+  - `POST /api/clinical/admin/appointment-types/preview`
+  - `POST /api/clinical/admin/appointment-types`
+  - `GET /api/clinical/admin/provider-schedules`
+  - `POST /api/clinical/admin/provider-schedules/preview`
+  - `POST /api/clinical/admin/provider-schedules`
+  - `GET /api/clinical/admin/screening-templates`
+  - `POST /api/clinical/admin/screening-templates/preview`
+  - `POST /api/clinical/admin/screening-templates`
+  - `GET /api/clinical/admin/eligibility-rules`
+  - `POST /api/clinical/admin/eligibility-rules/preview`
+  - `POST /api/clinical/admin/eligibility-rules`
+  - `GET /api/clinical/admin/deferral-rules`
+  - `POST /api/clinical/admin/deferral-rules/preview`
+  - `POST /api/clinical/admin/deferral-rules`
+  - `GET /api/clinical/admin/note-templates`
+  - `POST /api/clinical/admin/note-templates/preview`
+  - `POST /api/clinical/admin/note-templates`
+  - `GET /api/clinical/admin/order-catalog`
+  - `POST /api/clinical/admin/order-catalog/preview`
+  - `POST /api/clinical/admin/order-catalog`
+  - `GET /api/clinical/admin/billing-codes`
+  - `POST /api/clinical/admin/billing-codes/preview`
+  - `POST /api/clinical/admin/billing-codes`
+  - `GET /api/clinical/admin/quality-categories`
+  - `POST /api/clinical/admin/quality-categories/preview`
+  - `POST /api/clinical/admin/quality-categories`
+  - `GET /api/clinical/admin/approval-paths`
+  - `POST /api/clinical/admin/approval-paths/preview`
+  - `POST /api/clinical/admin/approval-paths`
+  - `GET /api/clinical/admin/notification-templates`
+  - `POST /api/clinical/admin/notification-templates/preview`
+  - `POST /api/clinical/admin/notification-templates`
+  - `GET /api/clinical/admin/rbac`
+- Every mutating endpoint requires authenticated internal administration permissions and `X-Confirm-Generation: true`.
+- External partner and supplier users are rejected from Clinical Administration mutation.
+- Preview responses compare current and proposed configuration, list changed fields, warnings, blocking issues, affected downstream modules, and the commit guard.
+- Commit responses create version history records, append administration status history when status changes, and write workflow operation audit entries for:
+  - `admin.appointment_type_upsert`
+  - `admin.provider_schedule_upsert`
+  - `admin.screening_template_version`
+  - `admin.eligibility_rule_version`
+  - `admin.deferral_rule_version`
+  - `admin.note_template_upsert`
+  - `admin.order_catalog_upsert`
+  - `admin.billing_code_upsert`
+  - `admin.quality_category_upsert`
+  - `admin.approval_path_upsert`
+  - `admin.notification_template_upsert`
+- Screening template, eligibility rule, deferral rule, and approval path commits create new versions while preserving prior records.
+- Appointment types, note templates, order catalog items, billing codes, quality categories, provider schedule templates, and notification templates retain historical snapshots through `clinical_admin_config_versions`.
+- Frontend `/clinical/admin` is now an operational workspace with dashboard cards, config version history, appointment types, provider schedules, screening templates, eligibility rules, deferral rules, note templates, order catalog, billing codes, quality categories, approval paths, notification templates, RBAC overview, filters, loading/error/empty states, and modal workflows.
+- Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
+- Focused tests cover missing/invalid/valid confirmation headers, audit file creation, audit append preservation, every admin preview/commit/audit workflow, version preservation, config history/dashboard/RBAC, and external partner mutation rejection.
+
 ## Future Sprint Sequence
 
-1. Clinical Administration: versioned templates, rules, catalogs, quality categories, approval paths, and admin preview/commit.
-2. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+1. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
+2. Advanced workflow execution: approval execution, notification delivery, recurrence engines, and production policy review queues.
 3. External compliance packages: retention policy, export signing, external response routing, and regulator-ready submission packaging.
 
 ## Validation Commands

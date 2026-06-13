@@ -132,8 +132,16 @@ CLINICAL_MODULES = [
         label="Clinical Admin",
         route="/clinical/admin",
         api_namespace="/api/clinical/admin",
-        status="planned_workflow",
-        workflows=["Manage templates", "Manage rules", "Manage approval paths"],
+        status="active",
+        workflows=[
+            "Manage appointment types",
+            "Manage provider schedule templates",
+            "Version screening templates and rules",
+            "Manage note templates and order catalog",
+            "Manage billing codes and quality categories",
+            "Manage approval paths and notification templates",
+            "Review RBAC overview",
+        ],
     ),
 ]
 

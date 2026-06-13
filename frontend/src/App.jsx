@@ -247,8 +247,16 @@ const clinicalSections = [
     label: "Clinical Admin",
     route: "/clinical/admin",
     icon: ShieldCheck,
-    status: "Planned workflow",
-    workflows: ["Manage templates", "Manage rules", "Manage approval paths"],
+    status: "Active",
+    workflows: [
+      "Manage appointment types",
+      "Manage provider schedule templates",
+      "Version screening templates and rules",
+      "Manage note templates and order catalog",
+      "Manage billing codes and quality categories",
+      "Manage approval paths and notification templates",
+      "Review RBAC overview",
+    ],
   },
 ];
 
@@ -5511,7 +5519,487 @@ function ClinicalQualityPage({ token, navigate }) {
   );
 }
 
+const adminWorkflowDefinitions = [
+  { type: "appointment_type", label: "Appointment Type", endpoint: "/api/clinical/admin/appointment-types", listKey: "appointmentTypes", columns: ["type_code", "name", "category", "default_duration_minutes", "status", "version"] },
+  { type: "provider_schedule", label: "Provider Schedule", endpoint: "/api/clinical/admin/provider-schedules", listKey: "providerSchedules", columns: ["provider_id", "weekday", "date_pattern", "start_time", "end_time", "active", "version"] },
+  { type: "screening_template", label: "Screening Template", endpoint: "/api/clinical/admin/screening-templates", listKey: "screeningTemplates", columns: ["template_key", "template_name", "version", "active", "reason"] },
+  { type: "eligibility_rule", label: "Eligibility Rule", endpoint: "/api/clinical/admin/eligibility-rules", listKey: "eligibilityRules", columns: ["rule_key", "rule_name", "rule_type", "severity", "active", "version"] },
+  { type: "deferral_rule", label: "Deferral Rule", endpoint: "/api/clinical/admin/deferral-rules", listKey: "deferralRules", columns: ["rule_key", "rule_name", "rule_type", "severity", "active", "version"] },
+  { type: "note_template", label: "Note Template", endpoint: "/api/clinical/admin/note-templates", listKey: "noteTemplates", columns: ["template_key", "name", "note_type", "status", "version"] },
+  { type: "order_catalog", label: "Order Catalog Item", endpoint: "/api/clinical/admin/order-catalog", listKey: "orderCatalog", columns: ["code", "name", "order_type", "default_priority", "active", "version"] },
+  { type: "billing_code", label: "Billing Code", endpoint: "/api/clinical/admin/billing-codes", listKey: "billingCodes", columns: ["code", "code_type", "description", "default_amount", "active", "version"] },
+  { type: "quality_category", label: "Quality Category", endpoint: "/api/clinical/admin/quality-categories", listKey: "qualityCategories", columns: ["category_key", "category", "closure_approval_required", "approval_required", "active", "version"] },
+  { type: "approval_path", label: "Approval Path", endpoint: "/api/clinical/admin/approval-paths", listKey: "approvalPaths", columns: ["workflow", "path_name", "version", "active", "steps"] },
+  { type: "notification_template", label: "Notification Template", endpoint: "/api/clinical/admin/notification-templates", listKey: "notificationTemplates", columns: ["workflow", "channel", "subject", "active", "version"] },
+];
+
+function adminWorkflowTitle(type) {
+  return adminWorkflowDefinitions.find((item) => item.type === type)?.label || "Clinical Admin Workflow";
+}
+
+function adminWorkflowEndpoint(type, suffix = "") {
+  const definition = adminWorkflowDefinitions.find((item) => item.type === type);
+  return definition ? `${definition.endpoint}${suffix}` : "/api/clinical/admin";
+}
+
+function defaultAdminForm(type) {
+  if (type === "appointment_type") {
+    return { type_code: "", name: "", duration_minutes: 60, category: "general", description: "", requires_room: true, active: true, reason: "Update appointment type configuration" };
+  }
+  if (type === "provider_schedule") {
+    return { provider_id: "", weekday: "1", date_pattern: "weekly", start_time: "08:00", end_time: "17:00", location: "", room_id: "", active: true, reason: "Update provider schedule template" };
+  }
+  if (type === "screening_template") {
+    return { template_key: "", template_name: "", required_questions_json: '[{"key":"question_1","label":"Required screening question","required":true}]', active: true, reason: "Create screening template version" };
+  }
+  if (type === "eligibility_rule") {
+    return { rule_key: "", rule_name: "", rule_type: "eligibility", severity: "medium", expression: "", criteria_json: '{"all":[]}', explanation: "", active: true, reason: "Create eligibility rule version" };
+  }
+  if (type === "deferral_rule") {
+    return { rule_key: "", rule_name: "", rule_type: "deferral", severity: "medium", expression: "", criteria_json: '{"all":[]}', explanation: "", active: true, reason: "Create deferral rule version" };
+  }
+  if (type === "note_template") {
+    return { template_key: "", name: "", note_type: "clinical_note", body: "", sections_json: '[{"title":"Assessment","required":true}]', active: true, reason: "Update note template configuration" };
+  }
+  if (type === "order_catalog") {
+    return { code: "", name: "", order_type: "laboratory", description: "", default_priority: "routine", specimen_type: "", active: true, reason: "Update order catalog item" };
+  }
+  if (type === "billing_code") {
+    return { code: "", code_type: "internal", description: "", default_amount: "0.00", active: true, reason: "Update billing code catalog" };
+  }
+  if (type === "quality_category") {
+    return { category_key: "", category: "", severity_mapping_json: '{"default":"medium"}', closure_required: false, approval_required: false, active: true, reason: "Update quality category configuration" };
+  }
+  if (type === "approval_path") {
+    return { workflow: "quality.event_close", path_name: "", steps_json: '[{"step_order":1,"role":"Quality Assurance Specialist","permission":"quality.close","required":true,"active":true}]', active: true, reason: "Create approval path version" };
+  }
+  return { workflow: "", channel: "in_app", subject: "", body: "", active: true, reason: "Update notification template" };
+}
+
+function parseAdminJson(value, fallback) {
+  if (!value) return fallback;
+  return JSON.parse(value);
+}
+
+function adminNumberOrNull(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  return Number(value);
+}
+
+function adminPayload(type, form) {
+  if (type === "screening_template") {
+    return { template_key: form.template_key, template_name: form.template_name, required_questions: parseAdminJson(form.required_questions_json, []), active: form.active, reason: form.reason };
+  }
+  if (["eligibility_rule", "deferral_rule"].includes(type)) {
+    return { rule_key: form.rule_key, rule_name: form.rule_name, rule_type: form.rule_type, severity: form.severity, expression: form.expression, criteria: parseAdminJson(form.criteria_json, {}), explanation: form.explanation, active: form.active, reason: form.reason };
+  }
+  if (type === "note_template") {
+    return { template_key: form.template_key, name: form.name, note_type: form.note_type, body: form.body, sections: parseAdminJson(form.sections_json, []), active: form.active, reason: form.reason };
+  }
+  if (type === "quality_category") {
+    return { category_key: form.category_key, category: form.category, severity_mapping: parseAdminJson(form.severity_mapping_json, {}), closure_required: form.closure_required, approval_required: form.approval_required, active: form.active, reason: form.reason };
+  }
+  if (type === "approval_path") {
+    return { workflow: form.workflow, path_name: form.path_name, steps: parseAdminJson(form.steps_json, []), active: form.active, reason: form.reason };
+  }
+  if (type === "provider_schedule") {
+    return { provider_id: Number(form.provider_id), weekday: adminNumberOrNull(form.weekday), date_pattern: form.date_pattern, start_time: form.start_time, end_time: form.end_time, location: form.location, room_id: adminNumberOrNull(form.room_id), active: form.active, reason: form.reason };
+  }
+  if (type === "appointment_type") {
+    return { type_code: form.type_code, name: form.name, duration_minutes: Number(form.duration_minutes), category: form.category, description: form.description, requires_room: form.requires_room, active: form.active, reason: form.reason };
+  }
+  if (type === "billing_code") {
+    return { code: form.code, code_type: form.code_type, description: form.description, default_amount: Number(form.default_amount || 0), active: form.active, reason: form.reason };
+  }
+  if (type === "notification_template") {
+    return { workflow: form.workflow, channel: form.channel, subject: form.subject, body: form.body, active: form.active, reason: form.reason };
+  }
+  return { code: form.code, name: form.name, order_type: form.order_type, description: form.description, default_priority: form.default_priority, specimen_type: form.specimen_type, active: form.active, reason: form.reason };
+}
+
+function validateAdminWorkflow(type, form) {
+  const requiredByType = {
+    appointment_type: ["type_code", "name", "category"],
+    provider_schedule: ["provider_id", "date_pattern", "start_time", "end_time"],
+    screening_template: ["template_key", "template_name"],
+    eligibility_rule: ["rule_key", "rule_name", "rule_type", "severity"],
+    deferral_rule: ["rule_key", "rule_name", "rule_type", "severity"],
+    note_template: ["template_key", "name", "note_type"],
+    order_catalog: ["code", "name", "order_type", "default_priority"],
+    billing_code: ["code", "code_type", "description"],
+    quality_category: ["category_key", "category"],
+    approval_path: ["workflow", "path_name"],
+    notification_template: ["workflow", "channel", "subject", "body"],
+  };
+  const issues = [];
+  for (const field of requiredByType[type] || []) {
+    if (!String(form[field] ?? "").trim()) issues.push(`${field.replaceAll("_", " ")} is required.`);
+  }
+  if (type === "provider_schedule" && form.start_time && form.end_time && form.end_time <= form.start_time) {
+    issues.push("End time must be after start time.");
+  }
+  try {
+    adminPayload(type, form);
+  } catch (err) {
+    issues.push(`JSON field is invalid: ${err.message}`);
+  }
+  return issues;
+}
+
+function AdminWorkflowFields({ type, form, updateField }) {
+  if (type === "appointment_type") {
+    return (
+      <div className="form-grid">
+        <label>Type code<input value={form.type_code} onChange={(event) => updateField("type_code", event.target.value)} /></label>
+        <label>Name<input value={form.name} onChange={(event) => updateField("name", event.target.value)} /></label>
+        <label>Duration minutes<input type="number" min="1" value={form.duration_minutes} onChange={(event) => updateField("duration_minutes", event.target.value)} /></label>
+        <label>Category<input value={form.category} onChange={(event) => updateField("category", event.target.value)} /></label>
+        <label className="wide-field">Description<textarea rows="3" value={form.description} onChange={(event) => updateField("description", event.target.value)} /></label>
+        <label className="checkbox-row"><input type="checkbox" checked={form.requires_room} onChange={(event) => updateField("requires_room", event.target.checked)} /> Requires room</label>
+        <label className="checkbox-row"><input type="checkbox" checked={form.active} onChange={(event) => updateField("active", event.target.checked)} /> Active</label>
+      </div>
+    );
+  }
+  if (type === "provider_schedule") {
+    return (
+      <div className="form-grid">
+        <label>Provider ID<input type="number" value={form.provider_id} onChange={(event) => updateField("provider_id", event.target.value)} /></label>
+        <label>Weekday<select value={form.weekday} onChange={(event) => updateField("weekday", event.target.value)}><option value="">Any</option><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></label>
+        <label>Date pattern<input value={form.date_pattern} onChange={(event) => updateField("date_pattern", event.target.value)} /></label>
+        <label>Location<input value={form.location} onChange={(event) => updateField("location", event.target.value)} /></label>
+        <label>Start<input type="time" value={form.start_time} onChange={(event) => updateField("start_time", event.target.value)} /></label>
+        <label>End<input type="time" value={form.end_time} onChange={(event) => updateField("end_time", event.target.value)} /></label>
+        <label>Room ID<input type="number" value={form.room_id} onChange={(event) => updateField("room_id", event.target.value)} /></label>
+        <label className="checkbox-row"><input type="checkbox" checked={form.active} onChange={(event) => updateField("active", event.target.checked)} /> Active</label>
+      </div>
+    );
+  }
+  if (["screening_template", "eligibility_rule", "deferral_rule", "note_template", "quality_category", "approval_path"].includes(type)) {
+    return (
+      <div className="form-grid">
+        {type === "screening_template" && (
+          <>
+            <label>Template key<input value={form.template_key} onChange={(event) => updateField("template_key", event.target.value)} /></label>
+            <label>Template name<input value={form.template_name} onChange={(event) => updateField("template_name", event.target.value)} /></label>
+            <label className="wide-field">Required questions JSON<textarea rows="7" value={form.required_questions_json} onChange={(event) => updateField("required_questions_json", event.target.value)} /></label>
+          </>
+        )}
+        {["eligibility_rule", "deferral_rule"].includes(type) && (
+          <>
+            <label>Rule key<input value={form.rule_key} onChange={(event) => updateField("rule_key", event.target.value)} /></label>
+            <label>Rule name<input value={form.rule_name} onChange={(event) => updateField("rule_name", event.target.value)} /></label>
+            <label>Rule type<input value={form.rule_type} onChange={(event) => updateField("rule_type", event.target.value)} /></label>
+            <label>Severity<select value={form.severity} onChange={(event) => updateField("severity", event.target.value)}><option>low</option><option>medium</option><option>high</option><option>critical</option></select></label>
+            <label className="wide-field">Expression<textarea rows="3" value={form.expression} onChange={(event) => updateField("expression", event.target.value)} /></label>
+            <label className="wide-field">Criteria JSON<textarea rows="6" value={form.criteria_json} onChange={(event) => updateField("criteria_json", event.target.value)} /></label>
+            <label className="wide-field">Explanation<textarea rows="3" value={form.explanation} onChange={(event) => updateField("explanation", event.target.value)} /></label>
+          </>
+        )}
+        {type === "note_template" && (
+          <>
+            <label>Template key<input value={form.template_key} onChange={(event) => updateField("template_key", event.target.value)} /></label>
+            <label>Name<input value={form.name} onChange={(event) => updateField("name", event.target.value)} /></label>
+            <label>Note type<input value={form.note_type} onChange={(event) => updateField("note_type", event.target.value)} /></label>
+            <label className="wide-field">Body<textarea rows="5" value={form.body} onChange={(event) => updateField("body", event.target.value)} /></label>
+            <label className="wide-field">Sections JSON<textarea rows="5" value={form.sections_json} onChange={(event) => updateField("sections_json", event.target.value)} /></label>
+          </>
+        )}
+        {type === "quality_category" && (
+          <>
+            <label>Category key<input value={form.category_key} onChange={(event) => updateField("category_key", event.target.value)} /></label>
+            <label>Category<input value={form.category} onChange={(event) => updateField("category", event.target.value)} /></label>
+            <label className="wide-field">Severity mapping JSON<textarea rows="5" value={form.severity_mapping_json} onChange={(event) => updateField("severity_mapping_json", event.target.value)} /></label>
+            <label className="checkbox-row"><input type="checkbox" checked={form.closure_required} onChange={(event) => updateField("closure_required", event.target.checked)} /> Closure approval required</label>
+            <label className="checkbox-row"><input type="checkbox" checked={form.approval_required} onChange={(event) => updateField("approval_required", event.target.checked)} /> Approval required</label>
+          </>
+        )}
+        {type === "approval_path" && (
+          <>
+            <label>Workflow<input value={form.workflow} onChange={(event) => updateField("workflow", event.target.value)} /></label>
+            <label>Path name<input value={form.path_name} onChange={(event) => updateField("path_name", event.target.value)} /></label>
+            <label className="wide-field">Steps JSON<textarea rows="7" value={form.steps_json} onChange={(event) => updateField("steps_json", event.target.value)} /></label>
+          </>
+        )}
+        <label className="checkbox-row"><input type="checkbox" checked={form.active} onChange={(event) => updateField("active", event.target.checked)} /> Active</label>
+      </div>
+    );
+  }
+  return (
+    <div className="form-grid">
+      {type === "order_catalog" && (
+        <>
+          <label>Code<input value={form.code} onChange={(event) => updateField("code", event.target.value)} /></label>
+          <label>Name<input value={form.name} onChange={(event) => updateField("name", event.target.value)} /></label>
+          <label>Order type<input value={form.order_type} onChange={(event) => updateField("order_type", event.target.value)} /></label>
+          <label>Default priority<input value={form.default_priority} onChange={(event) => updateField("default_priority", event.target.value)} /></label>
+          <label>Specimen type<input value={form.specimen_type} onChange={(event) => updateField("specimen_type", event.target.value)} /></label>
+          <label className="wide-field">Description<textarea rows="3" value={form.description} onChange={(event) => updateField("description", event.target.value)} /></label>
+        </>
+      )}
+      {type === "billing_code" && (
+        <>
+          <label>Code<input value={form.code} onChange={(event) => updateField("code", event.target.value)} /></label>
+          <label>Code type<input value={form.code_type} onChange={(event) => updateField("code_type", event.target.value)} /></label>
+          <label>Default amount<input type="number" min="0" step="0.01" value={form.default_amount} onChange={(event) => updateField("default_amount", event.target.value)} /></label>
+          <label className="wide-field">Description<textarea rows="3" value={form.description} onChange={(event) => updateField("description", event.target.value)} /></label>
+        </>
+      )}
+      {type === "notification_template" && (
+        <>
+          <label>Workflow<input value={form.workflow} onChange={(event) => updateField("workflow", event.target.value)} /></label>
+          <label>Channel<select value={form.channel} onChange={(event) => updateField("channel", event.target.value)}><option>in_app</option><option>email</option><option>sms</option></select></label>
+          <label className="wide-field">Subject<input value={form.subject} onChange={(event) => updateField("subject", event.target.value)} /></label>
+          <label className="wide-field">Body<textarea rows="6" value={form.body} onChange={(event) => updateField("body", event.target.value)} /></label>
+        </>
+      )}
+      <label className="checkbox-row"><input type="checkbox" checked={form.active} onChange={(event) => updateField("active", event.target.checked)} /> Active</label>
+    </div>
+  );
+}
+
+function AdminWorkflowModal({ type, token, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => defaultAdminForm(type));
+  const [step, setStep] = useState("form");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const validationIssues = validateAdminWorkflow(type, form);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function runPreview() {
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await apiRequest(adminWorkflowEndpoint(type, "/preview"), {
+        token,
+        method: "POST",
+        body: compactPayload(adminPayload(type, form)),
+      });
+      setPreview(payload);
+      setStep("preview");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCommit() {
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest(adminWorkflowEndpoint(type), {
+        token,
+        method: "POST",
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...compactPayload(adminPayload(type, form)), preview_hash: preview?.preview_hash },
+      });
+      setStep("success");
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const currentRows = Object.entries(preview?.current_config || {}).map(([field, value]) => ({ field, value: typeof value === "object" ? JSON.stringify(value) : value }));
+  const proposedRows = Object.entries(preview?.proposed_config || {}).map(([field, value]) => ({ field, value: typeof value === "object" ? JSON.stringify(value) : value }));
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="workflow-modal admin-modal" role="dialog" aria-modal="true" aria-label={adminWorkflowTitle(type)}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
+            <h3>{adminWorkflowTitle(type)}</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="error-state">{error}</div>}
+        {step === "form" && (
+          <div className="stacked-form">
+            <AdminWorkflowFields type={type} form={form} updateField={updateField} />
+            <label className="wide-field">Reason<input value={form.reason} onChange={(event) => updateField("reason", event.target.value)} /></label>
+            <button type="button" onClick={() => setStep("validation")}>Continue to validation</button>
+          </div>
+        )}
+        {step === "validation" && (
+          <div className="stacked-form">
+            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will compare current and proposed configuration.</div>}
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
+          </div>
+        )}
+        {step === "preview" && preview && (
+          <div className="stacked-form">
+            <div className="notice-state">{preview.summary}</div>
+            <Table rows={[{ field: "Preview hash", value: preview.preview_hash }, { field: "Changed fields", value: preview.changed_fields.join(", ") || "None" }, { field: "Affected modules", value: preview.affected_modules.join(", ") }]} columns={["field", "value"]} />
+            {preview.warnings?.length > 0 && <Table rows={preview.warnings} columns={["warning_type", "field", "message"]} />}
+            {preview.blocking_issues?.length > 0 && <div className="error-state">{preview.blocking_issues.map((issue) => issue.message).join(" ")}</div>}
+            <div className="admin-preview-grid">
+              <section><h3>Current</h3><Table rows={currentRows} columns={["field", "value"]} /></section>
+              <section><h3>Proposed</h3><Table rows={proposedRows} columns={["field", "value"]} /></section>
+            </div>
+            <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
+            <button type="button" disabled={preview.blocking_issues?.length > 0} onClick={() => setStep("confirm")}>Continue to commit confirmation</button>
+          </div>
+        )}
+        {step === "confirm" && (
+          <div className="stacked-form">
+            <div className="notice-state">Commit will send X-Confirm-Generation: true, create or preserve a configuration version, and append a workflow operation audit entry.</div>
+            <button type="button" className="secondary-button" onClick={() => setStep("preview")}>Back to preview</button>
+            <button type="button" disabled={busy} onClick={runCommit}>{busy ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}Commit workflow</button>
+          </div>
+        )}
+        {step === "success" && (
+          <div className="stacked-form">
+            <div className="notice-state">Configuration workflow committed successfully.</div>
+            <button type="button" onClick={onClose}>Done</button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function adminRowText(row) {
+  return Object.values(row || {}).map((value) => (typeof value === "object" ? JSON.stringify(value) : String(value ?? ""))).join(" ").toLowerCase();
+}
+
+function ClinicalAdminPage({ token, navigate }) {
+  const [dashboard, setDashboard] = useState(null);
+  const [configVersions, setConfigVersions] = useState([]);
+  const [rbac, setRbac] = useState({ roles: [] });
+  const [lists, setLists] = useState({});
+  const [filters, setFilters] = useState({ q: "", status: "" });
+  const [modalType, setModalType] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadAdmin() {
+    setLoading(true);
+    setError("");
+    try {
+      const [dashboardPayload, versionPayload, rbacPayload, ...listPayloads] = await Promise.all([
+        apiRequest("/api/clinical/admin/dashboard", { token }),
+        apiRequest("/api/clinical/admin/config-versions", { token }),
+        apiRequest("/api/clinical/admin/rbac", { token }),
+        ...adminWorkflowDefinitions.map((definition) => apiRequest(definition.endpoint, { token }).catch(() => [])),
+      ]);
+      const nextLists = {};
+      adminWorkflowDefinitions.forEach((definition, index) => {
+        nextLists[definition.listKey] = listPayloads[index] || [];
+      });
+      setDashboard(dashboardPayload);
+      setConfigVersions(versionPayload || []);
+      setRbac(rbacPayload || { roles: [] });
+      setLists(nextLists);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadAdmin();
+  }, [token]);
+
+  function updateFilter(field, value) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function filteredRows(rows) {
+    return (rows || []).filter((row) => {
+      const statusValue = String(row.status ?? (row.active === false ? "inactive" : row.active === true ? "active" : "")).toLowerCase();
+      const matchesStatus = !filters.status || statusValue === filters.status;
+      const matchesQuery = !filters.q || adminRowText(row).includes(filters.q.toLowerCase());
+      return matchesStatus && matchesQuery;
+    });
+  }
+
+  const totalConfigs = adminWorkflowDefinitions.reduce((total, definition) => total + (lists[definition.listKey]?.length || 0), 0);
+  const activeConfigs = adminWorkflowDefinitions.reduce((total, definition) => total + (lists[definition.listKey] || []).filter((row) => row.active === true || row.status === "active").length, 0);
+  const recentOps = (dashboard?.recent_audit_operations || []).slice().reverse().map((operation) => ({ workflow: operation.workflow, entity_type: operation.entity_type, entity_id: operation.entity_id, actor: operation.actor, timestamp: formatDateTime(operation.timestamp) }));
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Clinical administration</p>
+          <h2>Clinical Admin</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          {adminWorkflowDefinitions.slice(0, 6).map((definition) => (
+            <button type="button" key={definition.type} onClick={() => setModalType(definition.type)}><ShieldCheck size={16} />{definition.label}</button>
+          ))}
+        </div>
+      </section>
+      <section>
+        <div className="admin-filter">
+          <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Template, rule, code, workflow" /></label>
+          <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+          <button type="button" onClick={loadAdmin}><RefreshCw size={16} />Refresh</button>
+        </div>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading ? <div className="notice-state">Loading clinical administration configuration...</div> : (
+        <>
+          <div className="content-grid">
+            <MetricCard label="Config Versions" value={formatNumber(dashboard?.total_config_versions || configVersions.length)} />
+            <MetricCard label="Active Versions" value={formatNumber(dashboard?.active_config_versions || activeConfigs)} />
+            <MetricCard label="Config Records" value={formatNumber(totalConfigs)} />
+            <MetricCard label="Admin Audit Ops" value={formatNumber(dashboard?.recent_audit_operations?.length || 0)} />
+          </div>
+          <div className="admin-detail-grid">
+            <section>
+              <div className="section-heading-row"><h3>Config Version History</h3><StatusPill status="Append only" /></div>
+              <Table rows={configVersions.slice(0, 8).map((item) => ({ config_type: item.config_type, config_key: item.config_key, version: item.version, status: item.status, created_at: formatDateTime(item.created_at), reason: item.reason }))} columns={["config_type", "config_key", "version", "status", "created_at", "reason"]} />
+            </section>
+            <section>
+              <div className="section-heading-row"><h3>RBAC Overview</h3><StatusPill status="Internal only" /></div>
+              <Table rows={(rbac.roles || []).map((role) => ({ role: role.role, read: role.can_read_admin, manage: role.can_manage_admin, external: role.external }))} columns={["role", "read", "manage", "external"]} />
+            </section>
+            {adminWorkflowDefinitions.map((definition) => {
+              const rows = filteredRows(lists[definition.listKey] || []).slice(0, 8);
+              return (
+                <section key={definition.type}>
+                  <div className="section-heading-row">
+                    <h3>{definition.label}</h3>
+                    <button type="button" onClick={() => setModalType(definition.type)}><FileCheck2 size={15} />Configure</button>
+                  </div>
+                  <Table rows={rows} columns={definition.columns} />
+                </section>
+              );
+            })}
+            <section>
+              <h3>Recent Admin Audit</h3>
+              <Table rows={recentOps} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} />
+            </section>
+            <section>
+              <h3>Handoffs</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/quality")}><span>Quality categories and approval-controlled closure</span><StatusPill status="Active" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Reporting / analytics configuration consumers</span><StatusPill status="Planned workflow" /></button>
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+      {modalType && <AdminWorkflowModal type={modalType} token={token} onClose={() => setModalType("")} onSuccess={loadAdmin} />}
+    </div>
+  );
+}
+
 function ClinicalModuleSection({ section, route, token, navigate }) {
+  if (section.id === "clinical_admin") {
+    return <ClinicalAdminPage token={token} navigate={navigate} />;
+  }
   if (section.id === "clinical_quality") {
     return <ClinicalQualityPage token={token} navigate={navigate} />;
   }

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
     JSON,
@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -1049,8 +1050,11 @@ class AppointmentType(Base):
     type_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     default_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    category: Mapped[str] = mapped_column(String(80), nullable=False, default="general", index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     requires_room: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -1412,6 +1416,7 @@ class ClinicalNoteTemplate(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     note_type: Mapped[str] = mapped_column(String(80), nullable=False, default="clinical_note", index=True)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sections: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
@@ -1691,6 +1696,7 @@ class ClinicalOrderCatalogItem(Base):
     default_priority: Mapped[str] = mapped_column(String(40), nullable=False, default="routine")
     specimen_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -3002,6 +3008,317 @@ class ClinicalQualityStatusHistory(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     event: Mapped[ClinicalQualityEvent] = relationship(back_populates="status_history")
+
+
+class ClinicalAdminConfigVersion(Base):
+    __tablename__ = "clinical_admin_config_versions"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    version_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    config_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    config_key: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active", index=True)
+    entity_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    change_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    effective_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ClinicalProviderScheduleTemplate(Base):
+    __tablename__ = "clinical_provider_schedule_templates"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    schedule_template_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_providers.provider_id"), nullable=False, index=True
+    )
+    weekday: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    date_pattern: Mapped[str] = mapped_column(String(80), nullable=False, default="weekly", index=True)
+    start_time: Mapped[time] = mapped_column(Time(timezone=False), nullable=False)
+    end_time: Mapped[time] = mapped_column(Time(timezone=False), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    room_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_rooms.room_id"), nullable=True, index=True
+    )
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    provider: Mapped[ClinicalProvider] = relationship()
+    room: Mapped[ClinicalRoom | None] = relationship()
+
+    @property
+    def provider_name(self) -> str:
+        return self.provider.full_name if self.provider else ""
+
+    @property
+    def room_name(self) -> str | None:
+        return self.room.room_name if self.room else None
+
+
+class ClinicalScreeningTemplateVersion(Base):
+    __tablename__ = "clinical_screening_template_versions"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    template_version_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    template_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    template_name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    required_questions: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ClinicalEligibilityRuleVersion(Base):
+    __tablename__ = "clinical_eligibility_rule_versions"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    rule_version_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    rule_name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    rule_type: Mapped[str] = mapped_column(String(80), nullable=False, default="eligibility", index=True)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False, default="medium", index=True)
+    expression: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    criteria: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ClinicalDeferralRuleVersion(Base):
+    __tablename__ = "clinical_deferral_rule_versions"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    rule_version_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    rule_name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    rule_type: Mapped[str] = mapped_column(String(80), nullable=False, default="deferral", index=True)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False, default="medium", index=True)
+    expression: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    criteria: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ClinicalBillingCodeCatalog(Base):
+    __tablename__ = "clinical_billing_code_catalog"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    code_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    code_type: Mapped[str] = mapped_column(String(40), nullable=False, default="internal", index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    default_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class ClinicalQualityCategory(Base):
+    __tablename__ = "clinical_quality_categories"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    category_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    category_key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    severity_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    closure_approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class ClinicalQualitySeverityMatrix(Base):
+    __tablename__ = "clinical_quality_severity_matrix"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    matrix_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    severity: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    response_sla_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=72)
+    investigation_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ClinicalAdminApprovalPath(Base):
+    __tablename__ = "clinical_admin_approval_paths"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    path_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    workflow: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    path_name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    steps: Mapped[list["ClinicalAdminApprovalStep"]] = relationship(
+        back_populates="path", cascade="all, delete-orphan"
+    )
+
+
+class ClinicalAdminApprovalStep(Base):
+    __tablename__ = "clinical_admin_approval_steps"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    step_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    path_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_admin_approval_paths.path_id"),
+        nullable=False,
+        index=True,
+    )
+    step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    role: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    permission: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+
+    path: Mapped[ClinicalAdminApprovalPath] = relationship(back_populates="steps")
+
+
+class ClinicalNotificationTemplate(Base):
+    __tablename__ = "clinical_notification_templates"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    notification_template_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    workflow: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(40), nullable=False, default="in_app", index=True)
+    subject: Mapped[str] = mapped_column(String(220), nullable=False, default="")
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class ClinicalAdminStatusHistory(Base):
+    __tablename__ = "clinical_admin_status_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    config_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    config_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    from_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
 class DonorScreening(Base):

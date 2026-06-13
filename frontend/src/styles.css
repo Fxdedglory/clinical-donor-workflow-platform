@@ -406,7 +406,8 @@ section,
 .orders-filter,
 .care-plan-filter,
 .billing-filter,
-.quality-filter {
+.quality-filter,
+.admin-filter {
   align-items: end;
   display: grid;
   gap: 0.8rem;
@@ -454,7 +455,8 @@ section,
 .orders-detail-grid,
 .care-plan-detail-grid,
 .billing-detail-grid,
-.quality-detail-grid {
+.quality-detail-grid,
+.admin-detail-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -504,6 +506,16 @@ section,
 
 .quality-modal {
   max-width: 980px;
+}
+
+.admin-modal {
+  max-width: 1040px;
+}
+
+.admin-preview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .chip-list {
@@ -856,12 +868,15 @@ pre {
   .care-plan-filter,
   .billing-filter,
   .quality-filter,
+  .admin-filter,
   .screening-detail-grid,
   .encounter-detail-grid,
   .orders-detail-grid,
   .care-plan-detail-grid,
   .billing-detail-grid,
-  .quality-detail-grid {
+  .quality-detail-grid,
+  .admin-detail-grid,
+  .admin-preview-grid {
     grid-template-columns: 1fr;
   }
 
