@@ -353,6 +353,7 @@ def append_care_plan_workflow_audit(
     status_after: str | None,
     reason: str,
     changes: dict[str, Any],
+    db: Session | None = None,
 ) -> tuple[WorkflowOperation, str]:
     operation = WorkflowOperation(
         workflow=workflow,
@@ -365,7 +366,7 @@ def append_care_plan_workflow_audit(
         reason=reason,
         changes=changes,
     )
-    operation, audit_path = append_workflow_operation(operation)
+    operation, audit_path = append_workflow_operation(operation, db=db)
     return operation, str(audit_path)
 
 

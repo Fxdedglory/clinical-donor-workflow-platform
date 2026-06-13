@@ -342,6 +342,7 @@ def append_admin_workflow_audit(
     status_after: str | None,
     reason: str,
     changes: dict[str, Any],
+    db: Session | None = None,
 ) -> tuple[WorkflowOperation, str]:
     operation = WorkflowOperation(
         workflow=workflow,
@@ -354,7 +355,7 @@ def append_admin_workflow_audit(
         reason=reason,
         changes=changes,
     )
-    operation, audit_path = append_workflow_operation(operation)
+    operation, audit_path = append_workflow_operation(operation, db=db)
     return operation, str(audit_path)
 
 
@@ -517,6 +518,7 @@ def commit_appointment_type(db: Session, payload: AppointmentTypeAdminCommitRequ
         status_after=row.status,
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -605,6 +607,7 @@ def commit_provider_schedule(db: Session, payload: ProviderScheduleTemplateCommi
         status_after=_status_from_active(row.active),
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -756,6 +759,7 @@ def _commit_versioned(
         status_after=status_after,
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -877,6 +881,7 @@ def commit_note_template(db: Session, payload: NoteTemplateAdminCommitRequest, u
         status_after=row.status,
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -1027,6 +1032,7 @@ def _commit_catalog_upsert(
         status_after=status_after,
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -1136,6 +1142,7 @@ def commit_approval_path(db: Session, payload: ApprovalPathCommitRequest, user: 
         status_after=status_after,
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -1226,6 +1233,7 @@ def commit_notification_template(db: Session, payload: NotificationTemplateCommi
         status_after=status_after,
         reason=payload.reason,
         changes=entity,
+        db=db,
     )
     return _commit_response(operation=operation, audit_path=audit_path, config_version=version_row, entity=entity)
 
@@ -1310,7 +1318,11 @@ def rbac_overview(db: Session) -> ClinicalRbacOverviewResponse:
 def dashboard_response(db: Session) -> ClinicalAdminDashboardResponse:
     versions = list_config_versions(db)
     counts = Counter(version.config_type for version in versions)
-    operations = [operation for operation in read_workflow_operations() if str(operation.get("workflow", "")).startswith("admin.")]
+    operations = [
+        operation
+        for operation in read_workflow_operations(db=db)
+        if str(operation.get("workflow", "")).startswith("admin.")
+    ]
     return ClinicalAdminDashboardResponse(
         total_config_versions=len(versions),
         active_config_versions=sum(1 for version in versions if version.status == "active"),

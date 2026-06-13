@@ -244,6 +244,7 @@ def create_appointment(
         status_after=appointment.status,
         reason=payload.reason,
         changes=_appointment_changes(appointment),
+        db=db,
     )
     return AppointmentCommitResponse(appointment=appointment, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -316,6 +317,7 @@ def reschedule_appointment(
         status_after=appointment.status,
         reason=payload.reason,
         changes=changes,
+        db=db,
     )
     return AppointmentCommitResponse(appointment=appointment, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -368,6 +370,7 @@ def cancel_appointment(
         status_after=appointment.status,
         reason=payload.cancellation_reason,
         changes=preview.changes,
+        db=db,
     )
     return AppointmentCommitResponse(appointment=appointment, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -420,6 +423,7 @@ def check_in_appointment(
         status_after=appointment.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return AppointmentCommitResponse(appointment=appointment, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -472,6 +476,7 @@ def no_show_appointment(
         status_after=appointment.status,
         reason=payload.no_show_reason,
         changes=preview.changes,
+        db=db,
     )
     return AppointmentCommitResponse(appointment=appointment, operation_id=operation.operation_id, audit_path=audit_path)
 

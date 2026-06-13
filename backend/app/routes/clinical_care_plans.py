@@ -275,6 +275,7 @@ def create_care_plan(
         status_after=care_plan.status,
         reason=payload.reason,
         changes=care_plan_changes(care_plan),
+        db=db,
     )
     return CarePlanCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, care_plan=care_plan)
 
@@ -336,6 +337,7 @@ def add_goal(
         status_after=care_plan.status,
         reason=payload.reason,
         changes=goal_changes(goal),
+        db=db,
     )
     return CarePlanCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, care_plan=care_plan, goal=goal)
 
@@ -389,6 +391,7 @@ def add_intervention(
         status_after=care_plan.status,
         reason=payload.reason,
         changes=intervention_changes(intervention),
+        db=db,
     )
     return CarePlanCommitResponse(
         operation_id=operation.operation_id,
@@ -451,6 +454,7 @@ def add_task(
         status_after=care_plan.status,
         reason=payload.reason,
         changes=task_changes(task),
+        db=db,
     )
     return CarePlanCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, care_plan=care_plan, task=task)
 
@@ -509,6 +513,7 @@ def add_progress(
         status_after=care_plan.status,
         reason=payload.reason,
         changes=progress_changes(progress_note),
+        db=db,
     )
     return CarePlanCommitResponse(
         operation_id=operation.operation_id,
@@ -569,5 +574,6 @@ def close_care_plan(
             "closure_reason": payload.closure_reason,
             "outcome_summary": payload.outcome_summary,
         },
+        db=db,
     )
     return CarePlanCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, care_plan=care_plan)

@@ -3321,6 +3321,29 @@ class ClinicalAdminStatusHistory(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+class ClinicalWorkflowAuditEvent(Base):
+    __tablename__ = "clinical_workflow_audit_events"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    operation_id: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    workflow: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    actor: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    preview_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    commit_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    status_before: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_after: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    changes_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="workflow_commit", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
 class ClinicalReportExport(Base):
     __tablename__ = "clinical_report_exports"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}

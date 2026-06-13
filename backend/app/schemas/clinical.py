@@ -19,7 +19,7 @@ class ClinicalStatusRead(BaseModel):
     modules_count: int
     preview_commit_pattern: str = "Draft -> Validate -> Preview -> Commit"
     commit_header: str = "X-Confirm-Generation: true"
-    audit_target: str = "metadata/workflow_operations.json"
+    audit_target: str = "operational.clinical_workflow_audit_events + metadata/workflow_operations.json"
 
 
 class WorkflowValidationIssue(BaseModel):

@@ -1,27 +1,38 @@
 # Clinical Audit Durability Decision
 
-Status: RC1 implementation plan documented; production migration deferred
+Status: Post-RC database-backed audit foundation implemented; object-storage mirror deferred
 
 RC0 decision date: 2026-06-12
 
 RC1 update date: 2026-06-13
 
+Post-RC implementation date: 2026-06-13
+
+Historical RC1 status: RC1 implementation plan documented in `docs/clinical-audit-durability-implementation-plan.md`.
+
 ## Current Behavior
 
-Clinical workflow commits append operation records to:
+Clinical workflow commits now use the shared writer in `backend/app/services/clinical_workflows.py` to write DB-backed audit rows first, then preserve the existing JSON mirror:
+
+```text
+operational.clinical_workflow_audit_events
+metadata/workflow_operations.json
+```
+
+Successful commit endpoints pass their active DB session into the writer. Evidence and reporting readers use database rows first and fall back to the JSON file when no database audit rows are available.
+
+The JSON mirror remains:
 
 ```text
 metadata/workflow_operations.json
 ```
-
-The shared writer in `backend/app/services/clinical_workflows.py`:
 
 - creates the `metadata` directory if missing;
 - reads the existing JSON array;
 - appends the new operation record;
 - writes the full JSON array back to disk.
 
-Audit operation entries include operation id, workflow, entity type, entity id, actor, timestamp, preview hash, confirmation status, before/after status, reason, and changed fields.
+Database audit rows include operation id, workflow, entity type, entity id, actor, timestamp, preview hash, confirmation status, before/after status, reason, changed fields as JSON, source, and created timestamp.
 
 ## Why This Is Acceptable For RC0
 
@@ -40,34 +51,32 @@ Audit operation entries include operation id, workflow, entity type, entity id, 
 | Backup ambiguity | Audit durability depends on whether the metadata directory is included in backup and deployment plans. |
 | Scaling limits | Full-file read/write grows poorly as workflow volume increases. |
 
-## Recommended Production Path
+## Implemented Production Path
 
-Use both database-backed audit storage and object-storage mirroring.
+database-backed audit storage is now implemented as the primary query path.
 
 Primary path:
 
-- Add an append-only `operational.clinical_workflow_operations` table.
-- Write audit operation records transactionally alongside clinical commits.
-- Add indexes for workflow, entity type, entity id, actor, timestamp, and commit confirmation.
-- Restrict update/delete permissions at the database role level.
+- Added append-only `operational.clinical_workflow_audit_events`.
+- Added indexes for workflow, entity type, entity id, actor, timestamp, commit confirmation, source, and created timestamp.
+- Added a database trigger that rejects `UPDATE` and `DELETE`.
+- Kept JSON append as a compatibility mirror and local fallback.
+- Added a backfill helper that parses JSON entries into DB rows without deleting the source JSON.
 
 Durability mirror:
 
-- Mirror each operation to object storage, ideally append-only or immutable/WORM-capable storage.
+- Mirror each operation to object storage in a future hardening sprint, ideally append-only or immutable/WORM-capable storage.
 - Partition by UTC date and workflow prefix.
 - Include operation checksum or signed manifest support in a later compliance hardening sprint.
 
-## Future Migration Plan
+## Remaining Hardening Plan
 
-1. Create an Alembic migration for `operational.clinical_workflow_operations`.
-2. Add a new audit repository service with dual-write support:
-   - database insert as the source of query truth;
-   - JSON/object mirror for external evidence packages.
-3. Backfill existing `metadata/workflow_operations.json` into the database with a one-time script.
-4. Update report and quality audit evidence readers to query the database first.
-5. Keep JSON export generation for evidence packages, not as the primary operational store.
-6. Add tests for transactional insert, idempotent backfill, and object mirror failure handling.
-7. Add deployment runbook steps for backup/restore and retention policy verification.
+1. Run Alembic migration `202606130001_clinical_workflow_audit_events.py` in production before go-live.
+2. Backfill existing `metadata/workflow_operations.json` using `backfill_workflow_operations_from_json`.
+3. Verify audit evidence and report activity endpoints read DB rows after backfill.
+4. Add object-storage mirroring after deployment storage and retention settings are approved.
+5. Add checksum/signed manifest support for evidence packages.
+6. Add operational backup/restore drills for `operational.clinical_workflow_audit_events`.
 
 ## RC0 Decision
 
@@ -91,12 +100,13 @@ RC1 confirms that filesystem JSON remains acceptable for local demos and automat
 
 ## RC2 Follow-Up
 
-Prioritize database-backed workflow operation audit and object-storage mirroring before production go-live or any external compliance package workflow.
+RC2 deferred database-backed workflow audit. `CLINICAL-POST-RC-01` implements the database foundation after RC2.
 
-Minimum RC2 scope:
+Completed post-RC scope:
 
-1. Add `operational.clinical_workflow_operations`.
-2. Add append-only database permissions and update/delete rejection.
-3. Backfill existing `metadata/workflow_operations.json`.
-4. Switch audit evidence and report audit activity readers to database-first behavior.
-5. Add object-storage mirror support if deployment storage and retention settings are approved.
+1. Added `operational.clinical_workflow_audit_events`.
+2. Added append-only database update/delete rejection.
+3. Added JSON backfill helper without deleting source JSON.
+4. Switched audit evidence and report audit activity readers to database-first behavior.
+5. Preserved JSON mirror/fallback behavior.
+6. Left object-storage mirror support for a later approved deployment-storage sprint.

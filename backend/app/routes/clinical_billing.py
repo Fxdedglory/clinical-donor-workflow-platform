@@ -324,6 +324,7 @@ def capture_charge(
         status_after=charge.status,
         reason=payload.reason,
         changes=charge_changes(charge),
+        db=db,
     )
     return BillingCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, account=account, charge=charge)
 
@@ -476,6 +477,7 @@ def create_claim(
         status_after=claim.status,
         reason=payload.reason,
         changes=claim_changes(claim),
+        db=db,
     )
     return BillingCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, account=account, claim=claim)
 
@@ -553,6 +555,7 @@ def post_payment(
         status_after=claim.status,
         reason=payload.reason,
         changes=payment_changes(payment, claim),
+        db=db,
     )
     return BillingCommitResponse(
         operation_id=operation.operation_id,
@@ -627,6 +630,7 @@ def capture_denial(
         status_after=claim.status,
         reason=payload.reason,
         changes=denial_changes(denial, claim),
+        db=db,
     )
     return BillingCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, claim=claim, denial=denial)
 
@@ -691,6 +695,7 @@ def verify_insurance(
         status_after=verification.verification_status,
         reason=payload.reason,
         changes=verification_changes(verification),
+        db=db,
     )
     return BillingCommitResponse(
         operation_id=operation.operation_id,

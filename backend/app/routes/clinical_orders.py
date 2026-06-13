@@ -258,6 +258,7 @@ def create_order(
         status_after=order.status,
         reason=payload.reason,
         changes=order_changes(order),
+        db=db,
     )
     return OrderCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, order=order)
 
@@ -333,6 +334,7 @@ def add_result(
         status_after=order.status,
         reason=payload.reason,
         changes=result_changes(result),
+        db=db,
     )
     return OrderCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, order=order, result=result)
 
@@ -401,6 +403,7 @@ def acknowledge_result(
             "acknowledgement_id": acknowledgement.acknowledgement_id,
             "acknowledgement_note": payload.acknowledgement_note,
         },
+        db=db,
     )
     return OrderCommitResponse(
         operation_id=operation.operation_id,
@@ -457,5 +460,6 @@ def cancel_order(
         status_after=order.status,
         reason=payload.reason,
         changes={"order_id": order.order_id, "cancellation_reason": payload.cancellation_reason},
+        db=db,
     )
     return OrderCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, order=order)

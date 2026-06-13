@@ -272,6 +272,7 @@ def create_screening_session(
         status_after=session.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return ScreeningCommitResponse(session=session, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -321,6 +322,7 @@ def commit_questionnaire(
         status_after=session.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return ScreeningCommitResponse(session=session, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -384,6 +386,7 @@ def commit_vitals(
         status_after=session.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return ScreeningCommitResponse(session=session, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -469,6 +472,7 @@ def commit_screening_result(
             "proposed_outcome": preview.proposed_outcome,
             "rules_evaluated": [rule.model_dump(mode="json") for rule in preview.rules_evaluated],
         },
+        db=db,
     )
     if deferral:
         append_screening_workflow_audit(
@@ -484,6 +488,7 @@ def commit_screening_result(
                 "deferral_type": deferral.deferral_type,
                 "patient_id": deferral.patient_id,
             },
+            db=db,
         )
     return ScreeningCommitResponse(session=session, operation_id=operation.operation_id, audit_path=audit_path, deferral=deferral)
 
@@ -600,6 +605,7 @@ def commit_override(
         status_after=session.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     if deferral:
         append_screening_workflow_audit(
@@ -615,6 +621,7 @@ def commit_override(
                 "deferral_type": deferral.deferral_type,
                 "patient_id": deferral.patient_id,
             },
+            db=db,
         )
     return ScreeningCommitResponse(session=session, operation_id=operation.operation_id, audit_path=audit_path, deferral=deferral)
 

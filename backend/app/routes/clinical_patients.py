@@ -164,6 +164,7 @@ def create_patient(
         status_after=patient.status,
         reason=payload.reason,
         changes=payload.model_dump(mode="json"),
+        db=db,
     )
     return PatientCommitResponse(patient=patient, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -221,6 +222,7 @@ def update_patient(
         status_after=patient.status,
         reason=payload.reason,
         changes=changes,
+        db=db,
     )
     return PatientCommitResponse(patient=patient, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -277,6 +279,7 @@ def add_contact(
         status_after=patient.status,
         reason="Add patient/donor contact",
         changes=changes,
+        db=db,
     )
     return PatientCommitResponse(patient=patient, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -330,6 +333,7 @@ def add_insurance(
         status_after=patient.status,
         reason="Add patient/donor insurance",
         changes=changes,
+        db=db,
     )
     return PatientCommitResponse(patient=patient, operation_id=operation.operation_id, audit_path=audit_path)
 
@@ -378,5 +382,6 @@ def add_consent(
         status_after=patient.status,
         reason="Capture patient/donor consent",
         changes=changes,
+        db=db,
     )
     return PatientCommitResponse(patient=patient, operation_id=operation.operation_id, audit_path=audit_path)

@@ -275,6 +275,7 @@ def create_encounter(
         status_after=encounter.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, encounter=encounter)
 
@@ -346,6 +347,7 @@ def save_note(
         status_after=encounter.status,
         reason=payload.reason,
         changes=note_changes(note),
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, encounter=encounter, note=note)
 
@@ -404,6 +406,7 @@ def sign_encounter(
         status_after=encounter.status,
         reason=payload.reason,
         changes={"note_id": note.note_id, "attestation": payload.attestation, "signed_at": signed_at.isoformat()},
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, encounter=encounter, note=note)
 
@@ -474,6 +477,7 @@ def amend_encounter(
         status_after=encounter.status,
         reason=payload.reason,
         changes={"amended_note_id": target.note_id, "addendum_note_id": addendum.note_id, "version": addendum.version},
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, encounter=encounter, note=addendum)
 
@@ -525,6 +529,7 @@ def add_diagnosis(
         status_after=encounter.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, encounter=encounter, diagnosis=diagnosis)
 
@@ -576,6 +581,7 @@ def add_allergy(
         status_after=allergy.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, allergy=allergy)
 
@@ -630,5 +636,6 @@ def add_medication(
         status_after=medication.status,
         reason=payload.reason,
         changes=preview.changes,
+        db=db,
     )
     return EncounterCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, medication=medication)

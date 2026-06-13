@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Request, status
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.schemas.clinical import (
     ClinicalModuleRead,
     ClinicalStatusRead,
@@ -219,6 +221,7 @@ def preview_workflow(payload: WorkflowPreviewRequest) -> WorkflowPreviewResponse
 def commit_workflow(
     payload: WorkflowCommitRequest,
     request: Request,
+    db: Session = Depends(get_db),
     _: bool = Depends(require_generation_confirmation),
 ) -> WorkflowCommitResponse:
     preview_value = payload.preview_hash or preview_hash(payload)
@@ -233,7 +236,7 @@ def commit_workflow(
         reason=payload.reason,
         changes=payload.changes,
     )
-    operation, audit_path = append_workflow_operation(operation)
+    operation, audit_path = append_workflow_operation(operation, db=db)
     return WorkflowCommitResponse(
         status="committed",
         operation_id=operation.operation_id,

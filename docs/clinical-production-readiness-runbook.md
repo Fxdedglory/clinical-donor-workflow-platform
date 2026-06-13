@@ -4,6 +4,8 @@ RC1 review date: 2026-06-13
 
 RC2 update date: 2026-06-13
 
+Post-RC audit durability update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -40,7 +42,9 @@ Disallowed production values:
 ```
 
 4. Confirm the Sprint 2 through Sprint 11 clinical migrations from `docs/clinical-migration-runbook.md` are applied.
-5. Run application smoke tests before opening user traffic.
+5. Confirm `202606130001_clinical_workflow_audit_events.py` is applied.
+6. If `metadata/workflow_operations.json` contains historical entries, run the JSON backfill helper in the target environment and retain the source JSON file.
+7. Run application smoke tests before opening user traffic.
 
 ## Validation Commands
 
@@ -92,14 +96,19 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 5. A representative commit endpoint rejects missing `X-Confirm-Generation`.
 6. The same endpoint accepts `X-Confirm-Generation: true`.
 7. A workflow operation audit entry is written.
-8. Reports analytics export preview and commit work for an authorized export role.
-9. Quality audit evidence works for an authorized QA/audit role.
-10. Clinical admin mutation requires admin mutation permission and confirmation.
+8. `operational.clinical_workflow_audit_events` contains the new operation.
+9. `metadata/workflow_operations.json` still receives the compatibility mirror entry.
+10. Reports analytics export preview and commit work for an authorized export role.
+11. Quality audit evidence works for an authorized QA/audit role and reads DB-backed operations after backfill.
+12. Clinical admin mutation requires admin mutation permission and confirmation.
 
 ## Audit And Export Review Checklist
 
-- Confirm `metadata/workflow_operations.json` is not the production source of truth.
-- Confirm production audit migration plan is scheduled before signoff.
+- Confirm `operational.clinical_workflow_audit_events` is the production query source of truth.
+- Confirm `metadata/workflow_operations.json` is retained only as compatibility mirror/fallback evidence.
+- Confirm update/delete rejection trigger exists on `operational.clinical_workflow_audit_events`.
+- Confirm production runtime DB role does not have update/delete grants on workflow audit rows.
+- Confirm historical JSON audit entries are backfilled without deleting source JSON.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.
 - Confirm no external delivery is enabled for analytics/compliance exports.
@@ -112,10 +121,11 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Use Alembic downgrade only when the migration explicitly supports safe downgrade and clinical data loss has been reviewed.
 - Do not delete workflow audit evidence as part of rollback.
 - Preserve generated export/audit metadata for incident review.
+- If application rollback happens after audit migration, keep the audit table and JSON mirror unless compliance and database owners approve a separate evidence-retention action.
 
 ## Known Limitations
 
-- Workflow operation audit remains filesystem-backed in RC2.
+- Workflow operation audit is now DB-backed with JSON mirror/fallback; object-storage immutability is not yet implemented.
 - No full PHI masking/redaction framework exists yet.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup does not yet fail closed on unsafe default secrets/cookie settings.

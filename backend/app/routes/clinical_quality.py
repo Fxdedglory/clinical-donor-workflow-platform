@@ -302,6 +302,7 @@ def create_quality_event(
         status_after=event.status,
         reason=payload.reason,
         changes=quality_event_changes(event),
+        db=db,
     )
     return QualityCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, event=event)
 
@@ -367,6 +368,7 @@ def add_investigation(
         status_after=event.status,
         reason=payload.reason,
         changes={"investigation": payload.model_dump(mode="json"), "event": quality_event_changes(event)},
+        db=db,
     )
     return QualityCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, event=event)
 
@@ -440,6 +442,7 @@ def link_capa(
         status_after=event.status,
         reason=payload.reason,
         changes={"capa": payload.model_dump(mode="json"), "event": quality_event_changes(event)},
+        db=db,
     )
     return QualityCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, event=event)
 
@@ -507,6 +510,7 @@ def close_event(
         status_after=event.status,
         reason=payload.reason,
         changes=quality_event_changes(event),
+        db=db,
     )
     return QualityCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, event=event)
 
@@ -614,6 +618,7 @@ def create_adverse_event(
         status_after=adverse_event.status,
         reason=payload.reason,
         changes=adverse_event_changes(adverse_event),
+        db=db,
     )
     return QualityCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, adverse_event=adverse_event)
 
@@ -703,6 +708,7 @@ def create_compliance_export(
         status_after=export.status,
         reason=payload.reason,
         changes=compliance_export_changes(export),
+        db=db,
     )
     return QualityCommitResponse(operation_id=operation.operation_id, audit_path=audit_path, compliance_export=export)
 

@@ -440,7 +440,7 @@ def _operation_matches(operation: dict[str, Any], filters: ReportFilterRequest) 
 
 
 def audit_activity_report(db: Session, filters: ReportFilterRequest) -> AuditActivityReportResponse:
-    operations = [operation for operation in read_workflow_operations() if _operation_matches(operation, filters)]
+    operations = [operation for operation in read_workflow_operations(db=db) if _operation_matches(operation, filters)]
     return AuditActivityReportResponse(
         date_from=filters.date_from,
         date_to=filters.date_to,
@@ -675,5 +675,5 @@ def commit_analytics_export(
             "export_format": payload.export_format,
         },
     )
-    operation, audit_path = append_workflow_operation(operation)
+    operation, audit_path = append_workflow_operation(operation, db=db)
     return AnalyticsExportCommitResponse(operation_id=operation.operation_id, audit_path=str(audit_path), export=_export_response(export))

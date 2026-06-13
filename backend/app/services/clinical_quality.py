@@ -573,8 +573,8 @@ def _operation_matches(operation: dict[str, Any], payload: ComplianceExportPrevi
     return True
 
 
-def filtered_workflow_operations(payload: ComplianceExportPreviewRequest) -> list[dict[str, Any]]:
-    return [operation for operation in read_workflow_operations() if _operation_matches(operation, payload)]
+def filtered_workflow_operations(payload: ComplianceExportPreviewRequest, *, db: Session | None = None) -> list[dict[str, Any]]:
+    return [operation for operation in read_workflow_operations(db=db) if _operation_matches(operation, payload)]
 
 
 def quality_status_history_evidence(db: Session, payload: ComplianceExportPreviewRequest) -> list[dict[str, Any]]:
@@ -606,7 +606,7 @@ def quality_status_history_evidence(db: Session, payload: ComplianceExportPrevie
 
 
 def compliance_export_preview(db: Session, payload: ComplianceExportPreviewRequest) -> QualityPreviewResponse:
-    operations = filtered_workflow_operations(payload)
+    operations = filtered_workflow_operations(payload, db=db)
     history = quality_status_history_evidence(db, payload) if payload.include_quality_history else []
     workflow_counts = dict(Counter(operation.get("workflow") for operation in operations))
     status_counts = dict(Counter(row.get("to_status") for row in history))
@@ -651,7 +651,7 @@ def audit_evidence_response(
         entity_id=entity_id,
         modules=[module] if module else [],
     )
-    operations = filtered_workflow_operations(payload)
+    operations = filtered_workflow_operations(payload, db=db)
     history = quality_status_history_evidence(db, payload)
     exports = list(db.execute(select(ClinicalComplianceExport).order_by(ClinicalComplianceExport.generated_at.desc())).scalars().all())
     return AuditEvidenceResponse(
@@ -695,6 +695,7 @@ def append_quality_workflow_audit(
     status_after: str | None,
     reason: str,
     changes: dict[str, Any],
+    db: Session | None = None,
 ) -> tuple[WorkflowOperation, str]:
     operation = WorkflowOperation(
         workflow=workflow,
@@ -707,7 +708,7 @@ def append_quality_workflow_audit(
         reason=reason,
         changes=changes,
     )
-    operation, audit_path = append_workflow_operation(operation)
+    operation, audit_path = append_workflow_operation(operation, db=db)
     return operation, str(audit_path)
 
 
@@ -825,7 +826,11 @@ def dashboard_response(db: Session) -> QualityDashboardResponse:
     )
     adverse_events = list(db.execute(select(ClinicalAdverseEvent)).scalars().all())
     exports = list(db.execute(select(ClinicalComplianceExport)).scalars().all())
-    operations = [operation for operation in read_workflow_operations() if str(operation.get("workflow", "")).startswith("quality.")]
+    operations = [
+        operation
+        for operation in read_workflow_operations(db=db)
+        if str(operation.get("workflow", "")).startswith("quality.")
+    ]
     today = date.today()
     return QualityDashboardResponse(
         total_events=len(events),
