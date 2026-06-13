@@ -25,6 +25,12 @@ from app.services.clinical_audit_mirror import (
     audit_mirror_payload,
     mirror_unmirrored_workflow_audit_events,
 )
+from app.services.clinical_audit_mirror_providers import (
+    AzureBlobAuditMirrorProvider,
+    LocalFilesystemAuditMirrorProvider,
+    get_audit_mirror_provider,
+    provider_readiness_summary,
+)
 from app.schemas.clinical_reports import ReportFilterRequest
 from app.services.clinical_quality import audit_evidence_response
 from app.services.clinical_reports import audit_activity_report
@@ -321,6 +327,99 @@ def test_local_audit_object_mirror_writes_redacted_payload_and_metadata(tmp_path
     assert event.mirror_error is None
 
 
+def test_audit_mirror_provider_registry_returns_local_filesystem_provider() -> None:
+    provider = get_audit_mirror_provider(AuditMirrorConfig(mode="local_filesystem"))
+
+    assert isinstance(provider, LocalFilesystemAuditMirrorProvider)
+    assert provider.capabilities()["put_object"] is True
+    assert provider.capabilities()["verify_object_checksum"] is True
+
+
+def test_local_filesystem_provider_remains_compatible_with_mirror_output(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="provider-local-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+    event = db.mirror_events[0]
+    provider = get_audit_mirror_provider(mirror_config)
+
+    stat = provider.stat_object(event.mirror_uri)
+    verification = provider.verify_object_checksum(event.mirror_uri, event.mirror_checksum)
+
+    assert stat.exists is True
+    assert stat.checksum == event.mirror_checksum
+    assert verification["status"] == "verified"
+
+
+def test_azure_blob_provider_config_validation_fails_when_required_settings_missing() -> None:
+    provider = get_audit_mirror_provider(
+        AuditMirrorConfig(
+            mode="object_storage",
+            object_provider="azure_blob",
+            object_container="",
+            object_prefix="",
+        )
+    )
+
+    codes = {issue.code for issue in provider.validate_config()}
+
+    assert isinstance(provider, AzureBlobAuditMirrorProvider)
+    assert "azure_account_url_missing" in codes
+    assert "azure_container_missing" in codes
+    assert "azure_prefix_missing" in codes
+    assert "azure_credential_mode_missing" in codes
+
+
+def test_azure_blob_provider_config_validation_passes_with_safe_placeholder_config() -> None:
+    config = AuditMirrorConfig(
+        mode="object_storage",
+        object_provider="azure_blob",
+        azure_account_url="https://clinicalaudit.blob.core.windows.net",
+        azure_container="clinical-audit-worm",
+        azure_prefix="workflow-audit",
+        azure_credential_mode="managed_identity",
+        azure_immutability_required=True,
+        azure_legal_hold_required=True,
+        azure_checksum_validation_required=True,
+        retention_policy="RET-7Y-WORM",
+        legal_hold_reference="LH-CLINICAL-AUDIT",
+    )
+    summary = provider_readiness_summary(config)
+
+    assert summary["ready"] is True
+    assert summary["provider"] == "azure_blob"
+    assert summary["expected_uri_prefix"] == "https://clinicalaudit.blob.core.windows.net/clinical-audit-worm/workflow-audit"
+    assert summary["capabilities"]["supports_immutability"] is True
+    assert summary["capabilities"]["supports_legal_hold"] is True
+    assert summary["capabilities"]["supports_retention_policy"] is True
+    assert summary["azure"]["credential_mode"] == "managed_identity"
+
+
+def test_azure_blob_provider_readiness_does_not_import_sdk_for_dry_run() -> None:
+    config = AuditMirrorConfig(
+        mode="object_storage",
+        object_provider="azure_blob",
+        azure_account_url="https://clinicalaudit.blob.core.windows.net",
+        azure_container="clinical-audit-worm",
+        azure_prefix="workflow-audit",
+        azure_credential_mode="managed_identity",
+    )
+    provider = get_audit_mirror_provider(config)
+
+    summary = provider.readiness_summary()
+    verification = provider.verify_object_checksum("https://example.invalid/blob.json", "sha256-placeholder")
+
+    assert isinstance(provider, AzureBlobAuditMirrorProvider)
+    assert provider.sdk_imported is False
+    assert summary["network_calls_performed"] is False
+    assert verification["status"] == "not_checked"
+    assert provider.sdk_imported is False
+
+
 def test_audit_object_mirror_checksum_is_deterministic_and_redacted() -> None:
     operation = _operation(
         operation_id="checksum-op",
@@ -596,3 +695,23 @@ def test_audit_mirror_recovery_drill_compares_db_rows_to_mirror_records(tmp_path
     assert result["missing_mirror_operation_ids"] == ["recovery-missing-op"]
     assert result["verification"]["verified"] == 1
     assert result["recovery_ready"] is False
+
+
+def test_audit_mirror_recovery_drill_includes_provider_readiness_summary(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="recovery-provider-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+
+    result = audit_mirror_recovery_drill_summary(db, config=mirror_config)
+
+    assert result["provider_readiness"]["provider"] == "local_filesystem"
+    assert result["provider_readiness"]["ready"] is True
+    assert result["provider_readiness"]["expected_uri_prefix"] == "local-worm://clinical-audit/workflow-audit"
+    assert result["provider_readiness"]["capabilities"]["verify_object_checksum"] is True
+    assert result["manifest_count"] == 0
+    assert result["mirrored_object_count"] == 1

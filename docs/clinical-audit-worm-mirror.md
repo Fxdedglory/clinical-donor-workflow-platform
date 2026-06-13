@@ -4,6 +4,8 @@ Post-RC-06 update date: 2026-06-13
 
 Post-RC-07 provider readiness update date: 2026-06-13
 
+Post-RC-08 cloud provider adapter readiness update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-06 adds an object-storage / WORM audit mirroring foundation for clinical workflow audit evidence. It does not replace the database-backed append-only audit table and does not add real cloud SDK calls.
@@ -45,6 +47,8 @@ The mirror ledger is append-only. It records attempts rather than updating the i
 
 Post-RC-07 adds deterministic signed-manifest, verification, and recovery drill helpers. These are provider-readiness foundations only; they do not create cloud retention policies or call object-storage SDKs.
 
+Post-RC-08 adds provider adapter readiness for local filesystem and Azure Blob Storage. Azure readiness validates configuration and reports capabilities without importing the Azure SDK during dry-run checks.
+
 ## Mirror Service
 
 The service lives in:
@@ -59,13 +63,20 @@ Manifest, verification, and recovery drill helpers live in:
 backend/app/services/clinical_audit_manifest.py
 ```
 
+Provider adapters live in:
+
+```text
+backend/app/services/clinical_audit_mirror_providers.py
+```
+
 Supported modes:
 
 | Mode | Behavior |
 | --- | --- |
 | `disabled` | Default. No object/WORM mirror is attempted. |
 | `local_filesystem` | Writes deterministic JSON payloads under a configured local directory for development/testing simulation. |
-| `object_storage` | Placeholder configuration mode for future provider integration. No network calls are performed by this foundation. |
+| `object_storage` + `azure_blob` provider | Azure Blob readiness mode. Validates provider config and expected URI prefix; real upload/list/head calls remain future work. |
+| `object_storage` + other provider | Placeholder configuration mode for future provider integration. No network calls are performed by this foundation. |
 
 Local filesystem simulation writes objects under:
 
@@ -147,7 +158,7 @@ Future provider placeholders:
 
 ```text
 AUDIT_OBJECT_MIRROR_MODE=object_storage
-AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob_immutability
+AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob
 AUDIT_OBJECT_MIRROR_CONTAINER=clinical-audit-worm
 AUDIT_OBJECT_MIRROR_PREFIX=workflow-audit
 AUDIT_OBJECT_MIRROR_RETENTION_POLICY=RET-7Y-WORM
@@ -158,6 +169,20 @@ AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true
 AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM=sha256-placeholder
 AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF=audit-manifest-key-v1
 ```
+
+Azure Blob readiness settings:
+
+```text
+AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL=https://<account>.blob.core.windows.net
+AUDIT_OBJECT_MIRROR_AZURE_CONTAINER=clinical-audit-worm
+AUDIT_OBJECT_MIRROR_AZURE_PREFIX=workflow-audit
+AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE=managed_identity
+AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED=true
+AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED=true
+AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED=true
+```
+
+`AUDIT_OBJECT_MIRROR_AZURE_CONTAINER` and `AUDIT_OBJECT_MIRROR_AZURE_PREFIX` fall back to the generic container and prefix settings when omitted.
 
 Production simulation flag:
 
@@ -190,6 +215,15 @@ When manifests or signatures are required, production startup gates also fail if
 - `AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true` without `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true`;
 - signed manifests are required but `AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF` or algorithm is missing.
 
+When Azure Blob mirroring is required, production startup gates fail if:
+
+- account URL is missing;
+- container or prefix is missing after fallback resolution;
+- credential mode is missing or describes inline account keys, connection strings, shared keys, plain secrets, or inline SAS tokens;
+- Azure immutability is required but retention policy reference is missing;
+- Azure legal hold is required but legal-hold reference is missing;
+- Azure checksum validation is required without a safe credential mode.
+
 ## Replay / Backfill
 
 `mirror_unmirrored_workflow_audit_events` mirrors existing DB audit rows that do not already have a successful non-dry-run mirror event.
@@ -216,6 +250,15 @@ Verification checks:
 
 Provider placeholder modes are reported as skipped because network verification requires future cloud SDK integration.
 
+Provider readiness dry-runs report:
+
+- selected provider;
+- expected object URI prefix;
+- capability flags;
+- Azure SDK availability without importing it;
+- validation errors and warnings;
+- `network_calls_performed=false`.
+
 ## Recovery Drill
 
 `audit_mirror_recovery_drill_summary` produces a read-only drill report. It can be scoped by timestamp range and can compare against a manifest.
@@ -230,6 +273,8 @@ The drill reports:
 - `recovery_ready` flag.
 
 The helper does not restore, delete, or rewrite audit data. Recovery execution remains an operations procedure with database and compliance-owner approval.
+
+Recovery drill summaries now include provider readiness, manifest count, mirrored object count, expected URI prefix, provider capability flags, and provider validation findings.
 
 ## Retention And Legal Hold Assumptions
 
@@ -257,9 +302,12 @@ See `docs/clinical-audit-worm-retention-legal-hold.md` for the readiness checkli
 
 Detailed drill steps are in `docs/clinical-audit-worm-recovery-drill.md`.
 
+Provider adapter details are in `docs/clinical-audit-worm-provider-adapters.md`.
+Azure readiness details are in `docs/clinical-azure-blob-worm-readiness.md`.
+
 ## Known Limitations
 
-- No real Azure/AWS/GCP SDK integration is implemented.
+- No real Azure/AWS/GCP SDK upload/list/head integration is implemented.
 - Local filesystem simulation is not WORM storage.
 - Signed manifests are checksum-placeholder foundations only; real cryptographic signing remains future work.
 - Legal-hold automation remains future work.

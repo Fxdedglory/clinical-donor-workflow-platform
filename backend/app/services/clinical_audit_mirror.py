@@ -44,6 +44,15 @@ class AuditMirrorConfig:
     object_container: str = ""
     object_prefix: str = "workflow-audit"
     allow_local_production_simulation: bool = False
+    retention_policy: str = ""
+    legal_hold_reference: str = ""
+    azure_account_url: str = ""
+    azure_container: str = ""
+    azure_prefix: str = ""
+    azure_credential_mode: str = ""
+    azure_immutability_required: bool = False
+    azure_legal_hold_required: bool = False
+    azure_checksum_validation_required: bool = False
 
     @property
     def normalized_mode(self) -> str:
@@ -91,16 +100,33 @@ def _as_bool(value: Any, *, default: bool = False) -> bool:
 
 
 def audit_mirror_config_from_settings(source: Any = settings) -> AuditMirrorConfig:
+    object_container = str(getattr(source, "audit_object_mirror_container", "") or "")
+    object_prefix = str(getattr(source, "audit_object_mirror_prefix", "workflow-audit") or "workflow-audit")
     return AuditMirrorConfig(
         mode=getattr(source, "audit_object_mirror_mode", "disabled"),
         required=_as_bool(getattr(source, "audit_object_mirror_required", False)),
         local_root=Path(getattr(source, "audit_object_mirror_local_root", "metadata/audit_worm_mirror")),
         uri_prefix=str(getattr(source, "audit_object_mirror_uri_prefix", "local-worm://clinical-audit") or ""),
         object_provider=str(getattr(source, "audit_object_mirror_provider", "") or ""),
-        object_container=str(getattr(source, "audit_object_mirror_container", "") or ""),
-        object_prefix=str(getattr(source, "audit_object_mirror_prefix", "workflow-audit") or "workflow-audit"),
+        object_container=object_container,
+        object_prefix=object_prefix,
         allow_local_production_simulation=_as_bool(
             getattr(source, "audit_object_mirror_allow_local_production_simulation", False)
+        ),
+        retention_policy=str(getattr(source, "audit_object_mirror_retention_policy", "") or ""),
+        legal_hold_reference=str(getattr(source, "audit_object_mirror_legal_hold_reference", "") or ""),
+        azure_account_url=str(getattr(source, "audit_object_mirror_azure_account_url", "") or ""),
+        azure_container=str(getattr(source, "audit_object_mirror_azure_container", "") or object_container),
+        azure_prefix=str(getattr(source, "audit_object_mirror_azure_prefix", "") or object_prefix),
+        azure_credential_mode=str(getattr(source, "audit_object_mirror_azure_credential_mode", "") or ""),
+        azure_immutability_required=_as_bool(
+            getattr(source, "audit_object_mirror_azure_immutability_required", False)
+        ),
+        azure_legal_hold_required=_as_bool(
+            getattr(source, "audit_object_mirror_azure_legal_hold_required", False)
+        ),
+        azure_checksum_validation_required=_as_bool(
+            getattr(source, "audit_object_mirror_azure_checksum_validation_required", False)
         ),
     )
 

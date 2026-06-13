@@ -24,6 +24,7 @@ from app.services.clinical_audit_mirror import (
     audit_mirror_config_from_settings,
     read_db_mirror_events,
 )
+from app.services.clinical_audit_mirror_providers import provider_readiness_summary
 
 AUDIT_MANIFEST_SCHEMA_VERSION = "clinical.workflow_audit.manifest.v1"
 AUDIT_MANIFEST_STATUS_GENERATED = "generated"
@@ -466,6 +467,7 @@ def audit_mirror_recovery_drill_summary(
     end_at: datetime | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
+    active_config = config or audit_mirror_config_from_settings()
     audit_events = [
         event
         for event in _read_db_audit_events(db)
@@ -482,10 +484,12 @@ def audit_mirror_recovery_drill_summary(
     mirrored_ids = {event.operation_id for event in mirror_events}
     verification = verify_mirror_inventory(
         mirror_events,
-        config=config,
+        config=active_config,
         manifest=manifest,
         dry_run=dry_run,
     )
+    provider_readiness = provider_readiness_summary(active_config)
+    manifest_count = len(read_db_mirror_manifests(db))
     missing_mirror_operation_ids = sorted(audit_ids - mirrored_ids)
     orphan_mirror_operation_ids = sorted(
         {
@@ -505,8 +509,11 @@ def audit_mirror_recovery_drill_summary(
     return {
         "source_deleted": False,
         "dry_run": dry_run,
+        "provider_readiness": provider_readiness,
         "selected_audit_event_count": len(audit_events),
         "successful_mirror_event_count": len(mirror_events),
+        "mirrored_object_count": len(mirror_events),
+        "manifest_count": manifest_count,
         "missing_mirror_count": len(missing_mirror_operation_ids),
         "missing_mirror_operation_ids": missing_mirror_operation_ids,
         "orphan_mirror_count": len(orphan_mirror_operation_ids),

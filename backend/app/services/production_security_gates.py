@@ -32,6 +32,19 @@ JSON_ONLY_AUDIT_MODES = {
 DISABLED_AUDIT_OBJECT_MIRROR_MODES = {"", "disabled", "off", "none"}
 LOCAL_AUDIT_OBJECT_MIRROR_MODES = {"local", "local_filesystem", "filesystem", "file"}
 PLACEHOLDER_AUDIT_OBJECT_MIRROR_MODES = {"object_storage", "provider_placeholder", "worm_placeholder"}
+AZURE_BLOB_AUDIT_OBJECT_MIRROR_PROVIDERS = {"azure", "azure_blob", "azure_blob_storage", "azure_blob_immutability"}
+UNSAFE_AZURE_CREDENTIAL_MODES = {
+    "",
+    "account_key",
+    "account-key",
+    "connection_string",
+    "connection-string",
+    "connection_string_in_code",
+    "shared_key",
+    "shared-key",
+    "sas_token_inline",
+    "plain_secret",
+}
 SAFE_ANALYTICS_EXPORT_PROFILES = {"aggregate_safe", "external_safe"}
 SAFE_AUDIT_EXPORT_PROFILES = {"audit_metadata", "aggregate_safe", "external_safe"}
 SAFE_COMPLIANCE_EXPORT_PROFILES = {"compliance_evidence", "audit_metadata"}
@@ -73,6 +86,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit_object_mirror_signature_required": False,
     "audit_object_mirror_signature_algorithm": "sha256-placeholder",
     "audit_object_mirror_signature_key_ref": "",
+    "audit_object_mirror_azure_account_url": "",
+    "audit_object_mirror_azure_container": "",
+    "audit_object_mirror_azure_prefix": "",
+    "audit_object_mirror_azure_credential_mode": "",
+    "audit_object_mirror_azure_immutability_required": False,
+    "audit_object_mirror_azure_legal_hold_required": False,
+    "audit_object_mirror_azure_checksum_validation_required": False,
     "default_analytics_export_profile": DEFAULT_AGGREGATE_EXPORT_PROFILE,
     "default_compliance_export_profile": DEFAULT_COMPLIANCE_EXPORT_PROFILE,
     "default_audit_export_profile": DEFAULT_AUDIT_EXPORT_PROFILE,
@@ -382,9 +402,69 @@ def validate_production_security_gates(
             default=DEFAULT_CONFIG["audit_object_mirror_signature_key_ref"],
         )
     )
+    azure_account_url = _text(
+        _get(
+            source,
+            "audit_object_mirror_azure_account_url",
+            "AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_account_url"],
+        )
+    )
+    azure_container = _text(
+        _get(
+            source,
+            "audit_object_mirror_azure_container",
+            "AUDIT_OBJECT_MIRROR_AZURE_CONTAINER",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_container"],
+        )
+    ) or mirror_container
+    azure_prefix = _text(
+        _get(
+            source,
+            "audit_object_mirror_azure_prefix",
+            "AUDIT_OBJECT_MIRROR_AZURE_PREFIX",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_prefix"],
+        )
+    ) or mirror_prefix
+    azure_credential_mode = _normalized(
+        _get(
+            source,
+            "audit_object_mirror_azure_credential_mode",
+            "AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_credential_mode"],
+        )
+    )
+    azure_immutability_required = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_azure_immutability_required",
+            "AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_immutability_required"],
+        ),
+        default=False,
+    )
+    azure_legal_hold_required = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_azure_legal_hold_required",
+            "AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_legal_hold_required"],
+        ),
+        default=False,
+    )
+    azure_checksum_validation_required = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_azure_checksum_validation_required",
+            "AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_checksum_validation_required"],
+        ),
+        default=False,
+    )
+    azure_blob_provider = mirror_provider.lower() in AZURE_BLOB_AUDIT_OBJECT_MIRROR_PROVIDERS
     if mirror_required and mirror_mode in DISABLED_AUDIT_OBJECT_MIRROR_MODES:
         add("audit_object_mirror_required_but_disabled", "AUDIT_OBJECT_MIRROR_REQUIRED=true requires AUDIT_OBJECT_MIRROR_MODE to be configured.")
-    if mirror_required and mirror_mode in PLACEHOLDER_AUDIT_OBJECT_MIRROR_MODES:
+    if mirror_required and mirror_mode in PLACEHOLDER_AUDIT_OBJECT_MIRROR_MODES and not azure_blob_provider:
         if not mirror_provider:
             add("audit_object_mirror_provider_missing", "AUDIT_OBJECT_MIRROR_PROVIDER is required when the object/WORM mirror is required.")
         if not mirror_container:
@@ -396,6 +476,42 @@ def validate_production_security_gates(
             "audit_object_mirror_local_without_simulation_flag",
             "Local filesystem audit mirror cannot satisfy required production WORM storage unless explicitly marked as simulation.",
         )
+    if mirror_required and azure_blob_provider:
+        if not azure_account_url:
+            add(
+                "audit_object_mirror_azure_account_url_missing",
+                "AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL is required when azure_blob mirroring is required.",
+            )
+        if not azure_container:
+            add(
+                "audit_object_mirror_azure_container_missing",
+                "AUDIT_OBJECT_MIRROR_AZURE_CONTAINER or AUDIT_OBJECT_MIRROR_CONTAINER is required when azure_blob mirroring is required.",
+            )
+        if not azure_prefix:
+            add(
+                "audit_object_mirror_azure_prefix_missing",
+                "AUDIT_OBJECT_MIRROR_AZURE_PREFIX or AUDIT_OBJECT_MIRROR_PREFIX is required when azure_blob mirroring is required.",
+            )
+        if azure_credential_mode in UNSAFE_AZURE_CREDENTIAL_MODES:
+            add(
+                "audit_object_mirror_azure_credential_mode_unsafe",
+                "AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE is required and must not use inline account keys, connection strings, or plain secrets.",
+            )
+        if azure_immutability_required and not mirror_retention_policy:
+            add(
+                "audit_object_mirror_azure_immutability_policy_missing",
+                "AUDIT_OBJECT_MIRROR_RETENTION_POLICY is required when Azure immutability validation is required.",
+            )
+        if (azure_legal_hold_required or legal_hold_required) and not legal_hold_reference:
+            add(
+                "audit_object_mirror_azure_legal_hold_reference_missing",
+                "AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE is required when Azure legal hold validation is required.",
+            )
+        if azure_checksum_validation_required and azure_credential_mode in UNSAFE_AZURE_CREDENTIAL_MODES:
+            add(
+                "audit_object_mirror_azure_checksum_validation_config_missing",
+                "Safe Azure credential mode is required when Azure checksum validation is required.",
+            )
     if mirror_required and manifest_required and not mirror_retention_policy:
         add(
             "audit_object_mirror_retention_policy_missing",

@@ -71,6 +71,25 @@ class Settings(BaseSettings):
         alias="AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM",
     )
     audit_object_mirror_signature_key_ref: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF")
+    audit_object_mirror_azure_account_url: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL")
+    audit_object_mirror_azure_container: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_CONTAINER")
+    audit_object_mirror_azure_prefix: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_PREFIX")
+    audit_object_mirror_azure_credential_mode: str = Field(
+        default="",
+        alias="AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE",
+    )
+    audit_object_mirror_azure_immutability_required: bool = Field(
+        default=False,
+        alias="AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED",
+    )
+    audit_object_mirror_azure_legal_hold_required: bool = Field(
+        default=False,
+        alias="AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED",
+    )
+    audit_object_mirror_azure_checksum_validation_required: bool = Field(
+        default=False,
+        alias="AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED",
+    )
     default_analytics_export_profile: str = Field(default="aggregate_safe", alias="DEFAULT_ANALYTICS_EXPORT_PROFILE")
     default_compliance_export_profile: str = Field(default="compliance_evidence", alias="DEFAULT_COMPLIANCE_EXPORT_PROFILE")
     default_audit_export_profile: str = Field(default="audit_metadata", alias="DEFAULT_AUDIT_EXPORT_PROFILE")

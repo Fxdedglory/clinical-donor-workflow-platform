@@ -18,6 +18,8 @@ Post-RC WORM mirror foundation update date: 2026-06-13
 
 Post-RC WORM provider readiness update date: 2026-06-13
 
+Post-RC Azure Blob adapter readiness update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -40,6 +42,8 @@ Required production settings:
 - `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE` when legal hold is required
 - `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true` only after manifest retention is approved
 - `AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true`, `AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM`, and `AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF` only after signature policy is approved
+- `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE` when Azure Blob is the approved provider
+- `AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED`, `AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED`, and `AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED` only after provider-side controls are approved
 - `DEFAULT_ANALYTICS_EXPORT_PROFILE=aggregate_safe`
 - `DEFAULT_COMPLIANCE_EXPORT_PROFILE=compliance_evidence`
 - `DEFAULT_AUDIT_EXPORT_PROFILE=audit_metadata`
@@ -152,6 +156,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 24. If `AUDIT_OBJECT_MIRROR_REQUIRED=true`, startup fails unless required object mirror configuration is present.
 25. If manifest/signature policy is required, startup fails unless retention, legal-hold, signature algorithm, and signature key reference settings are present.
 26. WORM recovery drill summary reports no missing mirror rows, missing objects, checksum mismatches, or manifest mismatches for the accepted package.
+27. Azure Blob provider readiness summary reports the expected URI prefix, safe credential mode, and no validation errors before Azure mirroring is required.
 
 ## Audit And Export Review Checklist
 
@@ -166,6 +171,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm signed manifest metadata exists in `operational.clinical_workflow_audit_mirror_manifests` for accepted evidence packages.
 - Confirm manifest checksum and placeholder signature are retained with the evidence package.
 - Confirm recovery drill summary is retained and reports `recovery_ready=true` for accepted packages.
+- Confirm provider readiness summary is retained with the recovery drill report.
+- Confirm Azure credential mode uses managed identity, workload identity, or another approved non-inline secret mode before Azure mirroring is required.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.
@@ -189,7 +196,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 
 ## Known Limitations
 
-- Workflow operation audit is now DB-backed with JSON mirror/fallback, an object/WORM mirror foundation, signed manifest metadata, and recovery drill helpers. Real cloud provider SDK integration, retention policy creation, legal-hold automation, and real cryptographic signing are not yet implemented.
+- Workflow operation audit is now DB-backed with JSON mirror/fallback, an object/WORM mirror foundation, Azure Blob readiness checks, signed manifest metadata, and recovery drill helpers. Real cloud provider SDK integration, retention policy creation, legal-hold automation, and real cryptographic signing are not yet implemented.
 - Post-RC-02 adds export/audit redaction profiles, Post-RC-04 adds small-cell suppression for aggregate report/export count cells, and Post-RC-05 adds lightweight role-aware UI masking. A full centralized field-policy engine remains future work.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup now fails closed on unsafe production-like secrets, cookie, CORS, database, audit, export, auth, and generic commit settings.

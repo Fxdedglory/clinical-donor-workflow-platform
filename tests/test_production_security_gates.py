@@ -125,9 +125,64 @@ def test_production_mode_passes_when_required_mirror_is_configured_for_provider_
         _safe_production_config(
             AUDIT_OBJECT_MIRROR_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_MODE="object_storage",
-            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_PROVIDER="s3_worm_placeholder",
             AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
             AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+        )
+    )
+
+    assert result.passed is True
+
+
+def test_production_mode_fails_when_required_azure_blob_config_is_missing() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob",
+            AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL="",
+            AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="",
+            AUDIT_OBJECT_MIRROR_AZURE_PREFIX="",
+            AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="",
+        )
+    )
+
+    assert "audit_object_mirror_azure_account_url_missing" in codes
+    assert "audit_object_mirror_azure_container_missing" in codes
+    assert "audit_object_mirror_azure_credential_mode_unsafe" in codes
+
+
+def test_production_mode_fails_when_required_azure_blob_uses_unsafe_credential_mode() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob",
+            AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL="https://clinicalaudit.blob.core.windows.net",
+            AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="connection_string",
+        )
+    )
+
+    assert "audit_object_mirror_azure_credential_mode_unsafe" in codes
+
+
+def test_production_mode_passes_with_required_azure_blob_readiness_config() -> None:
+    result = validate_production_security_gates(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob",
+            AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL="https://clinicalaudit.blob.core.windows.net",
+            AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="managed_identity",
+            AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE="LH-CLINICAL-AUDIT",
         )
     )
 
@@ -203,8 +258,10 @@ def test_production_mode_passes_with_required_mirror_manifest_signature_config()
             AUDIT_OBJECT_MIRROR_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_MODE="object_storage",
             AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
-            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
-            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL="https://clinicalaudit.blob.core.windows.net",
+            AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="managed_identity",
             AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM="sha256-placeholder",

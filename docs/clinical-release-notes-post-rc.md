@@ -145,3 +145,25 @@ Date: 2026-06-13
 - Configure and validate provider-side immutable retention and legal hold.
 - Replace checksum-placeholder signatures with approved cryptographic signing and key management.
 - Execute environment-specific recovery drills with compliance and database owner signoff.
+
+## Cloud Provider WORM Adapter Readiness
+
+Update: CLINICAL-POST-RC-08
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_audit_mirror_providers.py` with a provider adapter contract, local filesystem provider, Azure Blob readiness provider, and provider readiness summaries.
+- Preserved existing local mirror behavior while adding stat, metadata, list, and checksum verification through the local provider.
+- Added Azure Blob readiness validation for account URL, container, prefix, credential mode, immutability expectation, legal-hold expectation, and checksum validation expectation.
+- Added SDK-free Azure dry-run behavior; no Azure SDK import or network call is required for tests or readiness summaries.
+- Extended recovery drill summaries with provider readiness, expected URI prefix, capability flags, manifest count, and mirrored object count.
+- Extended production startup gates for required Azure Blob mirror configuration and unsafe credential modes.
+- Added focused tests for provider registry, local compatibility, Azure validation, SDK-free readiness, provider dry-run summaries, recovery drill provider readiness, and Azure production gate behavior.
+- Added `docs/clinical-audit-worm-provider-adapters.md` and `docs/clinical-azure-blob-worm-readiness.md`; updated WORM mirror, recovery drill, retention/legal-hold, production readiness, security readiness, and production gate docs.
+
+## Remaining Post-RC-08 Items
+
+- Implement real Azure SDK upload/list/head/readback with managed identity.
+- Validate Azure immutability and legal-hold state from provider APIs.
+- Persist provider object metadata and manifest payload objects in the approved WORM container.
+- Add production recovery drills that compare DB audit rows, mirror records, manifest payloads, and Azure object inventory.
