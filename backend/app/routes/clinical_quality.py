@@ -68,6 +68,7 @@ from app.services.clinical_quality import (
     resolved_patient_for_context,
     investigation_preview,
 )
+from app.services.clinical_phi import DEFAULT_AUDIT_EXPORT_PROFILE, export_profile_denial_reason, redact_payload
 from app.services.clinical_workflows import require_generation_confirmation
 
 router = APIRouter(prefix="/api/clinical/quality", tags=["Clinical Quality"])
@@ -139,6 +140,15 @@ def require_quality_export(
     if permissions.isdisjoint(EXPORT_PERMISSIONS):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Quality export permission required")
     return current_user
+
+
+def _enforce_quality_export_profile(profile: str, current_user: User, db: Session) -> None:
+    try:
+        reason = export_profile_denial_reason(profile, current_user, _permission_set(db, current_user))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if reason:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 
 
 def _reject_blocking(preview: QualityPreviewResponse) -> None:
@@ -632,9 +642,11 @@ def get_audit_evidence(
     entity_type: str | None = Query(default=None),
     entity_id: str | None = Query(default=None),
     module: str | None = Query(default=None),
+    export_profile: str = Query(default=DEFAULT_AUDIT_EXPORT_PROFILE),
     current_user: User = Depends(require_quality_export),
     db: Session = Depends(get_db),
 ) -> AuditEvidenceResponse:
+    _enforce_quality_export_profile(export_profile, current_user, db)
     return audit_evidence_response(
         db,
         date_from=date_from,
@@ -644,6 +656,7 @@ def get_audit_evidence(
         entity_type=entity_type,
         entity_id=entity_id,
         module=module,
+        export_profile=export_profile,
     )
 
 
@@ -668,6 +681,7 @@ def preview_compliance_export(
     current_user: User = Depends(require_quality_export),
     db: Session = Depends(get_db),
 ) -> QualityPreviewResponse:
+    _enforce_quality_export_profile(payload.export_profile, current_user, db)
     return compliance_export_preview(db, payload)
 
 
@@ -679,6 +693,7 @@ def create_compliance_export(
     db: Session = Depends(get_db),
 ) -> QualityCommitResponse:
     require_generation_confirmation(request)
+    _enforce_quality_export_profile(payload.export_profile, current_user, db)
     preview = compliance_export_preview(db, payload)
     _reject_blocking(preview)
     generated_at = now_utc()
@@ -687,7 +702,7 @@ def create_compliance_export(
         date_from=payload.date_from,
         date_to=payload.date_to,
         modules=payload.modules,
-        criteria=payload.model_dump(mode="json"),
+        criteria=redact_payload(payload.model_dump(mode="json"), payload.export_profile, module="quality"),
         evidence_summary=preview.changes.get("evidence_summary", {}),
         status="generated",
         generated_at=generated_at,

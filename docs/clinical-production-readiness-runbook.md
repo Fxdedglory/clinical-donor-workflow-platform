@@ -6,6 +6,8 @@ RC2 update date: 2026-06-13
 
 Post-RC audit durability update date: 2026-06-13
 
+Post-RC PHI/export hardening update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -99,8 +101,12 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 8. `operational.clinical_workflow_audit_events` contains the new operation.
 9. `metadata/workflow_operations.json` still receives the compatibility mirror entry.
 10. Reports analytics export preview and commit work for an authorized export role.
-11. Quality audit evidence works for an authorized QA/audit role and reads DB-backed operations after backfill.
-12. Clinical admin mutation requires admin mutation permission and confirmation.
+11. Reports analytics export preview records `export_profile=aggregate_safe` by default and redacts direct identifiers in returned filters.
+12. Reports analytics export commit writes DB/JSON workflow audit changes without raw PHI/ePHI payloads.
+13. Quality compliance export preview/commit require authorized quality/audit/compliance access and record the selected export profile.
+14. Quality audit evidence works for an authorized QA/audit role, reads DB-backed operations after backfill, and supports safe profile redaction such as `external_safe`.
+15. Generic `/api/clinical/workflows/commit` rejects external users and internal users without `clinical_admin.manage` or `system.admin`.
+16. Clinical admin mutation requires admin mutation permission and confirmation.
 
 ## Audit And Export Review Checklist
 
@@ -111,8 +117,10 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm historical JSON audit entries are backfilled without deleting source JSON.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.
+- Confirm `aggregate_safe`, `external_safe`, `audit_metadata`, `internal_detail`, and `compliance_evidence` profile behavior is approved for the target environment.
+- Confirm workflow audit change payloads do not store raw PHI/ePHI details after redaction.
 - Confirm no external delivery is enabled for analytics/compliance exports.
-- Confirm PHI/ePHI masking requirements are documented before detailed exports.
+- Confirm PHI/ePHI UI masking, small-cell suppression, and free-text review requirements are documented before detailed or external exports.
 
 ## Rollback Notes
 
@@ -126,7 +134,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 ## Known Limitations
 
 - Workflow operation audit is now DB-backed with JSON mirror/fallback; object-storage immutability is not yet implemented.
-- No full PHI masking/redaction framework exists yet.
+- Post-RC-02 adds export/audit redaction profiles, but no full role-aware UI masking framework exists yet.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup does not yet fail closed on unsafe default secrets/cookie settings.
 - Analytics/compliance exports are metadata/evidence contracts only; external warehouse, FHIR/HL7, Power BI, clearinghouse, and notification delivery integrations remain out of scope.

@@ -59,6 +59,11 @@ from app.schemas.clinical_reports import (
     ScreeningOutcomesReportResponse,
 )
 from app.services.clinical_patients import actor_label
+from app.services.clinical_phi import (
+    DEFAULT_AGGREGATE_EXPORT_PROFILE,
+    redact_payload,
+    redact_workflow_operations,
+)
 from app.services.clinical_workflows import (
     append_workflow_operation,
     preview_hash,
@@ -181,7 +186,11 @@ def _patient_id(row: Any) -> str:
 
 
 def _report_filters(filters: ReportFilterRequest) -> dict[str, Any]:
-    return filters.model_dump(mode="json", exclude_none=True)
+    return redact_payload(
+        filters.model_dump(mode="json", exclude_none=True),
+        filters.export_profile,
+        module="reports",
+    )
 
 
 def patient_throughput_report(db: Session, filters: ReportFilterRequest) -> PatientThroughputReportResponse:
@@ -441,6 +450,7 @@ def _operation_matches(operation: dict[str, Any], filters: ReportFilterRequest) 
 
 def audit_activity_report(db: Session, filters: ReportFilterRequest) -> AuditActivityReportResponse:
     operations = [operation for operation in read_workflow_operations(db=db) if _operation_matches(operation, filters)]
+    redacted_operations = redact_workflow_operations(operations[-50:], filters.export_profile)
     return AuditActivityReportResponse(
         date_from=filters.date_from,
         date_to=filters.date_to,
@@ -455,7 +465,7 @@ def audit_activity_report(db: Session, filters: ReportFilterRequest) -> AuditAct
         workflow_counts=dict(Counter(str(operation.get("workflow", "unknown")) for operation in operations)),
         actor_counts=dict(Counter(str(operation.get("actor", "unknown")) for operation in operations)),
         entity_type_counts=dict(Counter(str(operation.get("entity_type", "unknown")) for operation in operations)),
-        operations=operations[-50:],
+        operations=redacted_operations,
     )
 
 
@@ -518,6 +528,7 @@ def _export_filters(payload: AnalyticsExportPreviewRequest) -> ReportFilterReque
         entity_id=payload.entity_id,
         actor=payload.actor,
         workflow=payload.workflow,
+        export_profile=payload.export_profile,
     )
 
 
@@ -543,6 +554,8 @@ def analytics_export_preview(db: Session, payload: AnalyticsExportPreviewRequest
     warnings = [
         _warning("foundation_scope", "Export stores metadata and row-count contracts only; external warehouse upload is planned.")
     ]
+    if payload.export_profile != DEFAULT_AGGREGATE_EXPORT_PROFILE:
+        warnings.append(_warning("export_profile", f"Export profile selected: {payload.export_profile}.", "export_profile"))
     if payload.include_detail:
         warnings.append(_warning("detail_scope", "Detail export is metadata-only in Sprint 11 and remains RBAC protected.", "include_detail"))
     return AnalyticsExportPreviewResponse(
@@ -551,9 +564,10 @@ def analytics_export_preview(db: Session, payload: AnalyticsExportPreviewRequest
         modules=modules,
         date_from=payload.date_from,
         date_to=payload.date_to,
-        filters=payload.model_dump(mode="json", exclude_none=True),
+        filters=redact_payload(payload.model_dump(mode="json", exclude_none=True), payload.export_profile, module="reports"),
         row_counts=row_counts,
         export_format=payload.export_format,
+        export_profile=payload.export_profile,
         warnings=warnings,
         blocking_issues=[
             {"issue_type": "unknown_module", "message": f"Unsupported report module: {module}", "field": "modules"}
@@ -624,10 +638,11 @@ def commit_analytics_export(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"status": "report_validation_failed", "blocking_issues": [issue.model_dump(mode="json") for issue in preview.blocking_issues]})
     generated_at = now_utc()
     modules = payload.modules or DEFAULT_EXPORT_MODULES
+    export_filters = redact_payload(payload.model_dump(mode="json", exclude_none=True), payload.export_profile, module="reports")
     export = ClinicalReportExport(
         export_number=new_report_export_number(),
         modules=modules,
-        filters=payload.model_dump(mode="json", exclude_none=True),
+        filters=export_filters,
         date_from=payload.date_from,
         date_to=payload.date_to,
         export_format=payload.export_format,
@@ -635,6 +650,8 @@ def commit_analytics_export(
         payload_metadata={
             "format": payload.export_format,
             "include_detail": payload.include_detail,
+            "export_profile": payload.export_profile,
+            "redaction_profile_applied": True,
             "csv_ready": payload.export_format == "csv",
             "external_delivery": "planned",
         },
@@ -649,7 +666,11 @@ def commit_analytics_export(
             module=module,
             report_name=module.replace("_", " ").title(),
             row_count=preview.row_counts.get(module, 0),
-            payload_metadata={"contract": "aggregate_json", "detail_included": payload.include_detail},
+            payload_metadata={
+                "contract": "aggregate_json",
+                "detail_included": payload.include_detail,
+                "export_profile": payload.export_profile,
+            },
         )
         for module in modules
     ]
@@ -673,6 +694,8 @@ def commit_analytics_export(
             "date_to": payload.date_to.isoformat() if payload.date_to else None,
             "row_counts": preview.row_counts,
             "export_format": payload.export_format,
+            "export_profile": payload.export_profile,
+            "filters": export_filters,
         },
     )
     operation, audit_path = append_workflow_operation(operation, db=db)

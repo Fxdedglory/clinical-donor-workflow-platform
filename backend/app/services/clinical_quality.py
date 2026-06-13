@@ -33,6 +33,7 @@ from app.schemas.clinical import WorkflowOperation
 from app.schemas.clinical_quality import (
     AdverseEventPreviewRequest,
     AuditEvidenceResponse,
+    ComplianceExportResponse,
     ComplianceExportPreviewRequest,
     QualityBlockingIssue,
     QualityCapaLinkPreviewRequest,
@@ -44,6 +45,11 @@ from app.schemas.clinical_quality import (
     QualityInvestigationPreviewRequest,
 )
 from app.services.clinical_patients import actor_label
+from app.services.clinical_phi import (
+    DEFAULT_AUDIT_EXPORT_PROFILE,
+    redact_payload,
+    redact_workflow_operations,
+)
 from app.services.clinical_workflows import append_workflow_operation, preview_hash, read_workflow_operations
 
 ACTIVE_QUALITY_STATUSES = {
@@ -610,12 +616,13 @@ def compliance_export_preview(db: Session, payload: ComplianceExportPreviewReque
     history = quality_status_history_evidence(db, payload) if payload.include_quality_history else []
     workflow_counts = dict(Counter(operation.get("workflow") for operation in operations))
     status_counts = dict(Counter(row.get("to_status") for row in history))
-    criteria = payload.model_dump(mode="json")
+    criteria = redact_payload(payload.model_dump(mode="json"), payload.export_profile, module="quality")
     evidence_summary = {
         "workflow_operation_count": len(operations),
         "quality_status_history_count": len(history),
         "workflow_counts": workflow_counts,
         "quality_status_counts": status_counts,
+        "export_profile": payload.export_profile,
     }
     warnings: list[QualityWarning] = []
     if not operations and not history:
@@ -641,6 +648,7 @@ def audit_evidence_response(
     entity_type: str | None = None,
     entity_id: str | None = None,
     module: str | None = None,
+    export_profile: str = DEFAULT_AUDIT_EXPORT_PROFILE,
 ) -> AuditEvidenceResponse:
     payload = ComplianceExportPreviewRequest(
         date_from=date_from,
@@ -650,14 +658,28 @@ def audit_evidence_response(
         entity_type=entity_type,
         entity_id=entity_id,
         modules=[module] if module else [],
+        export_profile=export_profile,
     )
     operations = filtered_workflow_operations(payload, db=db)
     history = quality_status_history_evidence(db, payload)
     exports = list(db.execute(select(ClinicalComplianceExport).order_by(ClinicalComplianceExport.generated_at.desc())).scalars().all())
+    export_responses = []
+    for export in exports:
+        response = ComplianceExportResponse.model_validate(export)
+        export_responses.append(
+            response.model_copy(
+                update={
+                    "criteria": redact_payload(response.criteria, export_profile, module="quality"),
+                    "evidence_summary": redact_payload(response.evidence_summary, export_profile, module="quality"),
+                    "export_profile": response.criteria.get("export_profile", export_profile),
+                }
+            )
+        )
     return AuditEvidenceResponse(
-        operations=operations,
-        quality_status_history=history,
-        compliance_exports=exports,
+        export_profile=export_profile,
+        operations=redact_workflow_operations(operations, export_profile),
+        quality_status_history=redact_payload(history, export_profile, module="quality"),
+        compliance_exports=export_responses,
         total_operations=len(operations),
         total_quality_history=len(history),
         total_exports=len(exports),
@@ -804,6 +826,7 @@ def compliance_export_changes(export: ClinicalComplianceExport) -> dict[str, Any
     return {
         "export_id": export.export_id,
         "export_number": export.export_number,
+        "export_profile": (export.criteria or {}).get("export_profile"),
         "date_from": export.date_from.isoformat() if export.date_from else None,
         "date_to": export.date_to.isoformat() if export.date_to else None,
         "modules": export.modules,

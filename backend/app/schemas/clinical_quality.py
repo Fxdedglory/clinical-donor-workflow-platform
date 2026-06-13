@@ -3,6 +3,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.services.clinical_phi import (
+    DEFAULT_AUDIT_EXPORT_PROFILE,
+    DEFAULT_COMPLIANCE_EXPORT_PROFILE,
+    normalize_export_profile,
+)
+
 
 class QualityWarning(BaseModel):
     warning_type: str
@@ -221,6 +227,7 @@ class ComplianceExportPreviewRequest(BaseModel):
     entity_type: str | None = None
     entity_id: str | None = None
     include_quality_history: bool = True
+    export_profile: str = DEFAULT_COMPLIANCE_EXPORT_PROFILE
     reason: str = "Generate compliance export"
 
     @field_validator("modules")
@@ -235,6 +242,11 @@ class ComplianceExportPreviewRequest(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+    @field_validator("export_profile")
+    @classmethod
+    def valid_export_profile(cls, value: str) -> str:
+        return normalize_export_profile(value, default=DEFAULT_COMPLIANCE_EXPORT_PROFILE)
 
     @field_validator("reason")
     @classmethod
@@ -417,6 +429,7 @@ class ComplianceExportResponse(BaseModel):
     modules: list[str] = Field(default_factory=list)
     criteria: dict[str, Any] = Field(default_factory=dict)
     evidence_summary: dict[str, Any] = Field(default_factory=dict)
+    export_profile: str = DEFAULT_COMPLIANCE_EXPORT_PROFILE
     status: str
     generated_at: datetime
     generated_by: int | None = None
@@ -451,6 +464,7 @@ class QualityCommitResponse(BaseModel):
 
 
 class AuditEvidenceResponse(BaseModel):
+    export_profile: str = DEFAULT_AUDIT_EXPORT_PROFILE
     operations: list[dict[str, Any]] = Field(default_factory=list)
     quality_status_history: list[dict[str, Any]] = Field(default_factory=list)
     compliance_exports: list[ComplianceExportResponse] = Field(default_factory=list)

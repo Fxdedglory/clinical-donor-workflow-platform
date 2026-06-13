@@ -796,6 +796,78 @@ def test_compliance_export_preview_commit_and_audit_evidence_filter(monkeypatch,
     assert evidence.json()["total_operations"] == 1
 
 
+def test_compliance_export_commit_audit_redacts_phi_payload(monkeypatch, tmp_path: Path) -> None:
+    audit_path = tmp_path / "workflow_operations.json"
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    db = _ClinicalQualityDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/quality/compliance-exports",
+            headers={"X-Confirm-Generation": "true"},
+            json={
+                "modules": ["quality"],
+                "entity_id": "PT-SECRET",
+                "export_profile": "compliance_evidence",
+                "preview_hash": "export-hash",
+            },
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 201
+    assert db.exports[0].criteria["entity_id"] == "PT-SECRET"
+    entries = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert entries[-1]["workflow"] == "quality.compliance_export"
+    assert entries[-1]["changes"]["export_profile"] == "compliance_evidence"
+    assert "PT-SECRET" not in json.dumps(entries[-1]["changes"])
+
+
+def test_audit_evidence_external_safe_profile_redacts_sensitive_operations(monkeypatch, tmp_path: Path) -> None:
+    audit_path = tmp_path / "workflow_operations.json"
+    audit_path.write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": "quality-op-sensitive",
+                    "workflow": "quality.event_create",
+                    "entity_type": "clinical_quality_event",
+                    "entity_id": "QE-SECRET",
+                    "actor": "QA User",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "preview_hash": "sha256-sensitive",
+                    "commit_confirmed": True,
+                    "status_before": None,
+                    "status_after": "open",
+                    "reason": "Created",
+                    "changes": {
+                        "patient_id": "PT-SECRET",
+                        "note": "Sensitive clinical narrative",
+                        "source_module": "clinical_quality",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    db = _ClinicalQualityDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).get("/api/clinical/quality/audit-evidence?export_profile=external_safe")
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["export_profile"] == "external_safe"
+    operation = payload["operations"][0]
+    assert operation["entity_id"] == "[redacted]"
+    assert operation["changes"]["patient_id"] == "[redacted]"
+    assert operation["changes"]["note"] == "[redacted]"
+    assert operation["changes"]["source_module"] == "clinical_quality"
+
+
 def test_external_partner_quality_mutation_is_rejected() -> None:
     db = _ClinicalQualityDb(permissions=["partner.portal"])
     _override_dependencies(db, _external_user())

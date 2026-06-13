@@ -47,6 +47,7 @@ from app.services.clinical_reports import (
     scheduling_utilization_report,
     screening_outcomes_report,
 )
+from app.services.clinical_phi import export_profile_denial_reason
 from app.services.clinical_workflows import require_generation_confirmation
 
 router = APIRouter(prefix="/api/clinical/reports", tags=["Clinical Reports"])
@@ -83,6 +84,7 @@ def report_filters(
     entity_id: str | None = Query(default=None),
     actor: str | None = Query(default=None),
     workflow: str | None = Query(default=None),
+    export_profile: str = Query(default="aggregate_safe"),
 ) -> ReportFilterRequest:
     return ReportFilterRequest(
         date_from=date_from,
@@ -93,7 +95,17 @@ def report_filters(
         entity_id=entity_id,
         actor=actor,
         workflow=workflow,
+        export_profile=export_profile,
     )
+
+
+def _enforce_report_export_profile(profile: str, current_user: User, db: Session) -> None:
+    try:
+        reason = export_profile_denial_reason(profile, current_user, permission_set(db, current_user))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if reason:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 
 
 @router.get("/dashboard", response_model=ClinicalReportsDashboardResponse)
@@ -192,6 +204,7 @@ def get_audit_activity_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> AuditActivityReportResponse:
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
     return audit_activity_report(db, filters)
 
 
@@ -209,6 +222,7 @@ def preview_analytics_export(
     current_user: User = Depends(require_reports_export),
     db: Session = Depends(get_db),
 ) -> AnalyticsExportPreviewResponse:
+    _enforce_report_export_profile(payload.export_profile, current_user, db)
     return analytics_export_preview(db, payload)
 
 
@@ -224,4 +238,5 @@ def create_analytics_export(
     db: Session = Depends(get_db),
 ) -> AnalyticsExportCommitResponse:
     require_generation_confirmation(request)
+    _enforce_report_export_profile(payload.export_profile, current_user, db)
     return commit_analytics_export(db, payload, current_user)

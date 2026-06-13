@@ -10,6 +10,7 @@ from app.models import (
     ClinicalReportExport,
     ClinicalReportExportItem,
     ClinicalReportStatusHistory,
+    ClinicalWorkflowAuditEvent,
     User,
 )
 from app.services import clinical_workflows
@@ -177,6 +178,7 @@ class _ClinicalReportsDb:
             SimpleNamespace(export_id=1, generated_at=now, created_at=now)
         ]
         self.report_exports: list[ClinicalReportExport] = []
+        self.audit_events: list[ClinicalWorkflowAuditEvent] = []
         self.committed = False
 
     def execute(self, statement, *_args, **_kwargs):
@@ -184,6 +186,7 @@ class _ClinicalReportsDb:
         if "bridge_role_permission" in sql:
             return _PermissionResult(self.permissions)
         table_rows = {
+            "clinical_workflow_audit_events": self.audit_events,
             "clinical_report_exports": self.report_exports,
             "clinical_compliance_exports": self.compliance_exports,
             "clinical_quality_investigations": self.investigations,
@@ -213,6 +216,8 @@ class _ClinicalReportsDb:
     def add(self, row):
         if isinstance(row, ClinicalReportExport) and row not in self.report_exports:
             self.report_exports.append(row)
+        if isinstance(row, ClinicalWorkflowAuditEvent) and row not in self.audit_events:
+            self.audit_events.append(row)
 
     def flush(self):
         for export_index, export in enumerate(self.report_exports, start=1):
@@ -226,6 +231,11 @@ class _ClinicalReportsDb:
                 if history.history_id is None:
                     history.history_id = history_index
                 history.export_id = export.export_id
+        for event_index, event in enumerate(self.audit_events, start=1):
+            if event.id is None:
+                event.id = event_index
+            if event.created_at is None:
+                event.created_at = datetime.now(UTC)
 
     def commit(self):
         self.committed = True
@@ -327,6 +337,23 @@ def test_reports_export_preview_returns_row_counts(monkeypatch, tmp_path: Path) 
     assert payload["commit_required_header"] == "X-Confirm-Generation: true"
 
 
+def test_reports_export_preview_records_profile_and_redacts_identifier(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", tmp_path / "workflow_operations.json")
+    db = _ClinicalReportsDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/reports/analytics-exports/preview",
+            json={**_export_payload(), "entity_id": "PT-SECRET", "export_profile": "aggregate_safe"},
+        )
+    finally:
+        _clear_overrides()
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["export_profile"] == "aggregate_safe"
+    assert payload["filters"]["entity_id"] == "[redacted]"
+
+
 def test_reports_export_confirmation_guard_and_audit_file_created(monkeypatch, tmp_path: Path) -> None:
     audit_path = tmp_path / "workflow_operations.json"
     monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
@@ -353,7 +380,9 @@ def test_reports_export_confirmation_guard_and_audit_file_created(monkeypatch, t
     assert audit_path.exists()
     entries = json.loads(audit_path.read_text(encoding="utf-8"))
     assert entries[-1]["workflow"] == "reports.analytics_export"
+    assert entries[-1]["changes"]["export_profile"] == "aggregate_safe"
     assert len(db.report_exports) == 1
+    assert len(db.audit_events) == 1
     assert isinstance(db.report_exports[0].items[0], ClinicalReportExportItem)
     assert isinstance(db.report_exports[0].status_history[0], ClinicalReportStatusHistory)
 
@@ -376,6 +405,75 @@ def test_reports_export_audit_append_preserves_existing_entries(monkeypatch, tmp
     entries = json.loads(audit_path.read_text(encoding="utf-8"))
     assert entries[0]["operation_id"] == "existing"
     assert entries[-1]["workflow"] == "reports.analytics_export"
+
+
+def test_reports_export_commit_redacts_sensitive_filter_from_audit(monkeypatch, tmp_path: Path) -> None:
+    audit_path = tmp_path / "workflow_operations.json"
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    db = _ClinicalReportsDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/reports/analytics-exports",
+            headers={"X-Confirm-Generation": "true"},
+            json={**_export_payload(), "entity_id": "PT-SECRET", "export_profile": "aggregate_safe"},
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 201
+    assert db.report_exports[0].filters["entity_id"] == "[redacted]"
+    assert db.report_exports[0].payload_metadata["export_profile"] == "aggregate_safe"
+    entries = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert "PT-SECRET" not in json.dumps(entries[-1]["changes"])
+    assert "PT-SECRET" not in json.dumps(db.audit_events[-1].changes_json)
+
+
+def test_audit_activity_safe_profile_redacts_sensitive_changes() -> None:
+    now = datetime.now(UTC)
+    event = ClinicalWorkflowAuditEvent(
+        operation_id="op-sensitive",
+        workflow="quality.event_create",
+        entity_type="clinical_quality_event",
+        entity_id="QE-SECRET",
+        actor="QA User",
+        timestamp=now,
+        preview_hash="sha256-sensitive",
+        commit_confirmed=True,
+        status_before=None,
+        status_after="open",
+        reason="Created",
+        changes_json={"patient_id": "PT-SECRET", "note": "Sensitive clinical narrative"},
+        source="workflow_commit",
+        created_at=now,
+    )
+    db = _ClinicalReportsDb()
+    db.audit_events.append(event)
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).get("/api/clinical/reports/audit-activity?export_profile=aggregate_safe")
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 200
+    operation = response.json()["operations"][0]
+    assert operation["entity_id"] == "[redacted]"
+    assert operation["changes"]["patient_id"] == "[redacted]"
+    assert operation["changes"]["note"] == "[redacted]"
+
+
+def test_compliance_evidence_profile_requires_compliance_permission() -> None:
+    db = _ClinicalReportsDb(permissions=["reports.export"])
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/reports/analytics-exports/preview",
+            json={**_export_payload(), "export_profile": "compliance_evidence"},
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 403
 
 
 def test_external_partner_cannot_generate_analytics_exports() -> None:

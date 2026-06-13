@@ -4,6 +4,8 @@ RC1 review date: 2026-06-13
 
 RC2 update date: 2026-06-13
 
+Post-RC-02 PHI/export hardening update date: 2026-06-13
+
 Scope: Release Candidate Security / Production Readiness Pass. This review documents the current security posture without adding new clinical modules or introducing new heavyweight scanners.
 
 ## Repository-Native Review Process
@@ -58,8 +60,35 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 | Demo credentials | Seeded/demo passwords can exist locally. | No shared demo credentials. Seeded users must be removed, disabled, or reset during deployment. |
 | Audit storage | `metadata/workflow_operations.json` supports local evidence and testability. | Database-backed append-only audit storage plus object-storage mirroring is required before production signoff. |
 | Export delivery | Clinical analytics/compliance exports store metadata and row-count contracts. | External warehouse/clearinghouse delivery remains out of scope until dedicated controls are implemented. |
-| PHI masking | No full masking framework in RC1. | Role-aware masking/redaction and export minimum-necessary review are RC2+ items. |
+| PHI masking | Post-RC-02 includes deterministic export/audit redaction profiles. | Full role-aware UI masking, small-cell suppression, and approved external delivery controls remain production gate items. |
 | Dependency scanning | Preflight, `pip check`, and `npm audit` are used in RC1. | CI should include an approved Python vulnerability scanner and npm audit policy gate. |
+
+## Post-RC-02 PHI/ePHI Export Hardening
+
+Post-RC-02 added `backend/app/services/clinical_phi.py` as a lightweight sensitivity registry and profile redactor. The implementation is intentionally deterministic and limited to export-like/reporting/audit surfaces; it is not a full policy engine.
+
+Hardened endpoints:
+
+- `POST /api/clinical/reports/analytics-exports/preview`
+- `POST /api/clinical/reports/analytics-exports`
+- `POST /api/clinical/quality/compliance-exports/preview`
+- `POST /api/clinical/quality/compliance-exports`
+- `GET /api/clinical/quality/audit-evidence`
+- `GET /api/clinical/reports/audit-activity`
+
+Implemented profiles:
+
+- `aggregate_safe`
+- `internal_detail`
+- `compliance_evidence`
+- `external_safe`
+- `audit_metadata`
+
+Generic foundation commit hardening:
+
+- `POST /api/clinical/workflows/commit` now requires an internal authenticated user with `clinical_admin.manage` or `system.admin`.
+- External partner/supplier users are rejected even if they can reach the route.
+- Module-specific commit endpoints remain the preferred path for real clinical workflows.
 
 ## Known Findings
 
@@ -67,8 +96,8 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 | --- | --- | --- | --- | --- |
 | Vite/esbuild advisories from `npm audit` | High | RC1 `npm audit --audit-level=high` reported two high-severity advisories and recommended a Vite 8 major upgrade. | Resolved in RC2 with bounded Vite 8 / React plugin 6 upgrade. | Continue to run `npm audit --audit-level=high` in release validation. |
 | Production defaults are fail-open if not overridden | High | `SECRET_KEY`, `COOKIE_SECURE=false`, `MFA_DEV_BYPASS_CODE=000000`, and optional encryption keys exist as defaults/examples. | Documented. No code gate added in RC1. | RC2: add startup validation that rejects unsafe defaults when `APP_ENV=prod`. |
-| Workflow audit remains filesystem-backed | High | `metadata/workflow_operations.json` full-file append pattern. | Documented in audit durability plan. | RC2: implement database-backed append-only audit table and migration/backfill. |
-| Generic foundation workflow commit lacks user auth | Medium | `/api/clinical/workflows/commit` requires confirmation header but does not require an authenticated user. | Documented as a gap. | RC2: either restrict to admin/test contexts or require authenticated clinical admin permission. |
+| Workflow audit remains filesystem-backed | High | `metadata/workflow_operations.json` full-file append pattern. | Resolved by Post-RC-01 DB-backed append-only audit storage with JSON mirror/fallback. | Add object-storage/WORM mirror before production evidence immutability signoff. |
+| Generic foundation workflow commit lacks user auth | Medium | `/api/clinical/workflows/commit` requires confirmation header but does not require an authenticated user. | Resolved in Post-RC-02. | Continue to prefer module-specific commit endpoints and keep generic commit admin-only. |
 | Report audit activity is available through broad report-read access | Medium | `/api/clinical/reports/audit-activity` uses report read guard. | Documented as minimum-necessary review item. | RC2: split audit activity access behind `audit.review` or a dedicated audit reporting permission. |
 | No repository-native Python vulnerability scanner | Medium | `pyproject.toml` dev extras include pytest/httpx/ruff only. | Documented. | RC2: add approved scanner to CI after dependency policy is agreed. |
 
@@ -76,7 +105,7 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 
 1. Add a production startup safety check for `APP_ENV=prod` that rejects default `SECRET_KEY`, insecure cookie settings, predictable MFA bypass, and missing production encryption settings.
 2. Keep frontend dependency audit in release validation after the RC2 Vite 8 remediation.
-3. Add database-backed workflow operation audit storage with append-only database permissions and object-storage mirroring.
+3. Add object-storage mirroring for workflow audit evidence if immutable off-database evidence is required.
 4. Split report audit activity and export metadata permissions where compliance owners require least-privilege separation.
 5. Add CI-visible vulnerability scanning for Python and frontend dependencies using approved tooling.
-6. Add PHI masking/redaction requirements to export and report workflows before external delivery.
+6. Add small-cell suppression, full UI field masking, and production policy signoff before external delivery.

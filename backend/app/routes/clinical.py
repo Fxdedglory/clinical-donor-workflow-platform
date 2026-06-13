@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, Request, status
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user, get_user_permissions
 from app.database import get_db
+from app.models import User
 from app.schemas.clinical import (
     ClinicalModuleRead,
     ClinicalStatusRead,
@@ -17,8 +20,11 @@ from app.services.clinical_workflows import (
     preview_hash,
     require_generation_confirmation,
 )
+from app.services.clinical_patients import actor_label
+from app.services.clinical_phi import is_external_user
 
 router = APIRouter(prefix="/api/clinical", tags=["Clinical Platform Foundation"])
+GENERIC_WORKFLOW_COMMIT_PERMISSIONS = {"system.admin", "clinical_admin.manage"}
 
 CLINICAL_MODULES = [
     ClinicalModuleRead(
@@ -187,6 +193,26 @@ def _validation_status(issues: list[WorkflowValidationIssue]) -> str:
     return "passed"
 
 
+def require_generic_workflow_commit(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    if is_external_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="External users cannot use the generic clinical workflow commit endpoint.",
+        )
+    permissions = set(getattr(current_user, "permissions", []) or [])
+    if permissions.isdisjoint(GENERIC_WORKFLOW_COMMIT_PERMISSIONS):
+        permissions |= set(get_user_permissions(db, current_user))
+    if permissions.isdisjoint(GENERIC_WORKFLOW_COMMIT_PERMISSIONS):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Generic workflow commit requires clinical admin or system admin permission.",
+        )
+    return current_user
+
+
 @router.get("/status", response_model=ClinicalStatusRead)
 def clinical_status() -> ClinicalStatusRead:
     return ClinicalStatusRead(status="foundation_ready", modules_count=len(CLINICAL_MODULES))
@@ -221,6 +247,7 @@ def preview_workflow(payload: WorkflowPreviewRequest) -> WorkflowPreviewResponse
 def commit_workflow(
     payload: WorkflowCommitRequest,
     request: Request,
+    current_user: User = Depends(require_generic_workflow_commit),
     db: Session = Depends(get_db),
     _: bool = Depends(require_generation_confirmation),
 ) -> WorkflowCommitResponse:
@@ -229,12 +256,17 @@ def commit_workflow(
         workflow=payload.workflow,
         entity_type=payload.entity_type,
         entity_id=payload.entity_id or "draft",
-        actor=payload.actor,
+        actor=actor_label(current_user),
         preview_hash=preview_value,
         status_before=payload.status_before,
         status_after=payload.status_after,
         reason=payload.reason,
-        changes=payload.changes,
+        changes={
+            "generic_foundation_commit": True,
+            "module_specific_commit_preferred": True,
+            "requested_actor": payload.actor,
+            "changes": payload.changes,
+        },
     )
     operation, audit_path = append_workflow_operation(operation, db=db)
     return WorkflowCommitResponse(

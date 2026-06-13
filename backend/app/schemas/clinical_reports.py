@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.services.clinical_phi import DEFAULT_AGGREGATE_EXPORT_PROFILE, normalize_export_profile
+
 
 class ReportMetricCard(BaseModel):
     label: str
@@ -42,6 +44,7 @@ class ReportFilterRequest(BaseModel):
     entity_id: str | None = None
     actor: str | None = None
     workflow: str | None = None
+    export_profile: str = DEFAULT_AGGREGATE_EXPORT_PROFILE
 
     @field_validator("status", "module", "entity_type", "entity_id", "actor", "workflow")
     @classmethod
@@ -50,6 +53,11 @@ class ReportFilterRequest(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+    @field_validator("export_profile")
+    @classmethod
+    def valid_export_profile(cls, value: str) -> str:
+        return normalize_export_profile(value, default=DEFAULT_AGGREGATE_EXPORT_PROFILE)
 
     @model_validator(mode="after")
     def date_range_valid(self):
@@ -203,6 +211,7 @@ class AnalyticsExportPreviewResponse(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
     row_counts: dict[str, int] = Field(default_factory=dict)
     export_format: str = "json"
+    export_profile: str = DEFAULT_AGGREGATE_EXPORT_PROFILE
     warnings: list[ReportWarning] = Field(default_factory=list)
     blocking_issues: list[ReportBlockingIssue] = Field(default_factory=list)
     commit_required_header: str = "X-Confirm-Generation: true"

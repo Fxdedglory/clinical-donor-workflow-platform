@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
+from app.auth.dependencies import get_current_user
 from app.main import app
+from app.models import User
 from app.schemas.clinical import WorkflowOperation
 from app.services import clinical_workflows
 from app.services.clinical_workflows import append_workflow_operation
@@ -22,11 +24,74 @@ def _commit_payload() -> dict[str, object]:
     }
 
 
+def _admin_user() -> User:
+    user = User(
+        user_id=1,
+        username="admin",
+        full_name="Clinical Admin",
+        email="admin@example.test",
+        role="System Administrator",
+        account_type="internal",
+        user_type="internal",
+        is_internal=True,
+        is_external=False,
+        external_user_flag=False,
+    )
+    user.permissions = ["system.admin"]
+    return user
+
+
+def _external_user() -> User:
+    user = User(
+        user_id=2,
+        username="partner",
+        full_name="Partner User",
+        email="partner@example.test",
+        role="Partner External User",
+        account_type="partner",
+        user_type="partner",
+        is_internal=False,
+        is_external=True,
+        external_user_flag=True,
+    )
+    user.permissions = ["partner.portal"]
+    return user
+
+
+def _internal_non_admin_user() -> User:
+    user = User(
+        user_id=3,
+        username="reader",
+        full_name="Report Reader",
+        email="reader@example.test",
+        role="Clinical Reviewer",
+        account_type="internal",
+        user_type="internal",
+        is_internal=True,
+        is_external=False,
+        external_user_flag=False,
+    )
+    user.permissions = ["reports.read"]
+    return user
+
+
+def _override_user(user: User) -> None:
+    app.dependency_overrides[get_current_user] = lambda: user
+
+
+def _clear_overrides() -> None:
+    app.dependency_overrides.clear()
+
+
 def test_missing_confirmation_header_rejected(monkeypatch, tmp_path: Path) -> None:
     audit_path = tmp_path / "workflow_operations.json"
     monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    _override_user(_admin_user())
 
-    response = TestClient(app).post("/api/clinical/workflows/commit", json=_commit_payload())
+    try:
+        response = TestClient(app).post("/api/clinical/workflows/commit", json=_commit_payload())
+    finally:
+        _clear_overrides()
 
     assert response.status_code == 409
     assert response.json()["detail"]["status"] == "confirmation_required"
@@ -36,12 +101,16 @@ def test_missing_confirmation_header_rejected(monkeypatch, tmp_path: Path) -> No
 def test_invalid_confirmation_header_rejected(monkeypatch, tmp_path: Path) -> None:
     audit_path = tmp_path / "workflow_operations.json"
     monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    _override_user(_admin_user())
 
-    response = TestClient(app).post(
-        "/api/clinical/workflows/commit",
-        headers={"X-Confirm-Generation": "false"},
-        json=_commit_payload(),
-    )
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/workflows/commit",
+            headers={"X-Confirm-Generation": "false"},
+            json=_commit_payload(),
+        )
+    finally:
+        _clear_overrides()
 
     assert response.status_code == 409
     assert response.json()["detail"]["status"] == "confirmation_required"
@@ -51,19 +120,60 @@ def test_invalid_confirmation_header_rejected(monkeypatch, tmp_path: Path) -> No
 def test_valid_confirmation_header_accepted(monkeypatch, tmp_path: Path) -> None:
     audit_path = tmp_path / "metadata" / "workflow_operations.json"
     monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    _override_user(_admin_user())
 
-    response = TestClient(app).post(
-        "/api/clinical/workflows/commit",
-        headers={"X-Confirm-Generation": "true"},
-        json=_commit_payload(),
-    )
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/workflows/commit",
+            headers={"X-Confirm-Generation": "true"},
+            json=_commit_payload(),
+        )
+    finally:
+        _clear_overrides()
 
     assert response.status_code == 201
     payload = response.json()
     assert payload["status"] == "committed"
     assert payload["operation"]["commit_confirmed"] is True
     assert payload["operation"]["preview_hash"] == "sha256-test-preview"
+    assert payload["operation"]["actor"] == "admin@example.test"
     assert audit_path.exists()
+
+
+def test_generic_workflow_commit_rejects_external_users(monkeypatch, tmp_path: Path) -> None:
+    audit_path = tmp_path / "metadata" / "workflow_operations.json"
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    _override_user(_external_user())
+
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/workflows/commit",
+            headers={"X-Confirm-Generation": "true"},
+            json=_commit_payload(),
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 403
+    assert not audit_path.exists()
+
+
+def test_generic_workflow_commit_requires_admin_permission(monkeypatch, tmp_path: Path) -> None:
+    audit_path = tmp_path / "metadata" / "workflow_operations.json"
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    _override_user(_internal_non_admin_user())
+
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/workflows/commit",
+            headers={"X-Confirm-Generation": "true"},
+            json=_commit_payload(),
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 403
+    assert not audit_path.exists()
 
 
 def test_workflow_audit_file_created_if_missing(tmp_path: Path) -> None:

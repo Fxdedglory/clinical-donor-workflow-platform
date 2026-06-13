@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ClinicalWorkflowAuditEvent
 from app.schemas.clinical import WorkflowOperation, WorkflowPreviewRequest
+from app.services.clinical_phi import redact_audit_changes
 
 CONFIRM_GENERATION_HEADER = "X-Confirm-Generation"
 WORKFLOW_OPERATIONS_PATH = Path("metadata/workflow_operations.json")
@@ -152,6 +153,7 @@ def append_workflow_operation(
     source: str = WORKFLOW_AUDIT_SOURCE_COMMIT,
     mirror_json: bool = True,
 ) -> tuple[WorkflowOperation, Path]:
+    operation = operation.model_copy(update={"changes": redact_audit_changes(operation.changes)})
     target = path or WORKFLOW_OPERATIONS_PATH
     if db is not None:
         try:

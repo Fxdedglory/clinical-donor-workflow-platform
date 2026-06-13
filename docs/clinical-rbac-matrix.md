@@ -4,6 +4,8 @@ RC0 inventory date: 2026-06-12
 
 RC1 enforcement review date: 2026-06-13
 
+Post-RC-02 hardening update date: 2026-06-13
+
 Source reviewed: `backend/app/services/access_control.py` plus module-level route dependencies.
 
 ## Permission Families
@@ -53,6 +55,7 @@ Source reviewed: `backend/app/services/access_control.py` plus module-level rout
 | Quality / Compliance | `quality.read`, `quality.manage`, `quality.close`, `quality.export`, `qms.manage`, `audit.review`, `system.admin` | `quality.manage`, `qms.manage`, `system.admin` | `quality.close`, `quality.export`, `audit.review` | External users rejected from quality operations and export. |
 | Reports | `reports.read`, `reports.export`, `dashboard.view`, `audit.review`, `quality.export`, `clinical_admin.read`, `system.admin` | None for aggregate reads | `reports.export`, `quality.export`, `audit.review`, `clinical_admin.manage`, `system.admin` for analytics export | External users rejected from report access/export in current route guards. |
 | Clinical Admin | `clinical_admin.read`, `clinical_admin.manage`, `system.admin` | `clinical_admin.manage`, `system.admin` | Configuration versioning and approval path management | External users rejected from admin read/mutation. |
+| Generic Workflow Foundation | `/api/clinical/workflows/preview` remains foundation preview only. | `/api/clinical/workflows/commit` now requires `clinical_admin.manage` or `system.admin`. | Confirmation header plus internal authenticated admin context. | External partner/supplier users rejected; module-specific commit endpoints are preferred for real clinical workflows. |
 
 ## Commit Guard Expectations
 
@@ -77,7 +80,7 @@ Preview endpoints do not mutate durable clinical state and do not require this h
 | Route area | Current enforcement | RC1 assessment |
 | --- | --- | --- |
 | `/api/clinical/status`, `/api/clinical/modules`, `/api/clinical/workflows/preview` | Foundation routes are unauthenticated. | Acceptable for local foundation status only if not internet-exposed. RC2 should decide whether foundation routes require authentication in production. |
-| `/api/clinical/workflows/commit` | Requires `X-Confirm-Generation: true`; does not require an authenticated user. | Gap. It writes workflow operation audit entries and should be restricted to authenticated admin/test contexts before production. |
+| `/api/clinical/workflows/commit` | Requires `X-Confirm-Generation: true`, internal authenticated user, and `clinical_admin.manage` or `system.admin`. | Post-RC-02 hardened. Module-specific commit endpoints remain the preferred mutation path. |
 | Patients, scheduling, screening, encounters, orders, care plans, billing | Module-specific guards use `get_current_user`, permission sets, and explicit external-user rejection. | Consistent internal-only pattern. Mutation routes also require confirmation header. |
 | Quality | `require_quality_read`, `require_quality_mutation`, `require_quality_close`, and `require_quality_export` separate read, mutation, closure, and export access. | Strongest module-level separation in the current clinical namespace. |
 | Reports | `require_reports_read` for dashboards/report reads and `require_reports_export` for analytics export preview/commit. | Export guard is appropriate. Audit activity under report-read should be reviewed for least privilege. |
@@ -93,6 +96,17 @@ Preview endpoints do not mutate durable clinical state and do not require this h
 | `/api/clinical/quality/audit-evidence` | `quality.export`, `audit.review`, `qms.manage`, or `system.admin`. | Not applicable; read-only evidence query. | Rejected. | Evidence can include workflow operation change payloads. |
 | `/api/clinical/quality/compliance-exports/preview` and `/api/clinical/quality/compliance-exports` | `quality.export`, `audit.review`, `qms.manage`, or `system.admin`. | Required on commit. | Rejected. | Export commit writes `quality.compliance_export` workflow audit. |
 | `/api/clinical/admin/rbac` | `clinical_admin.read`, `clinical_admin.manage`, or `system.admin`. | Not applicable; read-only. | Rejected. | Treat as sensitive admin metadata even though it is not an export endpoint. |
+| `/api/clinical/workflows/commit` | `clinical_admin.manage` or `system.admin`. | Required. | Rejected. | Generic foundation commit endpoint is locked down; use module-specific commit routes for clinical mutation behavior. |
+
+## Post-RC-02 Export Profile Access
+
+| Export profile | Intended use | Permission expectation |
+| --- | --- | --- |
+| `aggregate_safe` | Default analytics/report export preview and commit; avoids direct identifiers. | Existing report/quality export route permission. |
+| `external_safe` | Strict safe-share redaction profile for export-like audit/report responses. | Existing route permission; external users remain rejected by current internal clinical guards. |
+| `audit_metadata` | Default audit evidence profile; avoids raw clinical narratives and sensitive free text in audit change payloads. | `quality.export`, `audit.review`, `qms.manage`, or `system.admin` for quality evidence; report guard for report audit activity. |
+| `internal_detail` | Internal operational detail when necessary. | `system.admin`, `reports.export`, `quality.export`, `audit.review`, or `clinical_admin.manage`. |
+| `compliance_evidence` | Compliance evidence package with sensitive details. | `system.admin`, `quality.export`, `audit.review`, `qms.manage`, or `clinical_admin.manage`. |
 
 ## RC1 External Partner / Supplier Restrictions
 
@@ -102,10 +116,10 @@ Allowed external access remains limited to partner/supplier portal permissions s
 
 ## RC2 Remediation Items
 
-1. Require authentication and an explicit admin/test permission for the generic foundation workflow commit endpoint.
-2. Generate route-permission inventory from FastAPI route metadata and compare it to this matrix and `ROLE_DEFINITIONS`.
-3. Split report audit activity from broad `reports.read` if compliance owners classify audit operation payloads as audit-only.
-4. Decide whether analytics export list metadata should require export permission rather than report read permission.
-5. Add frontend route-visibility tests that confirm hidden/disabled navigation never replaces backend authorization.
-6. Resolve the "QA Specialist" display label versus "Quality Assurance Specialist" role-name mismatch.
-7. Review `system.admin` use for least-privilege production operations.
+1. Generate route-permission inventory from FastAPI route metadata and compare it to this matrix and `ROLE_DEFINITIONS`.
+2. Split report audit activity from broad `reports.read` if compliance owners classify audit operation payloads as audit-only.
+3. Decide whether analytics export list metadata should require export permission rather than report read permission.
+4. Add frontend route-visibility tests that confirm hidden/disabled navigation never replaces backend authorization.
+5. Resolve the "QA Specialist" display label versus "Quality Assurance Specialist" role-name mismatch.
+6. Review `system.admin` use for least-privilege production operations.
+7. Obtain compliance signoff for `internal_detail` and `compliance_evidence` profile use in production.

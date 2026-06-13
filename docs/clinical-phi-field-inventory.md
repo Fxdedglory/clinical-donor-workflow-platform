@@ -2,6 +2,8 @@
 
 RC1 review date: 2026-06-13
 
+Post-RC-02 hardening update date: 2026-06-13
+
 Scope: operational clinical models, workflow audit payloads, reports, and export metadata currently implemented under the clinical platform.
 
 ## Inventory Summary
@@ -34,11 +36,31 @@ RC1 does not implement a new PHI masking or field-level encryption framework. Pr
 
 ## Masking And Redaction Future Needs
 
-1. Define role-aware field visibility for demographics, contacts, insurance identifiers, clinical notes, results, billing identifiers, and audit change payloads.
-2. Add export profiles such as aggregate-only, operational-detail, compliance-evidence, and admin-security.
-3. Add small-cell suppression for analytics reports and exports.
-4. Add explicit free-text redaction review for notes, adverse event descriptions, investigation findings, denial notes, and audit reasons.
-5. Add tests that verify external partner users cannot access internal clinical PHI/ePHI routes or export metadata.
+Post-RC-02 added a lightweight deterministic sensitivity registry in `backend/app/services/clinical_phi.py`. It classifies fields across patients, contacts, insurance, scheduling, screening, encounters, orders, care plans, billing, quality, audit, reports, and admin using these levels:
+
+- `public`
+- `internal`
+- `phi`
+- `ephi`
+- `financial`
+- `compliance_sensitive`
+- `audit_sensitive`
+
+Post-RC-02 also added reusable export profiles:
+
+- `aggregate_safe`: default report/analytics profile; redacts direct identifiers and sensitive change details.
+- `external_safe`: strict safe-share profile; redacts internal, PHI/ePHI, financial, compliance, and audit-sensitive fields.
+- `audit_metadata`: default audit evidence profile; avoids raw clinical narratives, note bodies, detailed claim data, and sensitive free text in audit change payloads.
+- `internal_detail`: internal detailed profile requiring export, audit, or admin permission.
+- `compliance_evidence`: compliance evidence profile requiring compliance, audit, QMS, or admin permission.
+
+Remaining future needs:
+
+1. Define role-aware field visibility for live UI rendering of demographics, contacts, insurance identifiers, clinical notes, results, and billing identifiers.
+2. Add small-cell suppression for analytics reports and exports.
+3. Add production-grade free-text redaction review for notes, adverse event descriptions, investigation findings, denial notes, and audit reasons.
+4. Add object-storage/WORM controls for immutable export artifacts if external delivery is later approved.
+5. Add production policy signoff for which roles may request `internal_detail` and `compliance_evidence`.
 
 ## Retention Notes
 
