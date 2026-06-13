@@ -37,7 +37,6 @@ Date: 2026-06-13
 
 ## Remaining Post-RC Items
 
-- Small-cell suppression for report aggregates remains planned.
 - Full role-aware UI field masking remains planned.
 - Object-storage immutability/WORM mirror remains planned.
 - External secret manager and Entra-backed MFA integration remain planned.
@@ -58,8 +57,27 @@ Date: 2026-06-13
 
 ## Remaining Post-RC Security Items
 
-- Route-permission drift inventory tests remain planned.
-- Small-cell suppression remains planned.
+- Full role-aware UI field masking remains planned.
+- Object-storage immutability/WORM mirror remains planned.
+- External secret manager and Entra-backed MFA integration remain future deployment-hardening work.
+
+## Route Drift Tests And Analytics Small-Cell Suppression
+
+Update: CLINICAL-POST-RC-04
+
+Date: 2026-06-13
+
+- Added live FastAPI route-permission drift tests for `/api/clinical` sensitive routes.
+- Documented route permission categories across API inventory and RBAC docs, including `public_or_health`, `internal_read`, `internal_mutation`, `clinical_admin`, `compliance_export`, `analytics_export`, `audit_evidence`, `external_partner_denied`, and `generic_foundation_restricted`.
+- Added reusable small-cell suppression helpers for aggregate report/export count cells.
+- Applied suppression to clinical report read endpoints for `aggregate_safe` and `external_safe` profiles.
+- Applied suppression to analytics export preview and commit row-count contracts.
+- Persisted suppression metadata in analytics export metadata and workflow audit changes.
+- Kept `internal_detail` available for authorized internal export/audit/admin users without small-cell suppression.
+- Added tests for suppression threshold behavior, profile behavior, export metadata, audit changes, and route-permission drift.
+
+## Remaining Post-RC Hardening Items
+
 - Full role-aware UI field masking remains planned.
 - Object-storage immutability/WORM mirror remains planned.
 - External secret manager and Entra-backed MFA integration remain future deployment-hardening work.

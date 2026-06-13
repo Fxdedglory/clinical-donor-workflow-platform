@@ -8,6 +8,8 @@ Post-RC-02 PHI/export hardening update date: 2026-06-13
 
 Post-RC-03 production startup gate update date: 2026-06-13
 
+Post-RC-04 route drift and analytics suppression update date: 2026-06-13
+
 Scope: Release Candidate Security / Production Readiness Pass. This review documents the current security posture without adding new clinical modules or introducing new heavyweight scanners.
 
 ## Repository-Native Review Process
@@ -62,7 +64,7 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 | Demo credentials | Seeded/demo passwords can exist locally. | No shared demo credentials. Seeded users must be removed, disabled, or reset during deployment. |
 | Audit storage | `metadata/workflow_operations.json` supports local evidence and testability. | Database-backed append-only audit storage plus object-storage mirroring is required before production signoff. |
 | Export delivery | Clinical analytics/compliance exports store metadata and row-count contracts. | External warehouse/clearinghouse delivery remains out of scope until dedicated controls are implemented. |
-| PHI masking | Post-RC-02 includes deterministic export/audit redaction profiles. | Full role-aware UI masking, small-cell suppression, and approved external delivery controls remain production gate items. |
+| PHI masking | Post-RC-02 includes deterministic export/audit redaction profiles. Post-RC-04 adds small-cell suppression for aggregate report/export count cells. | Full role-aware UI masking and approved external delivery controls remain production gate items. |
 | Dependency scanning | Preflight, `pip check`, and `npm audit` are used in RC1. | CI should include an approved Python vulnerability scanner and npm audit policy gate. |
 
 ## Post-RC-02 PHI/ePHI Export Hardening
@@ -114,6 +116,24 @@ Local/dev mode returns warnings instead of raising, and `scripts/preflight_check
 
 Reference: `docs/clinical-production-security-gates.md`.
 
+## Post-RC-04 Route Drift And Small-Cell Suppression
+
+Post-RC-04 adds `tests/test_clinical_route_permission_drift.py`, which enumerates registered FastAPI routes under `/api/clinical` and verifies sensitive routes remain documented in `docs/clinical-api-inventory.md` and classified in the RBAC model.
+
+Route category tokens include:
+
+- `public_or_health`
+- `internal_read`
+- `internal_mutation`
+- `clinical_admin`
+- `compliance_export`
+- `analytics_export`
+- `audit_evidence`
+- `external_partner_denied`
+- `generic_foundation_restricted`
+
+Post-RC-04 also adds `backend/app/services/clinical_reporting_privacy.py` for deterministic small-cell suppression. For `aggregate_safe` and `external_safe` report/export profiles, nonzero count cells below 5 are replaced with suppression metadata before responses or export row-count contracts are returned. Authorized `internal_detail` usage remains visible for operational review.
+
 ## Known Findings
 
 | Finding | Severity | Evidence | RC1 disposition | Remediation |
@@ -124,6 +144,8 @@ Reference: `docs/clinical-production-security-gates.md`.
 | Generic foundation workflow commit lacks user auth | Medium | `/api/clinical/workflows/commit` requires confirmation header but does not require an authenticated user. | Resolved in Post-RC-02. | Continue to prefer module-specific commit endpoints and keep generic commit admin-only. |
 | Report audit activity is available through broad report-read access | Medium | `/api/clinical/reports/audit-activity` uses report read guard. | Documented as minimum-necessary review item. | RC2: split audit activity access behind `audit.review` or a dedicated audit reporting permission. |
 | No repository-native Python vulnerability scanner | Medium | `pyproject.toml` dev extras include pytest/httpx/ruff only. | Documented. | RC2: add approved scanner to CI after dependency policy is agreed. |
+| Route-permission drift tests were missing | Medium | New clinical routes could be added without matching inventory/RBAC docs. | Resolved in Post-RC-04 with live FastAPI route drift tests for sensitive routes. | Keep docs and category tests updated as routes are added. |
+| Small aggregate cohorts could disclose re-identification risk | Medium | Report/export counts previously returned visible nonzero values below 5. | Resolved for aggregate report/export count cells in Post-RC-04. | Review threshold with compliance owners before external analytics sharing. |
 
 ## Remediation Plan
 
@@ -132,4 +154,5 @@ Reference: `docs/clinical-production-security-gates.md`.
 3. Add object-storage mirroring for workflow audit evidence if immutable off-database evidence is required.
 4. Split report audit activity and export metadata permissions where compliance owners require least-privilege separation.
 5. Add CI-visible vulnerability scanning for Python and frontend dependencies using approved tooling.
-6. Add small-cell suppression, full UI field masking, and production policy signoff before external delivery.
+6. Add full UI field masking and production policy signoff before external delivery.
+7. Keep the Post-RC-04 route drift and small-cell suppression tests in release validation.

@@ -4,6 +4,8 @@ RC1 review date: 2026-06-13
 
 Post-RC-02 hardening update date: 2026-06-13
 
+Post-RC-04 small-cell suppression update date: 2026-06-13
+
 Scope: operational clinical models, workflow audit payloads, reports, and export metadata currently implemented under the clinical platform.
 
 ## Inventory Summary
@@ -46,10 +48,10 @@ Post-RC-02 added a lightweight deterministic sensitivity registry in `backend/ap
 - `compliance_sensitive`
 - `audit_sensitive`
 
-Post-RC-02 also added reusable export profiles:
+Post-RC-02 also added reusable export profiles, and Post-RC-04 added small-cell suppression for aggregate report/export count cells under safe profiles:
 
-- `aggregate_safe`: default report/analytics profile; redacts direct identifiers and sensitive change details.
-- `external_safe`: strict safe-share profile; redacts internal, PHI/ePHI, financial, compliance, and audit-sensitive fields.
+- `aggregate_safe`: default report/analytics profile; redacts direct identifiers, sensitive change details, and nonzero count cells below 5.
+- `external_safe`: strict safe-share profile; redacts internal, PHI/ePHI, financial, compliance, audit-sensitive fields, and nonzero count cells below 5.
 - `audit_metadata`: default audit evidence profile; avoids raw clinical narratives, note bodies, detailed claim data, and sensitive free text in audit change payloads.
 - `internal_detail`: internal detailed profile requiring export, audit, or admin permission.
 - `compliance_evidence`: compliance evidence profile requiring compliance, audit, QMS, or admin permission.
@@ -57,10 +59,10 @@ Post-RC-02 also added reusable export profiles:
 Remaining future needs:
 
 1. Define role-aware field visibility for live UI rendering of demographics, contacts, insurance identifiers, clinical notes, results, and billing identifiers.
-2. Add small-cell suppression for analytics reports and exports.
-3. Add production-grade free-text redaction review for notes, adverse event descriptions, investigation findings, denial notes, and audit reasons.
-4. Add object-storage/WORM controls for immutable export artifacts if external delivery is later approved.
-5. Add production policy signoff for which roles may request `internal_detail` and `compliance_evidence`.
+2. Add production-grade free-text redaction review for notes, adverse event descriptions, investigation findings, denial notes, and audit reasons.
+3. Add object-storage/WORM controls for immutable export artifacts if external delivery is later approved.
+4. Add production policy signoff for which roles may request `internal_detail` and `compliance_evidence`.
+5. Add compliance signoff for the small-cell suppression threshold before external analytics sharing.
 
 ## Retention Notes
 

@@ -64,6 +64,12 @@ from app.services.clinical_phi import (
     redact_payload,
     redact_workflow_operations,
 )
+from app.services.clinical_reporting_privacy import (
+    SMALL_CELL_THRESHOLD,
+    is_suppressed_cell,
+    suppress_report_payload,
+    visible_count,
+)
 from app.services.clinical_workflows import (
     append_workflow_operation,
     preview_hash,
@@ -119,6 +125,20 @@ def permission_set(db: Session, user: User) -> set[str]:
 
 def _warning(warning_type: str, message: str, field: str | None = None) -> ReportWarning:
     return ReportWarning(warning_type=warning_type, message=message, field=field)
+
+
+def apply_small_cell_suppression(response: Any, export_profile: str) -> Any:
+    payload = response.model_dump(mode="json")
+    suppressed_payload, metadata = suppress_report_payload(payload, export_profile)
+    if metadata["small_cell_suppression"]["applied"] and "warnings" in suppressed_payload:
+        suppressed_payload["warnings"].append(
+            _warning(
+                "small_cell_suppression",
+                f"Counts below {SMALL_CELL_THRESHOLD} are suppressed to reduce re-identification risk.",
+                "suppression",
+            ).model_dump(mode="json")
+        )
+    return response.__class__.model_validate(suppressed_payload)
 
 
 def _all_rows(db: Session, model: type, include_deleted: bool = False) -> list[Any]:
@@ -550,10 +570,19 @@ def export_row_counts(db: Session, payload: AnalyticsExportPreviewRequest) -> di
 def analytics_export_preview(db: Session, payload: AnalyticsExportPreviewRequest) -> AnalyticsExportPreviewResponse:
     modules = payload.modules or DEFAULT_EXPORT_MODULES
     unknown = [module for module in modules if module not in REPORT_FUNCTIONS]
-    row_counts = export_row_counts(db, payload)
+    raw_row_counts = export_row_counts(db, payload)
+    row_counts, suppression = suppress_report_payload({"row_counts": raw_row_counts}, payload.export_profile)
     warnings = [
         _warning("foundation_scope", "Export stores metadata and row-count contracts only; external warehouse upload is planned.")
     ]
+    if suppression["small_cell_suppression"]["applied"]:
+        warnings.append(
+            _warning(
+                "small_cell_suppression",
+                f"Export row counts below {SMALL_CELL_THRESHOLD} are suppressed.",
+                "row_counts",
+            )
+        )
     if payload.export_profile != DEFAULT_AGGREGATE_EXPORT_PROFILE:
         warnings.append(_warning("export_profile", f"Export profile selected: {payload.export_profile}.", "export_profile"))
     if payload.include_detail:
@@ -565,9 +594,10 @@ def analytics_export_preview(db: Session, payload: AnalyticsExportPreviewRequest
         date_from=payload.date_from,
         date_to=payload.date_to,
         filters=redact_payload(payload.model_dump(mode="json", exclude_none=True), payload.export_profile, module="reports"),
-        row_counts=row_counts,
+        row_counts=row_counts["row_counts"],
         export_format=payload.export_format,
         export_profile=payload.export_profile,
+        suppression=suppression,
         warnings=warnings,
         blocking_issues=[
             {"issue_type": "unknown_module", "message": f"Unsupported report module: {module}", "field": "modules"}
@@ -618,6 +648,12 @@ def _export_response(export: ClinicalReportExport) -> AnalyticsExportResponse:
     )
 
 
+def _export_item_row_count(value: Any) -> int:
+    if is_suppressed_cell(value):
+        return 0
+    return visible_count(value)
+
+
 def list_analytics_exports(db: Session) -> list[AnalyticsExportResponse]:
     rows = list(
         db.execute(select(ClinicalReportExport).where(ClinicalReportExport.is_deleted.is_(False))).scalars().all()
@@ -652,6 +688,7 @@ def commit_analytics_export(
             "include_detail": payload.include_detail,
             "export_profile": payload.export_profile,
             "redaction_profile_applied": True,
+            "suppression": preview.suppression,
             "csv_ready": payload.export_format == "csv",
             "external_delivery": "planned",
         },
@@ -665,11 +702,12 @@ def commit_analytics_export(
         ClinicalReportExportItem(
             module=module,
             report_name=module.replace("_", " ").title(),
-            row_count=preview.row_counts.get(module, 0),
+            row_count=_export_item_row_count(preview.row_counts.get(module, 0)),
             payload_metadata={
                 "contract": "aggregate_json",
                 "detail_included": payload.include_detail,
                 "export_profile": payload.export_profile,
+                "suppression": preview.row_counts.get(module) if is_suppressed_cell(preview.row_counts.get(module)) else None,
             },
         )
         for module in modules
@@ -695,6 +733,7 @@ def commit_analytics_export(
             "row_counts": preview.row_counts,
             "export_format": payload.export_format,
             "export_profile": payload.export_profile,
+            "suppression": preview.suppression,
             "filters": export_filters,
         },
     )

@@ -621,10 +621,16 @@ Implemented reporting foundation:
 - The clinical module inventory now marks Reports as active and lists the Sprint 11 reporting workflows.
 - Focused tests cover report endpoint loading, export preview row counts, missing/invalid/valid confirmation headers, audit file creation, audit append preservation, persisted export metadata, and external partner export rejection.
 
+Post-RC-04 hardening:
+
+- Added route-permission drift tests that enumerate live `/api/clinical` FastAPI routes and require sensitive routes to remain documented and classified.
+- Added small-cell suppression for aggregate report count cells and analytics export row counts under safe export profiles.
+- Added suppression metadata to report/export responses and analytics export workflow audit changes.
+
 ## Future Sprint Sequence
 
 1. Advanced workflow execution: approval execution, notification delivery, recurrence engines, escalation actions, and production policy review queues.
-2. Analytics delivery hardening: warehouse delivery, materialized marts/views, BI semantic models, FHIR/HL7 extracts, and governed external analytics packaging.
+2. Analytics delivery hardening: warehouse delivery, materialized marts/views, BI semantic models, FHIR/HL7 extracts, governed external analytics packaging, and compliance signoff for suppression thresholds.
 3. External compliance packages: retention policy automation, export signing, external response routing, and regulator-ready submission workflows.
 
 ## Validation Commands

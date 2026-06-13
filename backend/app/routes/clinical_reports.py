@@ -30,6 +30,7 @@ from app.schemas.clinical_reports import (
 from app.services.clinical_reports import (
     REPORT_EXPORT_PERMISSIONS,
     REPORT_READ_PERMISSIONS,
+    apply_small_cell_suppression,
     analytics_export_preview,
     audit_activity_report,
     billing_work_queue_report,
@@ -114,7 +115,8 @@ def get_reports_dashboard(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> ClinicalReportsDashboardResponse:
-    return dashboard_response(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(dashboard_response(db, filters), filters.export_profile)
 
 
 @router.get("/patient-throughput", response_model=PatientThroughputReportResponse)
@@ -123,7 +125,8 @@ def get_patient_throughput_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> PatientThroughputReportResponse:
-    return patient_throughput_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(patient_throughput_report(db, filters), filters.export_profile)
 
 
 @router.get("/scheduling-utilization", response_model=SchedulingUtilizationReportResponse)
@@ -132,7 +135,8 @@ def get_scheduling_utilization_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> SchedulingUtilizationReportResponse:
-    return scheduling_utilization_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(scheduling_utilization_report(db, filters), filters.export_profile)
 
 
 @router.get("/screening-outcomes", response_model=ScreeningOutcomesReportResponse)
@@ -141,7 +145,8 @@ def get_screening_outcomes_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> ScreeningOutcomesReportResponse:
-    return screening_outcomes_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(screening_outcomes_report(db, filters), filters.export_profile)
 
 
 @router.get("/deferrals", response_model=DeferralReportResponse)
@@ -150,7 +155,8 @@ def get_deferral_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> DeferralReportResponse:
-    return deferral_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(deferral_report(db, filters), filters.export_profile)
 
 
 @router.get("/encounter-volume", response_model=EncounterVolumeReportResponse)
@@ -159,7 +165,8 @@ def get_encounter_volume_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> EncounterVolumeReportResponse:
-    return encounter_volume_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(encounter_volume_report(db, filters), filters.export_profile)
 
 
 @router.get("/orders-results", response_model=OrdersResultsReportResponse)
@@ -168,7 +175,8 @@ def get_orders_results_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> OrdersResultsReportResponse:
-    return orders_results_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(orders_results_report(db, filters), filters.export_profile)
 
 
 @router.get("/care-plan-aging", response_model=CarePlanAgingReportResponse)
@@ -177,7 +185,8 @@ def get_care_plan_aging_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> CarePlanAgingReportResponse:
-    return care_plan_aging_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(care_plan_aging_report(db, filters), filters.export_profile)
 
 
 @router.get("/billing-work-queue", response_model=BillingWorkQueueReportResponse)
@@ -186,7 +195,8 @@ def get_billing_work_queue_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> BillingWorkQueueReportResponse:
-    return billing_work_queue_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(billing_work_queue_report(db, filters), filters.export_profile)
 
 
 @router.get("/quality-trends", response_model=QualityTrendsReportResponse)
@@ -195,7 +205,8 @@ def get_quality_trends_report(
     current_user: User = Depends(require_reports_read),
     db: Session = Depends(get_db),
 ) -> QualityTrendsReportResponse:
-    return quality_trends_report(db, filters)
+    _enforce_report_export_profile(filters.export_profile, current_user, db)
+    return apply_small_cell_suppression(quality_trends_report(db, filters), filters.export_profile)
 
 
 @router.get("/audit-activity", response_model=AuditActivityReportResponse)
@@ -205,7 +216,7 @@ def get_audit_activity_report(
     db: Session = Depends(get_db),
 ) -> AuditActivityReportResponse:
     _enforce_report_export_profile(filters.export_profile, current_user, db)
-    return audit_activity_report(db, filters)
+    return apply_small_cell_suppression(audit_activity_report(db, filters), filters.export_profile)
 
 
 @router.get("/analytics-exports", response_model=list[AnalyticsExportResponse])

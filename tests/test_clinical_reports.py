@@ -294,6 +294,15 @@ def _export_payload() -> dict:
     }
 
 
+def _assert_suppressed(cell: dict, threshold: int = 5) -> None:
+    assert cell == {
+        "value": None,
+        "suppressed": True,
+        "suppression_reason": "small_cell",
+        "threshold": threshold,
+    }
+
+
 def test_reports_dashboard_and_module_endpoints_load(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", tmp_path / "workflow_operations.json")
     db = _ClinicalReportsDb()
@@ -317,9 +326,45 @@ def test_reports_dashboard_and_module_endpoints_load(monkeypatch, tmp_path: Path
     finally:
         _clear_overrides()
     assert all(response.status_code == 200 for response in responses.values())
-    assert responses["/api/clinical/reports/dashboard"].json()["module_counts"]["patient_throughput"] == 2
-    assert responses["/api/clinical/reports/orders-results"].json()["order_status_counts"]["ordered"] == 1
+    _assert_suppressed(responses["/api/clinical/reports/dashboard"].json()["module_counts"]["patient_throughput"])
+    _assert_suppressed(responses["/api/clinical/reports/orders-results"].json()["order_status_counts"]["ordered"])
     assert responses["/api/clinical/reports/billing-work-queue"].json()["balances"]["claim_balance"] == 125.0
+    assert responses["/api/clinical/reports/dashboard"].json()["suppression"]["small_cell_suppression"]["applied"] is True
+
+
+def test_small_counts_equal_or_above_threshold_are_not_suppressed(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", tmp_path / "workflow_operations.json")
+    db = _ClinicalReportsDb()
+    now = datetime.now(UTC)
+    db.patients = [
+        SimpleNamespace(patient_pk=index, patient_id=f"PT-{index:06d}", status="active", created_at=now, updated_at=now)
+        for index in range(1, 6)
+    ]
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).get("/api/clinical/reports/patient-throughput")
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status_counts"]["active"] == 5
+    assert payload["suppression"]["small_cell_suppression"]["threshold"] == 5
+
+
+def test_internal_detail_profile_does_not_suppress_small_counts(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", tmp_path / "workflow_operations.json")
+    db = _ClinicalReportsDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).get("/api/clinical/reports/orders-results?export_profile=internal_detail")
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["order_status_counts"]["ordered"] == 1
+    assert payload["suppression"]["small_cell_suppression"]["applied"] is False
 
 
 def test_reports_export_preview_returns_row_counts(monkeypatch, tmp_path: Path) -> None:
@@ -335,6 +380,25 @@ def test_reports_export_preview_returns_row_counts(monkeypatch, tmp_path: Path) 
     assert payload["workflow"] == "reports.analytics_export"
     assert payload["row_counts"]["patient_throughput"] >= 2
     assert payload["commit_required_header"] == "X-Confirm-Generation: true"
+
+
+def test_reports_export_preview_suppresses_small_row_counts(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", tmp_path / "workflow_operations.json")
+    db = _ClinicalReportsDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/reports/analytics-exports/preview",
+            json={**_export_payload(), "modules": ["screening_outcomes"]},
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 200
+    payload = response.json()
+    _assert_suppressed(payload["row_counts"]["screening_outcomes"])
+    assert payload["suppression"]["small_cell_suppression"]["applied"] is True
+    assert any(warning["warning_type"] == "small_cell_suppression" for warning in payload["warnings"])
 
 
 def test_reports_export_preview_records_profile_and_redacts_identifier(monkeypatch, tmp_path: Path) -> None:
@@ -427,6 +491,30 @@ def test_reports_export_commit_redacts_sensitive_filter_from_audit(monkeypatch, 
     entries = json.loads(audit_path.read_text(encoding="utf-8"))
     assert "PT-SECRET" not in json.dumps(entries[-1]["changes"])
     assert "PT-SECRET" not in json.dumps(db.audit_events[-1].changes_json)
+
+
+def test_reports_export_commit_records_suppression_metadata(monkeypatch, tmp_path: Path) -> None:
+    audit_path = tmp_path / "workflow_operations.json"
+    monkeypatch.setattr(clinical_workflows, "WORKFLOW_OPERATIONS_PATH", audit_path)
+    db = _ClinicalReportsDb()
+    _override_dependencies(db, _internal_user())
+    try:
+        response = TestClient(app).post(
+            "/api/clinical/reports/analytics-exports",
+            headers={"X-Confirm-Generation": "true"},
+            json={**_export_payload(), "modules": ["screening_outcomes"]},
+        )
+    finally:
+        _clear_overrides()
+
+    assert response.status_code == 201
+    export = response.json()["export"]
+    _assert_suppressed(export["row_counts"]["screening_outcomes"])
+    assert export["payload_metadata"]["suppression"]["small_cell_suppression"]["applied"] is True
+    assert db.report_exports[0].items[0].row_count == 0
+    assert db.report_exports[0].items[0].payload_metadata["suppression"]["suppressed"] is True
+    entries = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert entries[-1]["changes"]["suppression"]["small_cell_suppression"]["applied"] is True
 
 
 def test_audit_activity_safe_profile_redacts_sensitive_changes() -> None:

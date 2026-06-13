@@ -105,4 +105,4 @@ Goal: demonstrate the complete clinical workflow foundation while clearly markin
 2. Summarize the Vite/esbuild audit finding and RC2 remediation.
 3. Show `docs/clinical-phi-field-inventory.md`.
 4. Show `docs/clinical-production-readiness-runbook.md`.
-5. Close with RC2 blockers: audit durability, production config fail-closed checks, dependency hardening, route-permission drift checks, and PHI masking/export profiles.
+5. Close with remaining production items: role-aware UI masking, object-storage audit immutability, external identity/secrets hardening, and governed external delivery. Note that audit durability, production startup gates, dependency hardening, route-permission drift tests, export profiles, and aggregate small-cell suppression have been implemented in post-RC hardening.

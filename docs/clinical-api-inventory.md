@@ -2,6 +2,8 @@
 
 RC0 inventory date: 2026-06-12
 
+Post-RC-04 route-permission drift update date: 2026-06-13
+
 Scope: clinical platform routes registered under `/api/clinical`. Donor/QMS legacy routes outside this namespace remain in their existing docs and tests.
 
 ## Summary
@@ -26,6 +28,23 @@ Scope: clinical platform routes registered under `/api/clinical`. Donor/QMS lega
 - `Commit guarded` means durable mutation requires `X-Confirm-Generation: true`.
 - Read-only `GET` endpoints do not require preview or the confirmation header.
 - Audit workflow event names are recorded in `metadata/workflow_operations.json` on successful commit.
+- Route-permission drift tests enumerate registered FastAPI routes under `/api/clinical` and require sensitive routes to remain documented here.
+
+## Route Permission Categories
+
+These category tokens are used by `tests/test_clinical_route_permission_drift.py` to catch route-permission drift:
+
+| Category | Meaning |
+| --- | --- |
+| `public_or_health` | Low-risk foundation status, inventory, or preview surface. |
+| `internal_read` | Authenticated internal clinical read surface. |
+| `internal_mutation` | Authenticated internal clinical mutation surface with module permissions and commit guard where durable. |
+| `clinical_admin` | Clinical administration read or mutation surface. |
+| `compliance_export` | Compliance export or evidence surface requiring quality/audit/export authority. |
+| `analytics_export` | Reports analytics export preview or commit surface requiring report/export authority. |
+| `audit_evidence` | Audit evidence or audit activity surface. |
+| `external_partner_denied` | Internal clinical surface that rejects partner/supplier external users. |
+| `generic_foundation_restricted` | Generic foundation commit surface restricted to internal admin/system users. |
 
 ## Foundation
 
@@ -211,6 +230,12 @@ Scope: clinical platform routes registered under `/api/clinical`. Donor/QMS lega
 | GET | `/api/clinical/reports/analytics-exports` | No | No | None |
 | POST | `/api/clinical/reports/analytics-exports/preview` | Yes | No | None |
 | POST | `/api/clinical/reports/analytics-exports` | Yes | Yes | `reports.analytics_export` |
+
+Post-RC-04 notes:
+
+- Aggregate report endpoints apply small-cell suppression for `aggregate_safe` and `external_safe` export profiles.
+- Analytics export previews and commits suppress nonzero row counts below 5 and persist suppression metadata.
+- `internal_detail` remains available only to authorized internal export/audit/admin users and does not apply small-cell suppression.
 
 ## Clinical Administration
 

@@ -8,17 +8,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.services.clinical_phi import DEFAULT_AGGREGATE_EXPORT_PROFILE, normalize_export_profile
 
+ReportCellValue = int | float | dict[str, Any]
+
 
 class ReportMetricCard(BaseModel):
     label: str
-    value: int | float
+    value: ReportCellValue
     tone: Literal["neutral", "success", "warning", "danger"] = "neutral"
     unit: str | None = None
 
 
 class ReportSeriesPoint(BaseModel):
     label: str
-    value: int | float
+    value: ReportCellValue
     date: dt_date | None = None
     group: str | None = None
 
@@ -72,69 +74,70 @@ class _ReportBase(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
     metrics: list[ReportMetricCard] = Field(default_factory=list)
     warnings: list[ReportWarning] = Field(default_factory=list)
+    suppression: dict[str, Any] = Field(default_factory=dict)
 
 
 class PatientThroughputReportResponse(_ReportBase):
-    status_counts: dict[str, int] = Field(default_factory=dict)
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     registrations_by_date: list[ReportSeriesPoint] = Field(default_factory=list)
-    duplicate_warning_count: int = 0
+    duplicate_warning_count: ReportCellValue = 0
 
 
 class SchedulingUtilizationReportResponse(_ReportBase):
     provider_utilization: list[dict[str, Any]] = Field(default_factory=list)
-    appointment_type_breakdown: dict[str, int] = Field(default_factory=dict)
-    status_counts: dict[str, int] = Field(default_factory=dict)
+    appointment_type_breakdown: dict[str, ReportCellValue] = Field(default_factory=dict)
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
 
 
 class ScreeningOutcomesReportResponse(_ReportBase):
-    status_counts: dict[str, int] = Field(default_factory=dict)
-    outcome_counts: dict[str, int] = Field(default_factory=dict)
-    supervisor_review_count: int = 0
-    override_count: int = 0
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    outcome_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    supervisor_review_count: ReportCellValue = 0
+    override_count: ReportCellValue = 0
 
 
 class DeferralReportResponse(_ReportBase):
-    status_counts: dict[str, int] = Field(default_factory=dict)
-    type_counts: dict[str, int] = Field(default_factory=dict)
-    reason_counts: dict[str, int] = Field(default_factory=dict)
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    type_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    reason_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     patient_context: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EncounterVolumeReportResponse(_ReportBase):
-    status_counts: dict[str, int] = Field(default_factory=dict)
-    note_status_counts: dict[str, int] = Field(default_factory=dict)
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    note_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     signing_activity: list[ReportSeriesPoint] = Field(default_factory=list)
 
 
 class OrdersResultsReportResponse(_ReportBase):
-    order_status_counts: dict[str, int] = Field(default_factory=dict)
-    result_status_counts: dict[str, int] = Field(default_factory=dict)
+    order_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    result_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
 
 
 class CarePlanAgingReportResponse(_ReportBase):
-    status_counts: dict[str, int] = Field(default_factory=dict)
-    task_status_counts: dict[str, int] = Field(default_factory=dict)
-    priority_counts: dict[str, int] = Field(default_factory=dict)
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    task_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    priority_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
 
 
 class BillingWorkQueueReportResponse(_ReportBase):
-    claim_status_counts: dict[str, int] = Field(default_factory=dict)
-    charge_status_counts: dict[str, int] = Field(default_factory=dict)
-    denial_status_counts: dict[str, int] = Field(default_factory=dict)
+    claim_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    charge_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    denial_status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     balances: dict[str, float] = Field(default_factory=dict)
 
 
 class QualityTrendsReportResponse(_ReportBase):
-    severity_counts: dict[str, int] = Field(default_factory=dict)
-    status_counts: dict[str, int] = Field(default_factory=dict)
-    category_counts: dict[str, int] = Field(default_factory=dict)
+    severity_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    status_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    category_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
 
 
 class AuditActivityReportResponse(_ReportBase):
-    total_operations: int = 0
-    workflow_counts: dict[str, int] = Field(default_factory=dict)
-    actor_counts: dict[str, int] = Field(default_factory=dict)
-    entity_type_counts: dict[str, int] = Field(default_factory=dict)
+    total_operations: ReportCellValue = 0
+    workflow_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    actor_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
+    entity_type_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     operations: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -142,9 +145,10 @@ class ClinicalReportsDashboardResponse(BaseModel):
     date_from: dt_date | None = None
     date_to: dt_date | None = None
     metrics: list[ReportMetricCard] = Field(default_factory=list)
-    module_counts: dict[str, int | float] = Field(default_factory=dict)
+    module_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     recent_audit_operations: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[ReportWarning] = Field(default_factory=list)
+    suppression: dict[str, Any] = Field(default_factory=dict)
 
 
 class AnalyticsExportPreviewRequest(ReportFilterRequest):
@@ -191,7 +195,7 @@ class AnalyticsExportResponse(BaseModel):
     date_from: dt_date | None = None
     date_to: dt_date | None = None
     export_format: str
-    row_counts: dict[str, int] = Field(default_factory=dict)
+    row_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     payload_metadata: dict[str, Any] = Field(default_factory=dict)
     status: str
     generated_at: dt_datetime
@@ -209,9 +213,10 @@ class AnalyticsExportPreviewResponse(BaseModel):
     date_from: dt_date | None = None
     date_to: dt_date | None = None
     filters: dict[str, Any] = Field(default_factory=dict)
-    row_counts: dict[str, int] = Field(default_factory=dict)
+    row_counts: dict[str, ReportCellValue] = Field(default_factory=dict)
     export_format: str = "json"
     export_profile: str = DEFAULT_AGGREGATE_EXPORT_PROFILE
+    suppression: dict[str, Any] = Field(default_factory=dict)
     warnings: list[ReportWarning] = Field(default_factory=list)
     blocking_issues: list[ReportBlockingIssue] = Field(default_factory=list)
     commit_required_header: str = "X-Confirm-Generation: true"

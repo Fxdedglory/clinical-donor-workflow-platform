@@ -6,6 +6,8 @@ RC1 enforcement review date: 2026-06-13
 
 Post-RC-02 hardening update date: 2026-06-13
 
+Post-RC-04 route drift and suppression update date: 2026-06-13
+
 Source reviewed: `backend/app/services/access_control.py` plus module-level route dependencies.
 
 ## Permission Families
@@ -56,6 +58,22 @@ Source reviewed: `backend/app/services/access_control.py` plus module-level rout
 | Reports | `reports.read`, `reports.export`, `dashboard.view`, `audit.review`, `quality.export`, `clinical_admin.read`, `system.admin` | None for aggregate reads | `reports.export`, `quality.export`, `audit.review`, `clinical_admin.manage`, `system.admin` for analytics export | External users rejected from report access/export in current route guards. |
 | Clinical Admin | `clinical_admin.read`, `clinical_admin.manage`, `system.admin` | `clinical_admin.manage`, `system.admin` | Configuration versioning and approval path management | External users rejected from admin read/mutation. |
 | Generic Workflow Foundation | `/api/clinical/workflows/preview` remains foundation preview only. | `/api/clinical/workflows/commit` now requires `clinical_admin.manage` or `system.admin`. | Confirmation header plus internal authenticated admin context. | External partner/supplier users rejected; module-specific commit endpoints are preferred for real clinical workflows. |
+
+## Route Permission Drift Categories
+
+The route-permission drift tests use these category tokens to compare registered FastAPI routes against the documented RBAC model:
+
+| Category | Expected guard pattern |
+| --- | --- |
+| `public_or_health` | Foundation status, module inventory, or generic preview surface. |
+| `internal_read` | Internal authenticated read access through module read guards. |
+| `internal_mutation` | Internal authenticated mutation access through module mutation guards and `X-Confirm-Generation: true` where durable. |
+| `clinical_admin` | `clinical_admin.read`, `clinical_admin.manage`, or `system.admin`; external users denied. |
+| `compliance_export` | `quality.export`, `audit.review`, `qms.manage`, or `system.admin`; external users denied. |
+| `analytics_export` | `reports.export`, `quality.export`, `audit.review`, `clinical_admin.manage`, or `system.admin`; external users denied. |
+| `audit_evidence` | Audit activity/evidence route requiring audit-aware review during least-privilege changes. |
+| `external_partner_denied` | Partner/supplier external accounts rejected by the backend guard. |
+| `generic_foundation_restricted` | Generic workflow commit restricted to internal clinical admin/system authority. |
 
 ## Commit Guard Expectations
 
@@ -108,6 +126,8 @@ Preview endpoints do not mutate durable clinical state and do not require this h
 | `internal_detail` | Internal operational detail when necessary. | `system.admin`, `reports.export`, `quality.export`, `audit.review`, or `clinical_admin.manage`. |
 | `compliance_evidence` | Compliance evidence package with sensitive details. | `system.admin`, `quality.export`, `audit.review`, `qms.manage`, or `clinical_admin.manage`. |
 
+Post-RC-04 adds small-cell suppression for `aggregate_safe` and `external_safe` report aggregates and analytics export row counts. Nonzero counts below 5 are replaced with suppression metadata; `internal_detail` keeps visible small counts for authorized internal users only.
+
 ## RC1 External Partner / Supplier Restrictions
 
 External users are identified through `is_external`, `external_user_flag`, `account_type`, `user_type`, and role names such as "Partner External User" and "Supplier External User". Internal clinical module guards reject these users before permission checks.
@@ -116,10 +136,10 @@ Allowed external access remains limited to partner/supplier portal permissions s
 
 ## RC2 Remediation Items
 
-1. Generate route-permission inventory from FastAPI route metadata and compare it to this matrix and `ROLE_DEFINITIONS`.
+1. Keep the generated route-permission drift test aligned with FastAPI route metadata, this matrix, and `ROLE_DEFINITIONS`.
 2. Split report audit activity from broad `reports.read` if compliance owners classify audit operation payloads as audit-only.
 3. Decide whether analytics export list metadata should require export permission rather than report read permission.
 4. Add frontend route-visibility tests that confirm hidden/disabled navigation never replaces backend authorization.
 5. Resolve the "QA Specialist" display label versus "Quality Assurance Specialist" role-name mismatch.
 6. Review `system.admin` use for least-privilege production operations.
-7. Obtain compliance signoff for `internal_detail` and `compliance_evidence` profile use in production.
+7. Obtain compliance signoff for `internal_detail`, `compliance_evidence`, and the small-cell suppression threshold before production analytics sharing.
