@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     serve_frontend: bool = Field(default=True, alias="SERVE_FRONTEND")
     workflow_audit_storage: str = Field(default="db_with_json_mirror", alias="WORKFLOW_AUDIT_STORAGE")
     workflow_audit_db_required: bool = Field(default=True, alias="WORKFLOW_AUDIT_DB_REQUIRED")
+    audit_object_mirror_mode: str = Field(default="disabled", alias="AUDIT_OBJECT_MIRROR_MODE")
+    audit_object_mirror_required: bool = Field(default=False, alias="AUDIT_OBJECT_MIRROR_REQUIRED")
+    audit_object_mirror_local_root: str = Field(default="metadata/audit_worm_mirror", alias="AUDIT_OBJECT_MIRROR_LOCAL_ROOT")
+    audit_object_mirror_uri_prefix: str = Field(default="local-worm://clinical-audit", alias="AUDIT_OBJECT_MIRROR_URI_PREFIX")
+    audit_object_mirror_provider: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_PROVIDER")
+    audit_object_mirror_container: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_CONTAINER")
+    audit_object_mirror_prefix: str = Field(default="workflow-audit", alias="AUDIT_OBJECT_MIRROR_PREFIX")
+    audit_object_mirror_allow_local_production_simulation: bool = Field(
+        default=False,
+        alias="AUDIT_OBJECT_MIRROR_ALLOW_LOCAL_PRODUCTION_SIMULATION",
+    )
     default_analytics_export_profile: str = Field(default="aggregate_safe", alias="DEFAULT_ANALYTICS_EXPORT_PROFILE")
     default_compliance_export_profile: str = Field(default="compliance_evidence", alias="DEFAULT_COMPLIANCE_EXPORT_PROFILE")
     default_audit_export_profile: str = Field(default="audit_metadata", alias="DEFAULT_AUDIT_EXPORT_PROFILE")

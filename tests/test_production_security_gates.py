@@ -81,6 +81,71 @@ def test_production_mode_fails_when_audit_is_json_only() -> None:
     assert "workflow_audit_json_only" in codes
 
 
+def test_production_mode_fails_when_required_audit_object_mirror_is_disabled() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="disabled",
+        )
+    )
+
+    assert "audit_object_mirror_required_but_disabled" in codes
+
+
+def test_production_mode_fails_when_required_object_mirror_settings_are_missing() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="",
+            AUDIT_OBJECT_MIRROR_CONTAINER="",
+            AUDIT_OBJECT_MIRROR_PREFIX="",
+        )
+    )
+
+    assert "audit_object_mirror_provider_missing" in codes
+    assert "audit_object_mirror_container_missing" in codes
+    assert "audit_object_mirror_prefix_missing" in codes
+
+
+def test_production_mode_fails_when_required_mirror_uses_local_filesystem_without_simulation_flag() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="local_filesystem",
+            AUDIT_OBJECT_MIRROR_ALLOW_LOCAL_PRODUCTION_SIMULATION=False,
+        )
+    )
+
+    assert "audit_object_mirror_local_without_simulation_flag" in codes
+
+
+def test_production_mode_passes_when_required_mirror_is_configured_for_provider_placeholder() -> None:
+    result = validate_production_security_gates(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+        )
+    )
+
+    assert result.passed is True
+
+
+def test_production_mode_passes_when_required_local_mirror_is_explicitly_simulation() -> None:
+    result = validate_production_security_gates(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="local_filesystem",
+            AUDIT_OBJECT_MIRROR_ALLOW_LOCAL_PRODUCTION_SIMULATION=True,
+        )
+    )
+
+    assert result.passed is True
+
+
 def test_production_mode_fails_when_analytics_profile_is_unsafe() -> None:
     codes = _failure_codes(_safe_production_config(DEFAULT_ANALYTICS_EXPORT_PROFILE="internal_detail"))
 

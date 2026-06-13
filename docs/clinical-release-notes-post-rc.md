@@ -16,7 +16,7 @@ Date: 2026-06-13
 
 ## Deferred Items
 
-- Object-storage immutability/WORM mirror remains planned.
+- Object-storage immutability/WORM provider integration remains planned.
 - Centralized UI field-policy management and production free-text review remain planned.
 - Production startup fail-closed checks are implemented in CLINICAL-POST-RC-03.
 
@@ -38,7 +38,7 @@ Date: 2026-06-13
 ## Remaining Post-RC Items
 
 - Centralized UI field-policy management remains planned.
-- Object-storage immutability/WORM mirror remains planned.
+- Object-storage immutability/WORM provider integration remains planned.
 - External secret manager and Entra-backed MFA integration remain planned.
 - External warehouse, FHIR/HL7, Power BI, clearinghouse, and object export delivery remain out of scope until separately approved.
 
@@ -58,7 +58,7 @@ Date: 2026-06-13
 ## Remaining Post-RC Security Items
 
 - Centralized UI field-policy management remains planned.
-- Object-storage immutability/WORM mirror remains planned.
+- Object-storage immutability/WORM provider integration remains planned.
 - External secret manager and Entra-backed MFA integration remain future deployment-hardening work.
 
 ## Route Drift Tests And Analytics Small-Cell Suppression
@@ -79,7 +79,7 @@ Date: 2026-06-13
 ## Remaining Post-RC Hardening Items
 
 - Full centralized UI field-policy management remains planned after the lightweight Post-RC-05 masking foundation.
-- Object-storage immutability/WORM mirror remains planned.
+- Object-storage immutability/WORM provider integration remains planned.
 - External secret manager and Entra-backed MFA integration remain future deployment-hardening work.
 
 ## Role-Aware UI PHI Masking And Export Indicators
@@ -100,5 +100,26 @@ Date: 2026-06-13
 ## Remaining Post-RC-05 Items
 
 - Replace the lightweight frontend masking helper with a centralized approved field-policy engine if granular partner-facing clinical views are approved.
-- Object-storage immutability/WORM mirror remains planned.
+- Object-storage immutability/WORM provider integration remains planned.
 - External warehouse, FHIR/HL7, Power BI, clearinghouse, notification delivery, and approval execution integrations remain out of scope until separately approved.
+
+## Object/WORM Audit Mirror Foundation
+
+Update: CLINICAL-POST-RC-06
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_audit_mirror.py` with disabled mode, local filesystem simulation, future object-storage provider placeholders, deterministic checksum calculation, and replay support.
+- Added append-only `operational.clinical_workflow_audit_mirror_events` via migration `202606130002_clinical_audit_worm_mirror.py`.
+- Wired workflow audit append to keep DB-first behavior, preserve JSON mirror/fallback, and optionally record object/WORM mirror attempts.
+- Defensively redacted mirror payload changes with the existing audit redactor and stored SHA-256 checksums over canonical JSON.
+- Added production startup gate checks for `AUDIT_OBJECT_MIRROR_REQUIRED=true`, missing provider/container/prefix settings, and unsafe local filesystem production use.
+- Added tests for disabled mode, local simulation, redacted payloads, deterministic checksums, mirror failure policy, replay/backfill behavior, and production gates.
+- Added `docs/clinical-audit-worm-mirror.md` and updated audit durability, production readiness, security gate, and security readiness documentation.
+
+## Remaining Post-RC-06 Items
+
+- Implement real cloud provider SDK integration for the approved WORM target.
+- Configure immutable retention, legal hold, access logging, lifecycle policy, and recovery checks in the selected provider.
+- Add signed manifests or evidence package signing if compliance owners require tamper-evident export packages.
+- Keep external warehouse, FHIR/HL7, Power BI, clearinghouse, notification delivery, and approval execution integrations out of scope until separately approved.

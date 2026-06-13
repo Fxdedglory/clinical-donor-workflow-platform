@@ -83,7 +83,7 @@ The component does not display the hidden raw count. Analytics export preview an
 - Some form controls still submit internal identifiers as select values because backend workflow APIs require stable IDs. The visible labels use masking where practical.
 - Existing internal clinical routes continue to reject external users at the backend. Partner-facing clinical views should use separate scoped APIs if approved later.
 - Free-text clinical narrative review remains a production governance requirement for detailed exports.
-- Object-storage/WORM audit mirroring remains planned and is not implemented by this UI masking update.
+- Object-storage/WORM audit mirroring is handled by the Post-RC-06 backend foundation; real provider retention/legal-hold integration remains future work.
 
 ## Validation
 

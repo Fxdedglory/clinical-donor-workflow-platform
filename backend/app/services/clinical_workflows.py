@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ClinicalWorkflowAuditEvent
 from app.schemas.clinical import WorkflowOperation, WorkflowPreviewRequest
+from app.services.clinical_audit_mirror import AuditMirrorConfig, mirror_and_record_workflow_operation
 from app.services.clinical_phi import redact_audit_changes
 
 CONFIRM_GENERATION_HEADER = "X-Confirm-Generation"
@@ -152,21 +153,31 @@ def append_workflow_operation(
     db: Session | None = None,
     source: str = WORKFLOW_AUDIT_SOURCE_COMMIT,
     mirror_json: bool = True,
+    object_mirror_config: AuditMirrorConfig | None = None,
 ) -> tuple[WorkflowOperation, Path]:
     operation = operation.model_copy(update={"changes": redact_audit_changes(operation.changes)})
     target = path or WORKFLOW_OPERATIONS_PATH
+    db_append_succeeded = False
     if db is not None:
         try:
             append_workflow_operation_to_db(db, operation, source=source)
+            db_append_succeeded = True
         except (SQLAlchemyError, AttributeError, TypeError):
             _rollback_if_available(db)
             logger.warning("Unable to append DB workflow audit event; preserving JSON mirror.", exc_info=True)
-    if not mirror_json:
-        return operation, target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    operations = read_json_workflow_operations(target)
-    operations.append(operation.model_dump(mode="json"))
-    target.write_text(json.dumps(operations, indent=2) + "\n", encoding="utf-8")
+    if mirror_json:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        operations = read_json_workflow_operations(target)
+        operations.append(operation.model_dump(mode="json"))
+        target.write_text(json.dumps(operations, indent=2) + "\n", encoding="utf-8")
+    if db is not None and db_append_succeeded:
+        try:
+            mirror_and_record_workflow_operation(db, operation, config=object_mirror_config)
+        except Exception:
+            _rollback_if_available(db)
+            logger.warning("Unable to mirror workflow audit event to object/WORM target.", exc_info=True)
+            if object_mirror_config is not None and object_mirror_config.required:
+                raise
     return operation, target
 
 

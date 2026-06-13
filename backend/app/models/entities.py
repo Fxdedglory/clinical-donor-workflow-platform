@@ -3344,6 +3344,25 @@ class ClinicalWorkflowAuditEvent(Base):
     )
 
 
+class ClinicalWorkflowAuditMirrorEvent(Base):
+    __tablename__ = "clinical_workflow_audit_mirror_events"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    mirror_event_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    operation_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    mirror_mode: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    mirror_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    payload_profile: Mapped[str] = mapped_column(String(80), nullable=False, default="audit_metadata", index=True)
+    mirrored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    mirror_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mirror_checksum: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    mirror_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+
 class ClinicalReportExport(Base):
     __tablename__ = "clinical_report_exports"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}

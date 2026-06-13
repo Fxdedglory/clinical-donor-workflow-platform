@@ -29,6 +29,9 @@ JSON_ONLY_AUDIT_MODES = {
     "metadata_json",
     "metadata-json",
 }
+DISABLED_AUDIT_OBJECT_MIRROR_MODES = {"", "disabled", "off", "none"}
+LOCAL_AUDIT_OBJECT_MIRROR_MODES = {"local", "local_filesystem", "filesystem", "file"}
+PLACEHOLDER_AUDIT_OBJECT_MIRROR_MODES = {"object_storage", "provider_placeholder", "worm_placeholder"}
 SAFE_ANALYTICS_EXPORT_PROFILES = {"aggregate_safe", "external_safe"}
 SAFE_AUDIT_EXPORT_PROFILES = {"audit_metadata", "aggregate_safe", "external_safe"}
 SAFE_COMPLIANCE_EXPORT_PROFILES = {"compliance_evidence", "audit_metadata"}
@@ -56,6 +59,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "startup_mode": "fastapi_react",
     "workflow_audit_storage": "db_with_json_mirror",
     "workflow_audit_db_required": True,
+    "audit_object_mirror_mode": "disabled",
+    "audit_object_mirror_required": False,
+    "audit_object_mirror_local_root": "metadata/audit_worm_mirror",
+    "audit_object_mirror_provider": "",
+    "audit_object_mirror_container": "",
+    "audit_object_mirror_prefix": "workflow-audit",
+    "audit_object_mirror_allow_local_production_simulation": False,
     "default_analytics_export_profile": DEFAULT_AGGREGATE_EXPORT_PROFILE,
     "default_compliance_export_profile": DEFAULT_COMPLIANCE_EXPORT_PROFILE,
     "default_audit_export_profile": DEFAULT_AUDIT_EXPORT_PROFILE,
@@ -280,6 +290,46 @@ def validate_production_security_gates(
         add("workflow_audit_json_only", "Workflow audit storage must be DB-backed in production; JSON-only mode is not allowed.")
     if not _as_bool(_get(source, "workflow_audit_db_required", "WORKFLOW_AUDIT_DB_REQUIRED", default=DEFAULT_CONFIG["workflow_audit_db_required"]), default=True):
         add("workflow_audit_db_not_required", "WORKFLOW_AUDIT_DB_REQUIRED must remain true in production.")
+
+    mirror_required = _as_bool(
+        _get(source, "audit_object_mirror_required", "AUDIT_OBJECT_MIRROR_REQUIRED", default=DEFAULT_CONFIG["audit_object_mirror_required"]),
+        default=False,
+    )
+    mirror_mode = _normalized(
+        _get(source, "audit_object_mirror_mode", "AUDIT_OBJECT_MIRROR_MODE", default=DEFAULT_CONFIG["audit_object_mirror_mode"])
+    )
+    mirror_provider = _text(
+        _get(source, "audit_object_mirror_provider", "AUDIT_OBJECT_MIRROR_PROVIDER", default=DEFAULT_CONFIG["audit_object_mirror_provider"])
+    )
+    mirror_container = _text(
+        _get(source, "audit_object_mirror_container", "AUDIT_OBJECT_MIRROR_CONTAINER", default=DEFAULT_CONFIG["audit_object_mirror_container"])
+    )
+    mirror_prefix = _text(
+        _get(source, "audit_object_mirror_prefix", "AUDIT_OBJECT_MIRROR_PREFIX", default=DEFAULT_CONFIG["audit_object_mirror_prefix"])
+    )
+    local_simulation_allowed = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_allow_local_production_simulation",
+            "AUDIT_OBJECT_MIRROR_ALLOW_LOCAL_PRODUCTION_SIMULATION",
+            default=DEFAULT_CONFIG["audit_object_mirror_allow_local_production_simulation"],
+        ),
+        default=False,
+    )
+    if mirror_required and mirror_mode in DISABLED_AUDIT_OBJECT_MIRROR_MODES:
+        add("audit_object_mirror_required_but_disabled", "AUDIT_OBJECT_MIRROR_REQUIRED=true requires AUDIT_OBJECT_MIRROR_MODE to be configured.")
+    if mirror_required and mirror_mode in PLACEHOLDER_AUDIT_OBJECT_MIRROR_MODES:
+        if not mirror_provider:
+            add("audit_object_mirror_provider_missing", "AUDIT_OBJECT_MIRROR_PROVIDER is required when the object/WORM mirror is required.")
+        if not mirror_container:
+            add("audit_object_mirror_container_missing", "AUDIT_OBJECT_MIRROR_CONTAINER is required when the object/WORM mirror is required.")
+        if not mirror_prefix:
+            add("audit_object_mirror_prefix_missing", "AUDIT_OBJECT_MIRROR_PREFIX is required when the object/WORM mirror is required.")
+    if mirror_required and mirror_mode in LOCAL_AUDIT_OBJECT_MIRROR_MODES and not local_simulation_allowed:
+        add(
+            "audit_object_mirror_local_without_simulation_flag",
+            "Local filesystem audit mirror cannot satisfy required production WORM storage unless explicitly marked as simulation.",
+        )
 
     try:
         analytics_profile = _configured_profile(

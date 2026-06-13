@@ -1,12 +1,14 @@
 # Clinical Audit Durability Decision
 
-Status: Post-RC database-backed audit foundation implemented; object-storage mirror deferred
+Status: Post-RC database-backed audit foundation implemented; WORM mirror foundation implemented; cloud provider integration pending
 
 RC0 decision date: 2026-06-12
 
 RC1 update date: 2026-06-13
 
 Post-RC implementation date: 2026-06-13
+
+Post-RC-06 WORM mirror foundation date: 2026-06-13
 
 Historical RC1 status: RC1 implementation plan documented in `docs/clinical-audit-durability-implementation-plan.md`.
 
@@ -21,6 +23,14 @@ metadata/workflow_operations.json
 
 Successful commit endpoints pass their active DB session into the writer. Evidence and reporting readers use database rows first and fall back to the JSON file when no database audit rows are available.
 
+Post-RC-06 adds an optional object/WORM mirror foundation. When enabled, the writer mirrors the redacted audit payload after the DB audit event is appended and records the mirror attempt in:
+
+```text
+operational.clinical_workflow_audit_mirror_events
+```
+
+This is the repository's object-storage mirroring foundation; real provider SDK integration and WORM retention setup remain pending.
+
 The JSON mirror remains:
 
 ```text
@@ -33,6 +43,8 @@ metadata/workflow_operations.json
 - writes the full JSON array back to disk.
 
 Database audit rows include operation id, workflow, entity type, entity id, actor, timestamp, preview hash, confirmation status, before/after status, reason, changed fields as JSON, source, and created timestamp.
+
+Mirror attempt rows include operation id, mirror mode, mirror status, payload profile, mirrored timestamp, mirror URI, checksum, error text, dry-run flag, and created timestamp.
 
 ## Why This Is Acceptable For RC0
 
@@ -63,20 +75,21 @@ Primary path:
 - Kept JSON append as a compatibility mirror and local fallback.
 - Added a backfill helper that parses JSON entries into DB rows without deleting the source JSON.
 
-Durability mirror:
+Durability mirror foundation:
 
-- Mirror each operation to object storage in a future hardening sprint, ideally append-only or immutable/WORM-capable storage.
-- Partition by UTC date and workflow prefix.
-- Include operation checksum or signed manifest support in a later compliance hardening sprint.
+- Added `backend/app/services/clinical_audit_mirror.py`.
+- Supports disabled mode, local filesystem simulation, provider placeholder configuration, deterministic checksum, optional/required failure policy, and replay of unmirrored DB audit rows.
+- Added append-only `operational.clinical_workflow_audit_mirror_events`.
+- Real cloud SDK integration, immutable retention configuration, legal hold automation, and signed manifests remain pending.
 
 ## Remaining Hardening Plan
 
 1. Run Alembic migration `202606130001_clinical_workflow_audit_events.py` in production before go-live.
 2. Backfill existing `metadata/workflow_operations.json` using `backfill_workflow_operations_from_json`.
 3. Verify audit evidence and report activity endpoints read DB rows after backfill.
-4. Add object-storage mirroring after deployment storage and retention settings are approved.
-5. Add checksum/signed manifest support for evidence packages.
-6. Add operational backup/restore drills for `operational.clinical_workflow_audit_events`.
+4. Configure approved object-storage/WORM target after deployment storage and retention settings are approved.
+5. Add real provider SDK integration and signed manifest support for evidence packages.
+6. Add operational backup/restore drills for `operational.clinical_workflow_audit_events` and mirror verification.
 
 ## RC0 Decision
 
@@ -110,3 +123,14 @@ Completed post-RC scope:
 4. Switched audit evidence and report audit activity readers to database-first behavior.
 5. Preserved JSON mirror/fallback behavior.
 6. Left object-storage mirror support for a later approved deployment-storage sprint.
+
+## Post-RC-06 Follow-Up
+
+`CLINICAL-POST-RC-06` adds the mirror foundation:
+
+1. Added append-only `operational.clinical_workflow_audit_mirror_events`.
+2. Added local filesystem simulation and future provider placeholders.
+3. Added deterministic SHA-256 checksum calculation over canonical redacted audit payloads.
+4. Added replay/backfill helper for unmirrored DB audit rows.
+5. Added production gate checks when `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
+6. Deferred real cloud provider SDK integration, legal hold automation, provider retention policy creation, and signed manifests.
