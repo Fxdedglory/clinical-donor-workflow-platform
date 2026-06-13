@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from app.services.clinical_audit_mirror_providers import SAFE_AZURE_CREDENTIAL_MODES
+from app.services.clinical_audit_signing import (
+    AuditManifestSigningConfig,
+    audit_manifest_signing_config_from_settings,
+    signing_evidence_summary,
+)
 from app.services.clinical_azure_worm_live_readiness import (
     LIVE_TEST_PREFIX_ENV,
     LIVE_TEST_PREFIX_OVERRIDE_ENV,
@@ -26,7 +31,7 @@ SENSITIVE_FIELD_TOKENS = (
     "sas_token",
     "secret",
     "shared_key",
-    "signature_key",
+    "signature_key_material",
     "token",
 )
 SENSITIVE_VALUE_PATTERN = re.compile(
@@ -142,6 +147,7 @@ def build_validation_evidence(
     report: Mapping[str, Any],
     *,
     environment_mode: str = "unknown",
+    signing_config: AuditManifestSigningConfig | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     readiness = report.get("provider_readiness") or {}
@@ -211,6 +217,9 @@ def build_validation_evidence(
                 and report["live_write"].get("verification_status") == "verified"
             ),
         },
+        "manifest_signing_summary": signing_evidence_summary(
+            signing_config or audit_manifest_signing_config_from_settings()
+        ),
         "blocking_issues": blocking_issues,
         "warnings": warnings,
         "validation_result": _validation_result(report, blocking_issues),

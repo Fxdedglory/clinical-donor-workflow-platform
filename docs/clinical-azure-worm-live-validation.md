@@ -4,6 +4,8 @@ Post-RC-10 update date: 2026-06-13
 
 Post-RC-11 evidence package update date: 2026-06-13
 
+Post-RC-12 manifest signing foundation update date: 2026-06-13
+
 ## Purpose
 
 This runbook defines the skipped-by-default Azure Blob WORM live integration readiness harness. It prepares the repository for future live validation without requiring credentials, creating Azure resources, or running network calls during normal tests.
@@ -45,6 +47,7 @@ Dry-run evidence can be retained with a sanitized artifact:
 - Legal hold reference and naming convention are approved.
 - Managed identity or workload identity has least-privilege blob data permissions.
 - Inline account keys, connection strings, shared keys, plain secrets, and inline SAS tokens are not used.
+- Manifest signing mode, algorithm, and key reference are approved before signed manifest evidence is accepted.
 
 ## Required Configuration
 
@@ -104,8 +107,9 @@ AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true
 - Identity assignment and least-privilege role evidence.
 - Retention policy and legal hold approval references.
 - Recovery drill summary for any accepted live evidence package.
+- Manifest signing verification status from the recovery drill, when a manifest is included.
 
-See `docs/clinical-azure-worm-validation-evidence-template.md` and `docs/clinical-azure-worm-operator-checklist.md` for the required artifact fields and operator handoff checklist.
+See `docs/clinical-azure-worm-validation-evidence-template.md`, `docs/clinical-azure-worm-operator-checklist.md`, and `docs/clinical-audit-manifest-signing.md` for the required artifact fields, signing modes, and operator handoff checklist.
 
 ## Known Limitations
 
@@ -113,4 +117,4 @@ See `docs/clinical-azure-worm-validation-evidence-template.md` and `docs/clinica
 - The harness does not enforce provider-side immutability or legal hold from code.
 - Live tests are not part of normal CI and must remain opt-in.
 - Sanitized evidence proves repository readiness posture; Azure policy enforcement still requires external provider evidence.
-- Real cryptographic manifest signing remains future work.
+- Real Azure Key Vault signing remains future work; Post-RC-12 only validates Key Vault metadata without network calls.

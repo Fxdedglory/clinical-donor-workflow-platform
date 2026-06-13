@@ -10,6 +10,8 @@ Post-RC-09 Azure Blob SDK operations foundation update date: 2026-06-13
 
 Post-RC-10 Azure live harness update date: 2026-06-13
 
+Post-RC-12 manifest signing foundation update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-06 adds an object-storage / WORM audit mirroring foundation for clinical workflow audit evidence. It does not replace the database-backed append-only audit table and does not add real cloud SDK calls.
@@ -57,6 +59,8 @@ Post-RC-09 adds a guarded Azure Blob SDK operations foundation. Azure upload, st
 
 Post-RC-10 adds a skipped-by-default Azure live readiness harness. Normal pytest, preflight, and dry-run readiness commands do not contact Azure. Live tests require `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true` and a dedicated `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX`.
 
+Post-RC-12 adds a repo-safe manifest signing foundation. Local HMAC signing is deterministic for dev/test verification, while external KMS and Azure Key Vault modes are placeholders that validate metadata without network calls.
+
 ## Mirror Service
 
 The service lives in:
@@ -69,6 +73,12 @@ Manifest, verification, and recovery drill helpers live in:
 
 ```text
 backend/app/services/clinical_audit_manifest.py
+```
+
+Signing helpers live in:
+
+```text
+backend/app/services/clinical_audit_signing.py
 ```
 
 Provider adapters live in:
@@ -121,7 +131,6 @@ Manifest payloads use:
 ```text
 schema_version = clinical.workflow_audit.manifest.v1
 hash_algorithm = sha256
-signature_algorithm = sha256-placeholder
 ```
 
 A manifest includes:
@@ -136,9 +145,18 @@ A manifest includes:
 - mirror object URIs and checksums;
 - audit event count;
 - manifest checksum;
-- optional checksum-derived signature placeholder.
+- signing mode, status, algorithm, and key reference;
+- optional signature value in the manifest payload.
 
-Manifest ids are deterministic for the mirror inventory and readiness settings. Manifest checksums are SHA-256 over canonical JSON excluding the checksum and placeholder signature value. If signed manifests are required locally or in test, the placeholder signature is derived from the manifest checksum, configured algorithm, and key reference; no real key material is required or loaded.
+Manifest ids are deterministic for the mirror inventory and readiness settings. Manifest checksums are SHA-256 over canonical JSON excluding checksum/signature fields. Signing then operates over the manifest checksum and signing metadata.
+
+Supported signing modes are:
+
+- `disabled`;
+- `checksum_placeholder` for non-production compatibility;
+- `local_hmac_sha256` for deterministic dev/test verification;
+- `external_kms_placeholder` for provider metadata validation without network calls;
+- `azure_key_vault_placeholder` for Azure Key Vault metadata validation without network calls.
 
 Generated manifests can be persisted to:
 
@@ -159,7 +177,8 @@ AUDIT_OBJECT_MIRROR_LOCAL_ROOT=metadata/audit_worm_mirror
 AUDIT_OBJECT_MIRROR_URI_PREFIX=local-worm://clinical-audit
 AUDIT_OBJECT_MIRROR_PREFIX=workflow-audit
 AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=false
-AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=false
+AUDIT_MANIFEST_SIGNING_REQUIRED=false
+AUDIT_MANIFEST_SIGNING_MODE=disabled
 ```
 
 Future provider placeholders:
@@ -173,9 +192,10 @@ AUDIT_OBJECT_MIRROR_RETENTION_POLICY=RET-7Y-WORM
 AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true
 AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE=LH-CLINICAL-AUDIT
 AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true
-AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true
-AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM=sha256-placeholder
-AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF=audit-manifest-key-v1
+AUDIT_MANIFEST_SIGNING_REQUIRED=true
+AUDIT_MANIFEST_SIGNING_MODE=external_kms_placeholder
+AUDIT_MANIFEST_SIGNING_ALGORITHM=rsa-pss-sha256
+AUDIT_MANIFEST_SIGNING_KEY_REF=kms://clinical-audit-manifest-key-v1
 ```
 
 Azure Blob readiness settings:
@@ -221,8 +241,12 @@ When manifests or signatures are required, production startup gates also fail if
 
 - `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_RETENTION_POLICY` is empty;
 - `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE` is empty;
-- `AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true` without `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true`;
-- signed manifests are required but `AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF` or algorithm is missing.
+- `AUDIT_MANIFEST_SIGNING_REQUIRED=true` without `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true`;
+- manifest signing is required but mode is disabled or `checksum_placeholder`;
+- local HMAC signing is configured in production without explicit allowance;
+- external/KMS or Azure Key Vault placeholder modes are missing key reference;
+- Azure Key Vault placeholder mode is missing vault URL or key name;
+- signing algorithm is missing or unsafe.
 
 When Azure Blob mirroring is required, production startup gates fail if:
 
@@ -256,6 +280,7 @@ Verification checks:
 - mirror object exists according to the active provider;
 - provider checksum metadata or downloaded payload checksum matches the recorded mirror checksum;
 - optional manifest object URI/checksum matches the mirror record;
+- optional manifest checksum and signature verification status;
 - manifest entries without a matching mirror record are reported.
 
 Provider placeholder modes are reported as skipped because no provider contract is available.
@@ -287,6 +312,7 @@ The drill reports:
 The helper does not restore, delete, or rewrite audit data. Recovery execution remains an operations procedure with database and compliance-owner approval.
 
 Recovery drill summaries now include provider readiness, manifest count, mirrored object count, expected URI prefix, provider capability flags, and provider validation findings.
+They also include `manifest_signature_verification` with checksum and signature status.
 
 ## Retention And Legal Hold Assumptions
 
@@ -317,12 +343,13 @@ Detailed drill steps are in `docs/clinical-audit-worm-recovery-drill.md`.
 Provider adapter details are in `docs/clinical-audit-worm-provider-adapters.md`.
 Azure readiness details are in `docs/clinical-azure-blob-worm-readiness.md`.
 Azure live validation details are in `docs/clinical-azure-worm-live-validation.md`.
+Manifest signing details are in `docs/clinical-audit-manifest-signing.md`.
 
 ## Known Limitations
 
 - Azure Blob SDK operation paths are present but disabled unless `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`.
 - Azure live integration skeletons are skipped by default and must not run in normal CI.
 - Local filesystem simulation is not WORM storage.
-- Signed manifests are checksum-placeholder foundations only; real cryptographic signing remains future work.
+- Signed manifests now support deterministic local HMAC verification and provider-placeholder metadata; real cloud KMS or Azure Key Vault signing remains future work.
 - Legal-hold automation remains future work.
 - Provider-side immutable retention and legal-hold enforcement must be configured and validated in Azure.

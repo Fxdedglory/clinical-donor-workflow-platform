@@ -6,6 +6,11 @@ import subprocess
 import sys
 
 from app.services.clinical_audit_mirror import AuditMirrorConfig
+from app.services.clinical_audit_signing import (
+    ALGORITHM_LOCAL_HMAC_SHA256,
+    SIGNING_MODE_LOCAL_HMAC_SHA256,
+    AuditManifestSigningConfig,
+)
 from app.services.clinical_azure_worm_evidence import build_validation_evidence
 from app.services.clinical_azure_worm_live_readiness import (
     LIVE_TEST_PREFIX_ENV,
@@ -190,6 +195,8 @@ def test_azure_worm_evidence_dry_run_writes_expected_json(tmp_path) -> None:
     assert evidence["live_tests_enabled"] is False
     assert evidence["live_write_requested"] is False
     assert evidence["credential_mode_summary"]["approved_identity_mode"] is False
+    assert evidence["manifest_signing_summary"]["manifest_signing_mode"] == "disabled"
+    assert evidence["manifest_signing_summary"]["signing_required"] is False
     assert evidence["validation_result"] == "blocked"
     assert evidence["data_safety_summary"] == {
         "contains_phi_ephi": False,
@@ -293,13 +300,26 @@ def test_azure_worm_evidence_excludes_secret_like_fields_and_values() -> None:
         "warnings": [],
     }
 
+    signing_config = AuditManifestSigningConfig(
+        mode=SIGNING_MODE_LOCAL_HMAC_SHA256,
+        required=True,
+        algorithm=ALGORITHM_LOCAL_HMAC_SHA256,
+        key_ref="local-dev-hmac-key-v1",
+        local_hmac_key="SHOULD_NOT_APPEAR",
+    )
     evidence = build_validation_evidence(
         report,
         environment_mode="test",
+        signing_config=signing_config,
         generated_at="2026-06-13T00:00:00Z",
     )
 
     serialized = json.dumps(evidence, sort_keys=True)
+    assert evidence["manifest_signing_summary"]["manifest_signing_mode"] == "local_hmac_sha256"
+    assert evidence["manifest_signing_summary"]["signing_required"] is True
+    assert evidence["manifest_signing_summary"]["signature_algorithm"] == "hmac-sha256"
+    assert evidence["manifest_signing_summary"]["signature_key_ref"] == "local-dev-hmac-key-v1"
+    assert evidence["manifest_signing_summary"]["signature_verification_status"] == "not_checked_no_manifest"
     assert "SHOULD_NOT_APPEAR" not in serialized
     assert "account_key" not in serialized.lower()
     assert "connection_string" not in serialized.lower()

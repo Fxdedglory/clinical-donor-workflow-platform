@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -27,13 +26,33 @@ from app.services.clinical_audit_mirror_providers import (
     get_audit_mirror_provider,
     provider_readiness_summary,
 )
+from app.services.clinical_audit_signing import (
+    ALGORITHM_CHECKSUM_PLACEHOLDER,
+    SIGNATURE_STATUS_CHECKSUM_PLACEHOLDER,
+    SIGNATURE_STATUS_NOT_REQUIRED,
+    SIGNING_MODE_CHECKSUM_PLACEHOLDER,
+    SIGNING_MODE_DISABLED,
+    AuditManifestSigningConfig,
+    audit_manifest_signing_config_from_settings,
+    canonical_signing_payload,
+    sign_manifest_checksum,
+    signature_status_for_config,
+    verify_manifest_signature,
+)
 
 AUDIT_MANIFEST_SCHEMA_VERSION = "clinical.workflow_audit.manifest.v1"
 AUDIT_MANIFEST_STATUS_GENERATED = "generated"
-AUDIT_MANIFEST_SIGNATURE_NOT_REQUIRED = "not_required"
-AUDIT_MANIFEST_SIGNATURE_PLACEHOLDER = "checksum_placeholder"
+AUDIT_MANIFEST_SIGNATURE_NOT_REQUIRED = SIGNATURE_STATUS_NOT_REQUIRED
+AUDIT_MANIFEST_SIGNATURE_PLACEHOLDER = SIGNATURE_STATUS_CHECKSUM_PLACEHOLDER
 AUDIT_MANIFEST_HASH_ALGORITHM = "sha256"
-AUDIT_MANIFEST_DEFAULT_SIGNATURE_ALGORITHM = "sha256-placeholder"
+AUDIT_MANIFEST_DEFAULT_SIGNATURE_ALGORITHM = ALGORITHM_CHECKSUM_PLACEHOLDER
+AUDIT_MANIFEST_CHECKSUM_EXCLUDED_FIELDS = {
+    "manifest_checksum",
+    "manifest_uri",
+    "signature",
+    "signature_reason",
+    "signature_verification",
+}
 
 
 @dataclass(frozen=True)
@@ -48,12 +67,35 @@ class AuditManifestConfig:
     legal_hold_reference: str = ""
     manifest_required: bool = False
     signature_required: bool = False
+    signing_mode: str = SIGNING_MODE_DISABLED
     signature_algorithm: str = AUDIT_MANIFEST_DEFAULT_SIGNATURE_ALGORITHM
     signature_key_ref: str = ""
+    local_hmac_key: str = ""
+    allow_local_signing_in_production: bool = False
+    azure_key_vault_url: str = ""
+    azure_key_name: str = ""
+    azure_key_version: str = ""
 
     @property
     def normalized_mirror_mode(self) -> str:
         return str(self.mirror_mode or "disabled").strip().lower()
+
+    def signing_config(self) -> AuditManifestSigningConfig:
+        signing_mode = str(self.signing_mode or "").strip().lower()
+        if self.signature_required and signing_mode in {"", SIGNING_MODE_DISABLED}:
+            signing_mode = SIGNING_MODE_CHECKSUM_PLACEHOLDER
+        return AuditManifestSigningConfig(
+            mode=signing_mode or SIGNING_MODE_DISABLED,
+            required=self.signature_required,
+            algorithm=self.signature_algorithm,
+            key_ref=self.signature_key_ref,
+            local_hmac_key=self.local_hmac_key,
+            allow_local_signing_in_production=self.allow_local_signing_in_production,
+            azure_key_vault_url=self.azure_key_vault_url,
+            azure_key_name=self.azure_key_name,
+            azure_key_version=self.azure_key_version,
+            environment=self.environment,
+        )
 
 
 def _as_bool(value: Any, *, default: bool = False) -> bool:
@@ -78,7 +120,7 @@ def _text(value: Any) -> str:
 
 
 def _canonical_json(data: dict[str, Any]) -> str:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
+    return canonical_signing_payload(data)
 
 
 def audit_manifest_checksum(payload: dict[str, Any]) -> str:
@@ -87,6 +129,7 @@ def audit_manifest_checksum(payload: dict[str, Any]) -> str:
 
 def audit_manifest_config_from_settings(source: Any = settings) -> AuditManifestConfig:
     mirror_config = audit_mirror_config_from_settings(source)
+    signing_config = audit_manifest_signing_config_from_settings(source)
     return AuditManifestConfig(
         environment=_text(
             getattr(source, "app_env", "")
@@ -102,12 +145,15 @@ def audit_manifest_config_from_settings(source: Any = settings) -> AuditManifest
         legal_hold=_as_bool(getattr(source, "audit_object_mirror_legal_hold_required", False)),
         legal_hold_reference=_text(getattr(source, "audit_object_mirror_legal_hold_reference", "")),
         manifest_required=_as_bool(getattr(source, "audit_object_mirror_manifest_required", False)),
-        signature_required=_as_bool(getattr(source, "audit_object_mirror_signature_required", False)),
-        signature_algorithm=_text(
-            getattr(source, "audit_object_mirror_signature_algorithm", AUDIT_MANIFEST_DEFAULT_SIGNATURE_ALGORITHM)
-        )
-        or AUDIT_MANIFEST_DEFAULT_SIGNATURE_ALGORITHM,
-        signature_key_ref=_text(getattr(source, "audit_object_mirror_signature_key_ref", "")),
+        signature_required=signing_config.required,
+        signing_mode=signing_config.normalized_mode,
+        signature_algorithm=signing_config.effective_algorithm or AUDIT_MANIFEST_DEFAULT_SIGNATURE_ALGORITHM,
+        signature_key_ref=signing_config.key_ref,
+        local_hmac_key=signing_config.local_hmac_key,
+        allow_local_signing_in_production=signing_config.allow_local_signing_in_production,
+        azure_key_vault_url=signing_config.azure_key_vault_url,
+        azure_key_name=signing_config.azure_key_name,
+        azure_key_version=signing_config.azure_key_version,
     )
 
 
@@ -199,6 +245,10 @@ def generate_audit_mirror_manifest(
     objects = _manifest_objects(mirror_events)
     generated_at_value = _generated_at_from_events(successful_mirror_events(mirror_events), generated_at)
     operation_ids = [item["operation_id"] for item in objects]
+    signing_config = active_config.signing_config()
+    signature_status = signature_status_for_config(signing_config)
+    signature_algorithm = signing_config.effective_algorithm or None
+    signature_key_ref = signing_config.key_ref or None
     base = {
         "schema_version": AUDIT_MANIFEST_SCHEMA_VERSION,
         "generated_at": _iso(generated_at_value),
@@ -218,33 +268,24 @@ def generate_audit_mirror_manifest(
         "operation_ids": operation_ids,
         "objects": objects,
         "hash_algorithm": AUDIT_MANIFEST_HASH_ALGORITHM,
-        "signature_status": (
-            AUDIT_MANIFEST_SIGNATURE_PLACEHOLDER
-            if active_config.signature_required
-            else AUDIT_MANIFEST_SIGNATURE_NOT_REQUIRED
-        ),
-        "signature_algorithm": (
-            active_config.signature_algorithm if active_config.signature_required else None
-        ),
-        "signature_key_ref": active_config.signature_key_ref if active_config.signature_required else None,
+        "signing_mode": signing_config.normalized_mode,
+        "signature_status": signature_status,
+        "signature_algorithm": signature_algorithm,
+        "signature_key_ref": signature_key_ref,
     }
     manifest_id = f"audit-manifest-{_manifest_fingerprint(base)[:24]}"
     unsigned_manifest = {"manifest_id": manifest_id, **base}
     manifest_checksum = audit_manifest_checksum(unsigned_manifest)
-    signature_value = None
-    if active_config.signature_required:
-        signature_material = ":".join(
-            [
-                manifest_checksum,
-                active_config.signature_algorithm,
-                active_config.signature_key_ref,
-            ]
-        )
-        signature_value = f"placeholder:{hashlib.sha256(signature_material.encode('utf-8')).hexdigest()}"
+    signature_result = sign_manifest_checksum(manifest_checksum, signing_config)
     return {
         **unsigned_manifest,
         "manifest_checksum": manifest_checksum,
-        "signature": signature_value,
+        "signature": signature_result.signature,
+        "signature_status": signature_result.status,
+        "signature_algorithm": signature_result.algorithm,
+        "signature_key_ref": signature_result.key_ref,
+        "signing_mode": signature_result.mode,
+        "signature_reason": signature_result.reason,
     }
 
 
@@ -274,6 +315,71 @@ def manifest_to_event(manifest: dict[str, Any]) -> ClinicalWorkflowAuditMirrorMa
         generated_at=generated_at,
         generated_by=str(manifest.get("generated_by") or "system"),
     )
+
+
+def _manifest_without_checksum_fields(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in manifest.items()
+        if key not in AUDIT_MANIFEST_CHECKSUM_EXCLUDED_FIELDS
+    }
+
+
+def _signing_config_for_manifest(
+    manifest: dict[str, Any],
+    config: AuditManifestSigningConfig | None,
+) -> AuditManifestSigningConfig:
+    source = config or audit_manifest_signing_config_from_settings()
+    signature_status = str(manifest.get("signature_status") or "")
+    mode = str(manifest.get("signing_mode") or source.normalized_mode or "").strip().lower()
+    if not mode and signature_status == AUDIT_MANIFEST_SIGNATURE_PLACEHOLDER:
+        mode = SIGNING_MODE_CHECKSUM_PLACEHOLDER
+    required = source.required or signature_status not in {"", AUDIT_MANIFEST_SIGNATURE_NOT_REQUIRED}
+    return AuditManifestSigningConfig(
+        mode=mode or SIGNING_MODE_DISABLED,
+        required=required,
+        algorithm=str(manifest.get("signature_algorithm") or source.effective_algorithm or ""),
+        key_ref=str(manifest.get("signature_key_ref") or source.key_ref or ""),
+        local_hmac_key=source.local_hmac_key,
+        allow_local_signing_in_production=source.allow_local_signing_in_production,
+        azure_key_vault_url=source.azure_key_vault_url,
+        azure_key_name=source.azure_key_name,
+        azure_key_version=source.azure_key_version,
+        environment=source.environment,
+    )
+
+
+def verify_audit_mirror_manifest(
+    manifest: dict[str, Any],
+    *,
+    signing_config: AuditManifestSigningConfig | None = None,
+) -> dict[str, Any]:
+    expected_checksum = audit_manifest_checksum(_manifest_without_checksum_fields(manifest))
+    recorded_checksum = str(manifest.get("manifest_checksum") or "")
+    checksum_verified = bool(recorded_checksum) and expected_checksum == recorded_checksum
+    active_signing_config = _signing_config_for_manifest(manifest, signing_config)
+    signature_verification = verify_manifest_signature(
+        manifest_checksum=expected_checksum,
+        signature=manifest.get("signature"),
+        config=active_signing_config,
+    )
+    signature_status = signature_verification["signature_verification_status"]
+    blocking_signature_statuses = {
+        "failed",
+        "missing_signature",
+        "unsupported_signing_mode",
+    }
+    blocking = (not checksum_verified) or signature_status in blocking_signature_statuses
+    return {
+        "manifest_id": manifest.get("manifest_id"),
+        "checksum_status": "verified" if checksum_verified else "checksum_mismatch",
+        "recorded_checksum": recorded_checksum,
+        "computed_checksum": expected_checksum,
+        "signature_verification": signature_verification,
+        "signature_verification_status": signature_status,
+        "blocking": blocking,
+        "verified": not blocking,
+    }
 
 
 def record_audit_mirror_manifest(
@@ -466,6 +572,7 @@ def audit_mirror_recovery_drill_summary(
     *,
     config: AuditMirrorConfig | None = None,
     manifest: dict[str, Any] | None = None,
+    manifest_signing_config: AuditManifestSigningConfig | None = None,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
     dry_run: bool = False,
@@ -494,6 +601,16 @@ def audit_mirror_recovery_drill_summary(
         dry_run=dry_run,
         provider=active_provider,
     )
+    manifest_signature_verification = (
+        verify_audit_mirror_manifest(manifest, signing_config=manifest_signing_config)
+        if manifest is not None
+        else {
+            "checksum_status": "not_checked",
+            "signature_verification_status": "not_checked_no_manifest",
+            "blocking": False,
+            "verified": False,
+        }
+    )
     provider_readiness = active_provider.readiness_summary() if provider is not None else provider_readiness_summary(active_config)
     manifest_count = len(read_db_mirror_manifests(db))
     missing_mirror_operation_ids = sorted(audit_ids - mirrored_ids)
@@ -511,6 +628,7 @@ def audit_mirror_recovery_drill_summary(
         + verification["missing"]
         + verification["mismatched"]
         + verification["manifest_mismatched"]
+        + (1 if manifest_signature_verification["blocking"] else 0)
     )
     return {
         "source_deleted": False,
@@ -525,5 +643,6 @@ def audit_mirror_recovery_drill_summary(
         "orphan_mirror_count": len(orphan_mirror_operation_ids),
         "orphan_mirror_operation_ids": orphan_mirror_operation_ids,
         "verification": verification,
+        "manifest_signature_verification": manifest_signature_verification,
         "recovery_ready": blocking_findings == 0,
     }

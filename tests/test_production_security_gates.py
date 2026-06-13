@@ -1,5 +1,4 @@
 import pytest
-
 from app.services import production_security_gates as gates
 from app.services.production_security_gates import (
     assert_production_security_gates,
@@ -251,14 +250,16 @@ def test_production_mode_fails_when_required_manifest_signature_settings_are_mis
             AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
             AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
             AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
-            AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_RETENTION_POLICY="",
-            AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF="",
+            AUDIT_MANIFEST_SIGNING_MODE="external_kms_placeholder",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="rsa-pss-sha256",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="",
         )
     )
 
     assert "audit_object_mirror_retention_policy_missing" in codes
-    assert "audit_object_mirror_signature_key_ref_missing" in codes
+    assert "audit_manifest_signing_key_ref_missing" in codes
 
 
 def test_production_mode_fails_when_signature_is_required_without_manifest() -> None:
@@ -269,8 +270,10 @@ def test_production_mode_fails_when_signature_is_required_without_manifest() -> 
             AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
             AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
             AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
-            AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
-            AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF="key-v1",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="external_kms_placeholder",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="rsa-pss-sha256",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="kms://clinical-audit-manifest-key-v1",
         )
     )
 
@@ -293,7 +296,7 @@ def test_production_mode_fails_when_required_legal_hold_reference_is_missing() -
     assert "audit_object_mirror_legal_hold_reference_missing" in codes
 
 
-def test_production_mode_passes_with_required_mirror_manifest_signature_config() -> None:
+def test_production_mode_passes_with_required_mirror_external_kms_placeholder_signature_config() -> None:
     result = validate_production_security_gates(
         _safe_production_config(
             AUDIT_OBJECT_MIRROR_REQUIRED=True,
@@ -304,9 +307,10 @@ def test_production_mode_passes_with_required_mirror_manifest_signature_config()
             AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
             AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="managed_identity",
             AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
-            AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=True,
-            AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM="sha256-placeholder",
-            AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF="audit-manifest-key-v1",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="external_kms_placeholder",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="rsa-pss-sha256",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="kms://clinical-audit-manifest-key-v1",
             AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
             AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE="LH-CLINICAL-AUDIT",
@@ -314,6 +318,109 @@ def test_production_mode_passes_with_required_mirror_manifest_signature_config()
     )
 
     assert result.passed is True
+
+
+def test_production_mode_fails_when_manifest_signing_required_but_disabled() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="disabled",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="rsa-pss-sha256",
+        )
+    )
+
+    assert "audit_manifest_signing_required_but_disabled" in codes
+
+
+def test_production_mode_fails_when_manifest_signing_required_but_checksum_placeholder() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="checksum_placeholder",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="sha256-placeholder",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="placeholder-key",
+        )
+    )
+
+    assert "audit_manifest_signing_checksum_placeholder_in_production" in codes
+
+
+def test_production_mode_fails_when_azure_key_vault_placeholder_config_is_incomplete() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="azure_key_vault_placeholder",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="rsa-pss-sha256",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="keyvault://clinical-audit-manifest-key",
+            AUDIT_MANIFEST_AZURE_KEY_VAULT_URL="",
+            AUDIT_MANIFEST_AZURE_KEY_NAME="",
+        )
+    )
+
+    assert "audit_manifest_azure_key_vault_url_missing" in codes
+    assert "audit_manifest_azure_key_name_missing" in codes
+
+
+def test_production_mode_fails_when_manifest_signing_algorithm_is_unsafe() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="external_kms_placeholder",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="sha1",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="kms://clinical-audit-manifest-key-v1",
+        )
+    )
+
+    assert "audit_manifest_signing_algorithm_unsafe" in codes
+
+
+def test_production_mode_fails_when_local_hmac_signing_without_explicit_allowance() -> None:
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob_immutability",
+            AUDIT_OBJECT_MIRROR_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
+            AUDIT_MANIFEST_SIGNING_REQUIRED=True,
+            AUDIT_MANIFEST_SIGNING_MODE="local_hmac_sha256",
+            AUDIT_MANIFEST_SIGNING_ALGORITHM="hmac-sha256",
+            AUDIT_MANIFEST_SIGNING_KEY_REF="local-dev-hmac-key-v1",
+            AUDIT_MANIFEST_LOCAL_HMAC_KEY="configured-outside-git",
+        )
+    )
+
+    assert "audit_manifest_local_hmac_not_allowed_in_production" in codes
 
 
 def test_production_mode_fails_when_analytics_profile_is_unsafe() -> None:

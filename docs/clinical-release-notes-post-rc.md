@@ -230,3 +230,24 @@ Date: 2026-06-13
 - Validate provider-side immutability and legal-hold state from Azure APIs.
 - Add approved cryptographic signing for evidence packages.
 - Keep external evidence delivery and automated cleanup out of scope until separately approved.
+
+## Cryptographic Manifest Signing Foundation
+
+Update: CLINICAL-POST-RC-12
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_audit_signing.py` with deterministic canonical signing payloads and signing modes for disabled, checksum placeholder, local HMAC, external KMS placeholder, and Azure Key Vault placeholder.
+- Integrated signing into audit mirror manifest generation while preserving manifest checksums and metadata persistence.
+- Added local HMAC signature verification and tamper detection for dev/test manifests.
+- Added manifest checksum and signature verification status to recovery drill summaries.
+- Extended sanitized Azure WORM evidence output with manifest signing mode, required flag, algorithm, key reference, and verification status without key material.
+- Extended production security gates for required signing, disabled/checksum-placeholder modes, local HMAC allowance, external/KMS key references, Azure Key Vault placeholder metadata, and unsafe algorithms.
+- Added `docs/clinical-audit-manifest-signing.md` and updated WORM, Azure readiness, recovery, production, security, and operator documentation.
+
+## Remaining Post-RC-12 Items
+
+- Implement approved live external KMS or Azure Key Vault signing and verification.
+- Validate provider-side immutability and legal-hold state from Azure APIs.
+- Define production key lifecycle, rotation, access logging, and incident recovery procedures.
+- Keep live-cloud signing and Azure WORM validation opt-in until compliance owners approve execution.

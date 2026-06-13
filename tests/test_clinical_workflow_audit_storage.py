@@ -3,19 +3,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from app.models import (
     ClinicalWorkflowAuditEvent,
     ClinicalWorkflowAuditMirrorEvent,
     ClinicalWorkflowAuditMirrorManifest,
 )
 from app.schemas.clinical import WorkflowOperation
+from app.schemas.clinical_reports import ReportFilterRequest
 from app.services.clinical_audit_manifest import (
     AuditManifestConfig,
     audit_manifest_checksum,
     audit_mirror_recovery_drill_summary,
     generate_audit_mirror_manifest,
     record_audit_mirror_manifest,
+    verify_audit_mirror_manifest,
     verify_mirror_inventory,
 )
 from app.services.clinical_audit_mirror import (
@@ -33,7 +34,15 @@ from app.services.clinical_audit_mirror_providers import (
     get_audit_mirror_provider,
     provider_readiness_summary,
 )
-from app.schemas.clinical_reports import ReportFilterRequest
+from app.services.clinical_audit_signing import (
+    ALGORITHM_LOCAL_HMAC_SHA256,
+    SIGNATURE_STATUS_SIGNED,
+    SIGNATURE_VERIFICATION_VERIFIED,
+    SIGNING_MODE_LOCAL_HMAC_SHA256,
+    AuditManifestSigningConfig,
+    canonical_signing_payload,
+    sign_manifest_checksum,
+)
 from app.services.clinical_quality import audit_evidence_response
 from app.services.clinical_reports import audit_activity_report
 from app.services.clinical_workflows import (
@@ -720,6 +729,32 @@ def test_audit_object_mirror_replay_dry_run_does_not_write_or_record(tmp_path: P
     assert not (tmp_path / "worm").exists()
 
 
+def test_manifest_signing_payload_is_canonical_and_deterministic() -> None:
+    first = canonical_signing_payload({"b": 2, "a": {"d": 4, "c": 3}})
+    second = canonical_signing_payload({"a": {"c": 3, "d": 4}, "b": 2})
+
+    assert first == second
+    assert first == '{"a":{"c":3,"d":4},"b":2}'
+
+
+def test_local_hmac_manifest_signature_is_deterministic() -> None:
+    config = AuditManifestSigningConfig(
+        mode=SIGNING_MODE_LOCAL_HMAC_SHA256,
+        required=True,
+        algorithm=ALGORITHM_LOCAL_HMAC_SHA256,
+        key_ref="local-dev-hmac-key-v1",
+        local_hmac_key="test-only-local-hmac-secret",
+    )
+
+    first = sign_manifest_checksum("sha256-manifest-checksum", config)
+    second = sign_manifest_checksum("sha256-manifest-checksum", config)
+
+    assert first == second
+    assert first.status == SIGNATURE_STATUS_SIGNED
+    assert first.signature is not None
+    assert first.signature.startswith("hmac-sha256:")
+
+
 def test_audit_mirror_manifest_generation_is_deterministic_and_includes_inventory() -> None:
     generated_at = datetime(2026, 6, 13, 13, 0, tzinfo=UTC)
     config = AuditManifestConfig(
@@ -741,7 +776,11 @@ def test_audit_mirror_manifest_generation_is_deterministic_and_includes_inventor
 
     first = generate_audit_mirror_manifest(events, config=config, generated_at=generated_at)
     second = generate_audit_mirror_manifest(events, config=config, generated_at=generated_at)
-    unsigned = {key: value for key, value in first.items() if key not in {"manifest_checksum", "signature"}}
+    unsigned = {
+        key: value
+        for key, value in first.items()
+        if key not in {"manifest_checksum", "signature", "signature_reason"}
+    }
 
     assert first == second
     assert first["audit_event_count"] == 2
@@ -749,9 +788,87 @@ def test_audit_mirror_manifest_generation_is_deterministic_and_includes_inventor
     assert [item["checksum"] for item in first["objects"]] == ["sha256-001", "sha256-002"]
     assert first["retention"]["policy_reference"] == "RET-7Y-WORM"
     assert first["retention"]["legal_hold"] is True
+    assert first["signing_mode"] == "checksum_placeholder"
     assert first["signature_status"] == "checksum_placeholder"
     assert first["signature"].startswith("placeholder:")
+    assert "not a cryptographic signature" in first["signature_reason"]
     assert first["manifest_checksum"] == audit_manifest_checksum(unsigned)
+
+
+def test_local_hmac_manifest_signature_verifies_successfully() -> None:
+    generated_at = datetime(2026, 6, 13, 13, 0, tzinfo=UTC)
+    config = AuditManifestConfig(
+        environment="test",
+        mirror_mode="local_filesystem",
+        signature_required=True,
+        signing_mode=SIGNING_MODE_LOCAL_HMAC_SHA256,
+        signature_algorithm=ALGORITHM_LOCAL_HMAC_SHA256,
+        signature_key_ref="local-dev-hmac-key-v1",
+        local_hmac_key="test-only-local-hmac-secret",
+    )
+
+    manifest = generate_audit_mirror_manifest(
+        [_mirror_event(operation_id="signed-manifest-op", mirror_checksum="sha256-signed")],
+        config=config,
+        generated_at=generated_at,
+    )
+    verification = verify_audit_mirror_manifest(manifest, signing_config=config.signing_config())
+
+    assert manifest["signature_status"] == "signed"
+    assert manifest["signature_algorithm"] == "hmac-sha256"
+    assert manifest["signature_key_ref"] == "local-dev-hmac-key-v1"
+    assert manifest["signature"].startswith("hmac-sha256:")
+    assert verification["checksum_status"] == "verified"
+    assert verification["signature_verification_status"] == SIGNATURE_VERIFICATION_VERIFIED
+    assert verification["verified"] is True
+
+
+def test_local_hmac_manifest_signature_fails_after_tampering() -> None:
+    config = AuditManifestConfig(
+        environment="test",
+        mirror_mode="local_filesystem",
+        signature_required=True,
+        signing_mode=SIGNING_MODE_LOCAL_HMAC_SHA256,
+        signature_algorithm=ALGORITHM_LOCAL_HMAC_SHA256,
+        signature_key_ref="local-dev-hmac-key-v1",
+        local_hmac_key="test-only-local-hmac-secret",
+    )
+    manifest = generate_audit_mirror_manifest(
+        [_mirror_event(operation_id="tampered-manifest-op", mirror_checksum="sha256-original")],
+        config=config,
+        generated_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+    )
+
+    manifest["objects"][0]["checksum"] = "sha256-tampered"
+    verification = verify_audit_mirror_manifest(manifest, signing_config=config.signing_config())
+
+    assert verification["checksum_status"] == "checksum_mismatch"
+    assert verification["signature_verification_status"] == "failed"
+    assert verification["blocking"] is True
+
+
+def test_external_kms_placeholder_manifest_verification_is_pending() -> None:
+    config = AuditManifestConfig(
+        environment="test",
+        mirror_mode="local_filesystem",
+        signature_required=True,
+        signing_mode="external_kms_placeholder",
+        signature_algorithm="rsa-pss-sha256",
+        signature_key_ref="kms://clinical-audit-manifest-key-v1",
+    )
+    manifest = generate_audit_mirror_manifest(
+        [_mirror_event(operation_id="external-kms-placeholder-op", mirror_checksum="sha256-kms")],
+        config=config,
+        generated_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+    )
+
+    verification = verify_audit_mirror_manifest(manifest, signing_config=config.signing_config())
+
+    assert manifest["signature_status"] == "pending_provider_signature"
+    assert manifest["signature"] is None
+    assert verification["checksum_status"] == "verified"
+    assert verification["signature_verification_status"] == "pending_provider_verification"
+    assert verification["blocking"] is False
 
 
 def test_audit_mirror_manifest_checksum_changes_when_inventory_changes() -> None:
@@ -793,6 +910,30 @@ def test_audit_mirror_manifest_persistence_records_append_only_metadata() -> Non
     assert row.audit_event_count == 1
     assert row.manifest_status == "generated"
     assert db.committed is True
+
+
+def test_audit_mirror_manifest_persistence_records_signing_metadata() -> None:
+    db = _WorkflowAuditDb()
+    config = AuditManifestConfig(
+        environment="test",
+        mirror_mode="local_filesystem",
+        signature_required=True,
+        signing_mode=SIGNING_MODE_LOCAL_HMAC_SHA256,
+        signature_algorithm=ALGORITHM_LOCAL_HMAC_SHA256,
+        signature_key_ref="local-dev-hmac-key-v1",
+        local_hmac_key="test-only-local-hmac-secret",
+    )
+    manifest = generate_audit_mirror_manifest(
+        [_mirror_event(operation_id="persisted-signed-manifest-op", mirror_checksum="sha256-signed")],
+        config=config,
+        generated_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+    )
+
+    row = record_audit_mirror_manifest(db, manifest)
+
+    assert row.signature_status == "signed"
+    assert row.signature_algorithm == "hmac-sha256"
+    assert row.signature_key_ref == "local-dev-hmac-key-v1"
 
 
 def test_local_mirror_verification_passes_for_valid_payload(tmp_path: Path) -> None:
@@ -943,6 +1084,42 @@ def test_audit_mirror_recovery_drill_includes_provider_readiness_summary(tmp_pat
     assert result["provider_readiness"]["capabilities"]["verify_object_checksum"] is True
     assert result["manifest_count"] == 0
     assert result["mirrored_object_count"] == 1
+
+
+def test_audit_mirror_recovery_drill_includes_signature_verification_status(tmp_path: Path) -> None:
+    db = _WorkflowAuditDb()
+    mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
+    append_workflow_operation(
+        _operation(operation_id="recovery-signed-manifest-op"),
+        path=tmp_path / "workflow_operations.json",
+        db=db,
+        object_mirror_config=mirror_config,
+    )
+    manifest_config = AuditManifestConfig(
+        environment="test",
+        mirror_mode="local_filesystem",
+        signature_required=True,
+        signing_mode=SIGNING_MODE_LOCAL_HMAC_SHA256,
+        signature_algorithm=ALGORITHM_LOCAL_HMAC_SHA256,
+        signature_key_ref="local-dev-hmac-key-v1",
+        local_hmac_key="test-only-local-hmac-secret",
+    )
+    manifest = generate_audit_mirror_manifest(
+        db.mirror_events,
+        config=manifest_config,
+        generated_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+    )
+
+    result = audit_mirror_recovery_drill_summary(
+        db,
+        config=mirror_config,
+        manifest=manifest,
+        manifest_signing_config=manifest_config.signing_config(),
+    )
+
+    assert result["manifest_signature_verification"]["checksum_status"] == "verified"
+    assert result["manifest_signature_verification"]["signature_verification_status"] == "verified"
+    assert result["manifest_signature_verification"]["blocking"] is False
 
 
 def test_audit_mirror_recovery_drill_includes_azure_real_io_state() -> None:

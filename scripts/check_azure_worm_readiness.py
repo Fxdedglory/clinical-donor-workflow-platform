@@ -20,6 +20,9 @@ from app.services.clinical_audit_mirror import (  # noqa: E402
     audit_mirror_payload,
 )
 from app.services.clinical_audit_mirror_providers import AzureBlobAuditMirrorProvider  # noqa: E402
+from app.services.clinical_audit_signing import (  # noqa: E402
+    audit_manifest_signing_config_from_settings,
+)
 from app.services.clinical_azure_worm_evidence import (  # noqa: E402
     build_validation_evidence,
     write_validation_evidence,
@@ -131,7 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.live_write:
         if report["blocking_issues"] or report["provider_readiness"].get("ready") is not True:
             if args.evidence_out:
-                evidence = build_validation_evidence(report, environment_mode=settings.app_env)
+                evidence = build_validation_evidence(
+                    report,
+                    environment_mode=settings.app_env,
+                    signing_config=audit_manifest_signing_config_from_settings(settings),
+                )
                 evidence_path = write_validation_evidence(args.evidence_out, evidence)
                 report["evidence_out"] = str(evidence_path)
             if args.json:
@@ -142,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         report = run_live_write(report)
 
     if args.evidence_out:
-        evidence = build_validation_evidence(report, environment_mode=settings.app_env)
+        evidence = build_validation_evidence(
+            report,
+            environment_mode=settings.app_env,
+            signing_config=audit_manifest_signing_config_from_settings(settings),
+        )
         evidence_path = write_validation_evidence(args.evidence_out, evidence)
         report["evidence_out"] = str(evidence_path)
 

@@ -8,6 +8,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.clinical_audit_signing import (
+    SAFE_SIGNING_ALGORITHMS,
+    SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER,
+    SIGNING_MODE_CHECKSUM_PLACEHOLDER,
+    SIGNING_MODE_DISABLED,
+    SIGNING_MODE_EXTERNAL_KMS_PLACEHOLDER,
+    SIGNING_MODE_LOCAL_HMAC_SHA256,
+    SIGNING_MODES,
+    UNSAFE_SIGNING_ALGORITHMS,
+)
 from app.services.clinical_phi import (
     DEFAULT_AGGREGATE_EXPORT_PROFILE,
     DEFAULT_AUDIT_EXPORT_PROFILE,
@@ -95,6 +105,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit_object_mirror_signature_required": False,
     "audit_object_mirror_signature_algorithm": "sha256-placeholder",
     "audit_object_mirror_signature_key_ref": "",
+    "audit_manifest_signing_mode": "",
+    "audit_manifest_signing_required": False,
+    "audit_manifest_signing_algorithm": "",
+    "audit_manifest_signing_key_ref": "",
+    "audit_manifest_local_hmac_key": "",
+    "audit_manifest_allow_local_signing_in_production": False,
+    "audit_manifest_azure_key_vault_url": "",
+    "audit_manifest_azure_key_name": "",
+    "audit_manifest_azure_key_version": "",
     "audit_object_mirror_azure_account_url": "",
     "audit_object_mirror_azure_container": "",
     "audit_object_mirror_azure_prefix": "",
@@ -419,6 +438,78 @@ def validate_production_security_gates(
             default=DEFAULT_CONFIG["audit_object_mirror_signature_key_ref"],
         )
     )
+    legacy_signature_required = signature_required
+    manifest_signing_required = _as_bool(
+        _get(
+            source,
+            "audit_manifest_signing_required",
+            "AUDIT_MANIFEST_SIGNING_REQUIRED",
+            default=DEFAULT_CONFIG["audit_manifest_signing_required"],
+        ),
+        default=False,
+    ) or legacy_signature_required
+    manifest_signing_mode = _normalized(
+        _get(
+            source,
+            "audit_manifest_signing_mode",
+            "AUDIT_MANIFEST_SIGNING_MODE",
+            default=DEFAULT_CONFIG["audit_manifest_signing_mode"],
+        )
+    )
+    if not manifest_signing_mode and legacy_signature_required:
+        manifest_signing_mode = SIGNING_MODE_CHECKSUM_PLACEHOLDER
+    manifest_signing_mode = manifest_signing_mode or SIGNING_MODE_DISABLED
+    manifest_signing_algorithm = _text(
+        _get(
+            source,
+            "audit_manifest_signing_algorithm",
+            "AUDIT_MANIFEST_SIGNING_ALGORITHM",
+            default=DEFAULT_CONFIG["audit_manifest_signing_algorithm"],
+        )
+    ) or signature_algorithm
+    manifest_signing_key_ref = _text(
+        _get(
+            source,
+            "audit_manifest_signing_key_ref",
+            "AUDIT_MANIFEST_SIGNING_KEY_REF",
+            default=DEFAULT_CONFIG["audit_manifest_signing_key_ref"],
+        )
+    ) or signature_key_ref
+    manifest_local_hmac_key_configured = bool(
+        _text(
+            _get(
+                source,
+                "audit_manifest_local_hmac_key",
+                "AUDIT_MANIFEST_LOCAL_HMAC_KEY",
+                default=DEFAULT_CONFIG["audit_manifest_local_hmac_key"],
+            )
+        )
+    )
+    manifest_allow_local_signing = _as_bool(
+        _get(
+            source,
+            "audit_manifest_allow_local_signing_in_production",
+            "AUDIT_MANIFEST_ALLOW_LOCAL_SIGNING_IN_PRODUCTION",
+            default=DEFAULT_CONFIG["audit_manifest_allow_local_signing_in_production"],
+        ),
+        default=False,
+    )
+    manifest_azure_key_vault_url = _text(
+        _get(
+            source,
+            "audit_manifest_azure_key_vault_url",
+            "AUDIT_MANIFEST_AZURE_KEY_VAULT_URL",
+            default=DEFAULT_CONFIG["audit_manifest_azure_key_vault_url"],
+        )
+    )
+    manifest_azure_key_name = _text(
+        _get(
+            source,
+            "audit_manifest_azure_key_name",
+            "AUDIT_MANIFEST_AZURE_KEY_NAME",
+            default=DEFAULT_CONFIG["audit_manifest_azure_key_name"],
+        )
+    )
     azure_account_url = _text(
         _get(
             source,
@@ -567,21 +658,66 @@ def validate_production_security_gates(
             "audit_object_mirror_legal_hold_reference_missing",
             "AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE is required when legal hold is required.",
         )
-    if mirror_required and signature_required and not manifest_required:
+    if mirror_required and manifest_signing_required and not manifest_required:
         add(
             "audit_object_mirror_signature_requires_manifest",
-            "AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true requires AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true.",
+            "AUDIT_MANIFEST_SIGNING_REQUIRED=true requires AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true.",
         )
-    if mirror_required and manifest_required and signature_required:
-        if not signature_algorithm or _normalized(signature_algorithm) in DISABLED_AUDIT_OBJECT_MIRROR_MODES:
+    if mirror_required and manifest_required and manifest_signing_required:
+        normalized_signing_algorithm = _normalized(manifest_signing_algorithm)
+        if manifest_signing_mode not in SIGNING_MODES:
             add(
-                "audit_object_mirror_signature_algorithm_missing",
-                "AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM is required when signed manifests are required.",
+                "audit_manifest_signing_mode_unsupported",
+                "AUDIT_MANIFEST_SIGNING_MODE must use an approved signing mode.",
             )
-        if not signature_key_ref:
+        if manifest_signing_mode == SIGNING_MODE_DISABLED:
             add(
-                "audit_object_mirror_signature_key_ref_missing",
-                "AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF is required when signed manifests are required.",
+                "audit_manifest_signing_required_but_disabled",
+                "AUDIT_MANIFEST_SIGNING_REQUIRED=true requires AUDIT_MANIFEST_SIGNING_MODE to be configured.",
+            )
+        if manifest_signing_mode == SIGNING_MODE_CHECKSUM_PLACEHOLDER:
+            add(
+                "audit_manifest_signing_checksum_placeholder_in_production",
+                "checksum_placeholder is a non-production fallback and cannot satisfy required production manifest signing.",
+            )
+        if manifest_signing_mode == SIGNING_MODE_LOCAL_HMAC_SHA256 and not manifest_allow_local_signing:
+            add(
+                "audit_manifest_local_hmac_not_allowed_in_production",
+                "local_hmac_sha256 requires AUDIT_MANIFEST_ALLOW_LOCAL_SIGNING_IN_PRODUCTION=true in production-like environments.",
+            )
+        if manifest_signing_mode == SIGNING_MODE_LOCAL_HMAC_SHA256 and not manifest_local_hmac_key_configured:
+            add(
+                "audit_manifest_local_hmac_key_missing",
+                "AUDIT_MANIFEST_LOCAL_HMAC_KEY must be configured outside Git when local HMAC manifest signing is enabled.",
+            )
+        if (
+            manifest_signing_mode
+            in {SIGNING_MODE_EXTERNAL_KMS_PLACEHOLDER, SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER}
+            and not manifest_signing_key_ref
+        ):
+            add(
+                "audit_manifest_signing_key_ref_missing",
+                "AUDIT_MANIFEST_SIGNING_KEY_REF is required when external/KMS manifest signing is configured.",
+            )
+        if manifest_signing_mode == SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER:
+            if not manifest_azure_key_vault_url:
+                add(
+                    "audit_manifest_azure_key_vault_url_missing",
+                    "AUDIT_MANIFEST_AZURE_KEY_VAULT_URL is required for Azure Key Vault placeholder signing.",
+                )
+            if not manifest_azure_key_name:
+                add(
+                    "audit_manifest_azure_key_name_missing",
+                    "AUDIT_MANIFEST_AZURE_KEY_NAME is required for Azure Key Vault placeholder signing.",
+                )
+        if (
+            not normalized_signing_algorithm
+            or normalized_signing_algorithm in UNSAFE_SIGNING_ALGORITHMS
+            or normalized_signing_algorithm not in SAFE_SIGNING_ALGORITHMS
+        ):
+            add(
+                "audit_manifest_signing_algorithm_unsafe",
+                "AUDIT_MANIFEST_SIGNING_ALGORITHM must be an approved non-deprecated signing algorithm.",
             )
 
     try:

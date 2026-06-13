@@ -8,6 +8,8 @@ Post-RC-10 live readiness harness update date: 2026-06-13
 
 Post-RC-11 evidence package update date: 2026-06-13
 
+Post-RC-12 manifest signing foundation update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-08 adds a provider adapter readiness layer for workflow audit WORM mirroring. Post-RC-09 adds a guarded Azure Blob SDK operations foundation. Local development stays deterministic, tests use fake clients, and no real cloud credentials or network calls are required unless real Azure I/O is explicitly enabled.
@@ -15,6 +17,8 @@ Post-RC-08 adds a provider adapter readiness layer for workflow audit WORM mirro
 Post-RC-10 adds a live integration readiness harness that remains skipped by default. The harness gives operators a future path to validate real Azure write/stat/list/checksum behavior only after explicit environment flags and a dedicated test prefix are configured.
 
 Post-RC-11 adds a sanitized Azure WORM validation evidence package. The package reuses provider readiness output, records dry-run safety fields, and excludes raw credentials and PHI/ePHI.
+
+Post-RC-12 adds manifest signing metadata and verification status to the audit evidence foundation. External KMS and Azure Key Vault signing remain metadata-only placeholders with no network calls.
 
 Service:
 
@@ -116,11 +120,13 @@ Use `--live-write` only after change-control approval for one live write/stat/ch
 - immutability, legal hold, and checksum requirement summaries;
 - blocking issues and warnings from live-readiness and provider-readiness checks;
 - validation result and data safety summary.
+- manifest signing mode, required flag, algorithm, key reference, and signature verification status.
 
 ## Known Limitations
 
 - Azure SDK operations are foundation code paths and remain behind `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO`.
 - Live-cloud integration tests are skeletonized and skipped by default.
 - Evidence JSON documents readiness posture but does not prove Azure-side immutability without external policy evidence.
+- External KMS and Azure Key Vault signing providers are placeholders until approved live provider integration is implemented.
 - Provider immutability and legal hold are configuration assumptions only; enforcement must be configured in Azure.
 - Provider-side retention/legal hold validation and live recovery drills remain future work.

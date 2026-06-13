@@ -14,6 +14,8 @@ Post-RC-10 Azure live harness note date: 2026-06-13
 
 Post-RC-11 Azure evidence package note date: 2026-06-13
 
+Post-RC-12 manifest signing gate update date: 2026-06-13
+
 Scope: fail-closed startup validation for production-like environments. The gate is deterministic, uses local configuration only, and does not call a network service or require an external secret manager.
 
 ## Runtime Behavior
@@ -44,6 +46,8 @@ The values `prod`, `production`, `stage`, and `staging` are treated as productio
 - `AUDIT_OBJECT_MIRROR_REQUIRED=false` unless compliance policy requires object/WORM mirroring.
 - If `AUDIT_OBJECT_MIRROR_REQUIRED=true`, configure `AUDIT_OBJECT_MIRROR_MODE`, `AUDIT_OBJECT_MIRROR_PROVIDER`, `AUDIT_OBJECT_MIRROR_CONTAINER`, and `AUDIT_OBJECT_MIRROR_PREFIX`.
 - If manifest/signature policy is required, configure `AUDIT_OBJECT_MIRROR_RETENTION_POLICY`, `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED`, `AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED`, `AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM`, and `AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF`.
+- For new signed manifest configuration, prefer `AUDIT_MANIFEST_SIGNING_REQUIRED`, `AUDIT_MANIFEST_SIGNING_MODE`, `AUDIT_MANIFEST_SIGNING_ALGORITHM`, and `AUDIT_MANIFEST_SIGNING_KEY_REF`.
+- If Azure Key Vault placeholder signing is selected, configure `AUDIT_MANIFEST_AZURE_KEY_VAULT_URL` and `AUDIT_MANIFEST_AZURE_KEY_NAME`.
 - If legal hold is required, configure `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE`.
 - If `AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob` or `azure_blob_immutability`, configure `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE`.
 - Set `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only after Azure Blob writes are approved for the environment and required SDK dependencies are installed.
@@ -79,6 +83,11 @@ Startup fails in production when any of these are detected:
 - legal hold required without legal hold reference;
 - signature required without manifest required;
 - signed manifests required without signature algorithm or key reference;
+- required manifest signing disabled or set to `checksum_placeholder`;
+- local HMAC manifest signing in production without explicit allowance;
+- external/KMS or Azure Key Vault manifest signing without key reference;
+- Azure Key Vault placeholder signing without vault URL or key name;
+- missing or unsafe manifest signing algorithm;
 - required Azure Blob mirror without account URL, container, prefix, or safe credential mode;
 - required Azure Blob real I/O enabled without `azure-storage-blob`;
 - required Azure Blob real I/O enabled with identity credential mode but without `azure-identity`;
@@ -111,7 +120,7 @@ For App Service startup checks:
 
 In production-like environments, both startup paths refuse unsafe settings before the app opens traffic.
 
-The production gate remains local-only. It does not run live Azure pytest checks, upload objects, or call Azure APIs. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence and `docs/clinical-azure-worm-live-validation.md` for the opt-in live process.
+The production gate remains local-only. It does not run live Azure pytest checks, upload objects, call Azure APIs, or call a signing provider. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence and `docs/clinical-azure-worm-live-validation.md` for the opt-in live process.
 
 ## Failure Example
 
@@ -127,5 +136,5 @@ Production security gate failed. Refusing to start with unsafe production config
 - The gate validates configuration shape and known flags; it does not prove database migrations have already run.
 - It does not contact PostgreSQL, object storage, Entra ID, or a secret manager.
 - MFA provider integration remains future work; the gate only blocks predictable local bypass values and unsafe auth bypass flags.
-- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, sanitized evidence artifacts, signed manifest metadata, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, and real signing remain planned.
+- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, sanitized evidence artifacts, deterministic local HMAC manifest signing, provider-placeholder signing metadata, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, and real cloud KMS/Key Vault signing remain planned.
 - Small-cell suppression and lightweight role-aware UI masking are implemented; centralized field policy remains future work.

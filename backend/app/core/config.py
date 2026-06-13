@@ -71,6 +71,18 @@ class Settings(BaseSettings):
         alias="AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM",
     )
     audit_object_mirror_signature_key_ref: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF")
+    audit_manifest_signing_mode: str = Field(default="", alias="AUDIT_MANIFEST_SIGNING_MODE")
+    audit_manifest_signing_required: bool = Field(default=False, alias="AUDIT_MANIFEST_SIGNING_REQUIRED")
+    audit_manifest_signing_algorithm: str = Field(default="", alias="AUDIT_MANIFEST_SIGNING_ALGORITHM")
+    audit_manifest_signing_key_ref: str = Field(default="", alias="AUDIT_MANIFEST_SIGNING_KEY_REF")
+    audit_manifest_local_hmac_key: str = Field(default="", alias="AUDIT_MANIFEST_LOCAL_HMAC_KEY")
+    audit_manifest_allow_local_signing_in_production: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_ALLOW_LOCAL_SIGNING_IN_PRODUCTION",
+    )
+    audit_manifest_azure_key_vault_url: str = Field(default="", alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_URL")
+    audit_manifest_azure_key_name: str = Field(default="", alias="AUDIT_MANIFEST_AZURE_KEY_NAME")
+    audit_manifest_azure_key_version: str = Field(default="", alias="AUDIT_MANIFEST_AZURE_KEY_VERSION")
     audit_object_mirror_azure_account_url: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL")
     audit_object_mirror_azure_container: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_CONTAINER")
     audit_object_mirror_azure_prefix: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_PREFIX")

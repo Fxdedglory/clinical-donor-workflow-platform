@@ -8,6 +8,8 @@ Post-RC-10 live readiness harness update date: 2026-06-13
 
 Post-RC-11 validation evidence package update date: 2026-06-13
 
+Post-RC-12 manifest signing foundation update date: 2026-06-13
+
 ## Purpose
 
 This checklist documents Azure Blob Storage readiness assumptions for clinical workflow audit WORM evidence. Post-RC-09 adds guarded SDK operation code paths, but this checklist still does not create Azure resources, assign roles, configure immutability, or require real credentials for local/test validation.
@@ -85,6 +87,13 @@ Post-RC-11 adds:
 - tests proving dry-run evidence does not upload objects or perform network calls;
 - operator checklist and evidence template documents.
 
+Post-RC-12 adds:
+
+- manifest signing modes for disabled, checksum placeholder, local HMAC, external KMS placeholder, and Azure Key Vault placeholder;
+- local HMAC signature verification for dev/test manifests;
+- production gate failures for required signing with disabled or checksum-placeholder modes;
+- evidence output fields for manifest signing metadata and verification status.
+
 Readiness checks do not perform network calls or import the Azure SDK. Real SDK construction is attempted only when `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` and no fake/test client is injected.
 
 ## Dependency Behavior
@@ -124,6 +133,7 @@ To retain a sanitized artifact for release evidence, run:
 ```
 
 The evidence artifact intentionally excludes raw credentials and PHI/ePHI. It reports `upload_attempted=false` and `network_calls_performed=false` in dry-run mode.
+It also reports manifest signing mode, required flag, algorithm, key reference, and signature verification status without exposing key material.
 
 ## Future Integration Path
 
@@ -136,6 +146,7 @@ The evidence artifact intentionally excludes raw credentials and PHI/ePHI. It re
 7. Read back object properties and checksum metadata.
 8. Validate immutability and legal-hold status from Azure APIs.
 9. Link manifest payload storage to mirror records and manifest metadata.
-10. Run production recovery drills with compliance signoff.
+10. Verify manifest checksum and signature status in the recovery drill summary.
+11. Run production recovery drills with compliance signoff.
 
-See `docs/clinical-azure-worm-live-validation.md`, `docs/clinical-azure-worm-validation-evidence-template.md`, and `docs/clinical-azure-worm-operator-checklist.md` for the full validation and evidence checklist.
+See `docs/clinical-azure-worm-live-validation.md`, `docs/clinical-azure-worm-validation-evidence-template.md`, `docs/clinical-azure-worm-operator-checklist.md`, and `docs/clinical-audit-manifest-signing.md` for the full validation, evidence, and signing checklist.
