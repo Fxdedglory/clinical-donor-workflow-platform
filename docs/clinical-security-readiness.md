@@ -30,6 +30,8 @@ Post-RC-14 Azure Key Vault live validation harness update date: 2026-06-13
 
 Post-RC-15 Azure Key Vault lifecycle readiness update date: 2026-06-13
 
+Post-RC-16 production evidence bundle update date: 2026-06-13
+
 Scope: Release Candidate Security / Production Readiness Pass. This review documents the current security posture without adding new clinical modules or introducing new heavyweight scanners.
 
 ## Repository-Native Review Process
@@ -82,7 +84,7 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 | --- | --- | --- |
 | Authentication | JWT auth, session records, and RBAC are enabled for operational routes. | Same, plus hardened secrets, cookie security, and external identity/MFA roadmap completion. |
 | Demo credentials | Seeded/demo passwords can exist locally. | No shared demo credentials. Seeded users must be removed, disabled, or reset during deployment. |
-| Audit storage | `metadata/workflow_operations.json` supports local evidence and testability; local filesystem WORM mirror simulation, Azure Blob readiness checks, fake-client SDK operation tests, skipped-by-default live harnesses, sanitized validation evidence artifacts, manifest generation, local HMAC manifest signing, provider-placeholder signing metadata, real-capable Azure Key Vault signing hooks behind an explicit feature flag, Key Vault lifecycle readiness gates, and recovery drill helpers are available for development/testing. | Database-backed append-only audit storage is primary; object-storage/WORM mirror provider, retention, legal hold, live Key Vault signing validation, provider checksum validation, key lifecycle evidence, and recovery drill evidence must be approved before production evidence immutability signoff. |
+| Audit storage | `metadata/workflow_operations.json` supports local evidence and testability; local filesystem WORM mirror simulation, Azure Blob readiness checks, fake-client SDK operation tests, skipped-by-default live harnesses, sanitized validation evidence artifacts, production evidence bundle generation, manifest generation, local HMAC manifest signing, provider-placeholder signing metadata, real-capable Azure Key Vault signing hooks behind an explicit feature flag, Key Vault lifecycle readiness gates, and recovery drill helpers are available for development/testing. | Database-backed append-only audit storage is primary; object-storage/WORM mirror provider, retention, legal hold, live Key Vault signing validation, provider checksum validation, key lifecycle evidence, production evidence bundle retention, and recovery drill evidence must be approved before production evidence immutability signoff. |
 | Export delivery | Clinical analytics/compliance exports store metadata and row-count contracts. | External warehouse/clearinghouse delivery remains out of scope until dedicated controls are implemented. |
 | PHI masking | Post-RC-02 includes deterministic export/audit redaction profiles. Post-RC-04 adds small-cell suppression for aggregate report/export count cells. Post-RC-05 adds lightweight UI masking. | Centralized UI field policy and approved external delivery controls remain production gate items. |
 | Dependency scanning | Preflight, `pip check`, and `npm audit` are used in RC1. | CI should include an approved Python vulnerability scanner and npm audit policy gate. |
@@ -354,6 +356,25 @@ Not implemented:
 - Azure Monitor access-log queries or ingestion;
 - automated incident response actions;
 - deleting, disabling, purging, or restoring Key Vault keys.
+
+## Post-RC-16 Production Evidence Bundle And Go-Live Signoff
+
+Post-RC-16 adds a repo-safe production signoff package without introducing new clinical modules or live cloud activity.
+
+Implemented:
+
+- `scripts/build_clinical_production_evidence_bundle.py` for sanitized production evidence bundle JSON and markdown summary generation;
+- bundle sections for git commit, Alembic head, validation command checklist, clinical module inventory, documentation references, security gate summary, audit durability, WORM readiness, Azure WORM dry-run readiness, Key Vault dry-run readiness, key lifecycle readiness, known limitations, and external approval checklist;
+- `docs/clinical-production-go-live-signoff.md` with Product Owner, Security/Compliance, and Operations signoff sections;
+- `docs/clinical-live-validation-decision-log.md` documenting skipped-by-default live validation policy and enable/rollback templates;
+- `docs/clinical-post-rc-backlog.md` for deferred Azure validation, analytics, interoperability, billing, notifications, approval execution, and frontend decomposition.
+
+Not implemented:
+
+- approval execution;
+- live Azure validation;
+- external evidence repository upload;
+- new clinical modules or frontend redesign.
 
 ## Known Findings
 

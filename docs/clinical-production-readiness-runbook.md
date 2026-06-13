@@ -34,6 +34,8 @@ Post-RC Azure Key Vault live validation harness update date: 2026-06-13
 
 Post-RC Azure Key Vault lifecycle readiness update date: 2026-06-13
 
+Post-RC production evidence bundle update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -120,6 +122,7 @@ Run from the repository root:
 ```powershell
 .\.venv\Scripts\python.exe scripts\preflight_check.py
 .\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe scripts\build_clinical_production_evidence_bundle.py --out metadata\production_evidence\latest
 ```
 
 Run from the frontend directory:
@@ -193,6 +196,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 35. If `--live-sign` or the `azure_key_vault_live` marker is approved, confirm the key name/reference is dedicated to validation and `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true` was explicitly set.
 36. Confirm `lifecycle_summary` records rotation interval, current key reference, next key reference, retirement policy status, access-log review status, and incident recovery status when those controls are required.
 37. Confirm production gates fail in a production-like dry run if required Key Vault lifecycle references are intentionally removed.
+38. Generate the production evidence bundle and confirm it records `network_calls_performed=false`, `live_cloud_tests_performed=false`, and data-safety flags for no raw credentials, no secret values, and no PHI/ePHI.
 
 ## Audit And Export Review Checklist
 
@@ -217,6 +221,9 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm sanitized Azure WORM validation evidence includes Azure Key Vault real-I/O state, credential mode, key name/version, SDK availability, and readiness status without raw vault credentials or key material when Key Vault signing is selected.
 - Confirm dedicated Key Vault signing evidence includes live sign requested, signing attempted, verification attempted, network calls performed, key metadata, SDK availability, lifecycle summary, blockers, warnings, and validation result.
 - Confirm Key Vault lifecycle references point to approved rotation, retirement, access-log review, and incident recovery runbooks or evidence packages without raw credentials, key material, PHI, or ePHI.
+- Confirm `docs/clinical-production-go-live-signoff.md` is completed and signed by Product Owner, Security/Compliance, and Operations.
+- Confirm `docs/clinical-live-validation-decision-log.md` records whether Azure WORM and Key Vault live validation remain skipped or have explicit approval.
+- Confirm `docs/clinical-post-rc-backlog.md` captures deferred external validation and integration items.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.

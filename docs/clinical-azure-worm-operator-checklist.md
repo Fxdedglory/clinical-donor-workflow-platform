@@ -8,6 +8,8 @@ Post-RC-13 Azure Key Vault signing readiness update date: 2026-06-13
 
 Post-RC-14 Azure Key Vault live signing checklist update date: 2026-06-13
 
+Post-RC-16 production evidence bundle update date: 2026-06-13
+
 ## Scope
 
 This checklist is for operators preparing Azure Blob WORM validation evidence. Repository commands remain safe by default and must not create Azure resources, upload objects, or call Azure APIs unless the operator explicitly enables live validation.
@@ -90,3 +92,11 @@ Stop and retain evidence if any of these occur:
 ## Package Handoff
 
 The final operator package should include the sanitized evidence JSON, command stdout, approval references, Azure policy evidence, identity assignment evidence, manifest signing key-reference evidence, and recovery drill summary. Do not delete WORM validation objects unless compliance owners approve cleanup.
+
+For go-live signoff, also generate:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_clinical_production_evidence_bundle.py --out <approved-evidence-path>\production-evidence
+```
+
+The bundle must show `network_calls_performed=false` and `live_cloud_tests_performed=false` unless a separate live-validation decision record approves cloud execution.

@@ -4,6 +4,8 @@ Post-RC-14 update date: 2026-06-13
 
 Post-RC-15 lifecycle readiness update date: 2026-06-13
 
+Post-RC-16 production evidence bundle update date: 2026-06-13
+
 ## Scope
 
 This checklist is for operators preparing Azure Key Vault signing readiness or live sign/verify evidence for clinical audit WORM manifests. Repository commands remain safe by default and must not call Azure unless live validation is explicitly enabled.
@@ -82,6 +84,14 @@ Stop and retain evidence if:
 Include dry-run evidence, live evidence if run, command stdout, Key Vault key/version evidence, identity permission evidence, SDK/runtime evidence, access-log evidence, approval references, and follow-up items.
 
 Include lifecycle evidence from `lifecycle_summary` when rotation, retirement, access-log review, or incident recovery readiness is required.
+
+For go-live signoff, also generate:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_clinical_production_evidence_bundle.py --out <approved-evidence-path>\production-evidence
+```
+
+The bundle must show Key Vault `signing_attempted=false`, `verification_attempted=false`, and `network_calls_performed=false` unless a separate live-validation decision record approves cloud execution.
 
 ## Disable Procedure
 

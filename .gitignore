@@ -33,6 +33,7 @@ data/synthetic/*
 !data/synthetic/.gitkeep
 data/monitoring/*
 !data/monitoring/.gitkeep
+metadata/production_evidence/
 *.sqlite
 *.sqlite3
 *.db

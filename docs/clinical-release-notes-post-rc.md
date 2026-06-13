@@ -312,3 +312,23 @@ Date: 2026-06-13
 - Validate access-log evidence from Azure Monitor or the approved logging platform outside repository tests.
 - Run incident recovery tabletop exercises and retain signoff evidence.
 - Keep Key Vault live signing, Azure WORM live validation, and incident actions out of normal CI unless separately approved.
+
+## Production Evidence Bundle And Go-Live Signoff
+
+Update: CLINICAL-POST-RC-16
+
+Date: 2026-06-13
+
+- Added `scripts/build_clinical_production_evidence_bundle.py` to generate a repo-safe dry-run production evidence bundle without credentials, PHI/ePHI, live cloud tests, or network calls.
+- Evidence bundle includes git commit, Alembic head, validation command checklist, clinical module inventory, documentation references, production security gate summary, audit durability summary, WORM readiness, Azure WORM dry-run readiness, Key Vault signing dry-run readiness, key lifecycle readiness, known limitations, and external approval checklist.
+- Added `docs/clinical-production-go-live-signoff.md` with Product Owner, Security/Compliance, and Operations signoff sections.
+- Added `docs/clinical-live-validation-decision-log.md` documenting skipped-by-default Azure WORM and Key Vault live validation policy.
+- Added `docs/clinical-post-rc-backlog.md` for deferred external Azure validation, analytics delivery, FHIR/HL7, clearinghouse/EDI, notification delivery, approval execution, and frontend decomposition.
+- Updated production readiness, security readiness, Azure WORM operator, and Key Vault operator documentation.
+
+## Remaining Post-RC-16 Items
+
+- Complete human go-live signoff in the target deployment environment.
+- Execute external Azure live validations only after approval and resource readiness.
+- Retain generated production evidence bundles in the approved evidence repository.
+- Continue backlog execution for external integrations and production operations automation.
