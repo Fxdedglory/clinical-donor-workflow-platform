@@ -28,6 +28,7 @@ AUDIT_MIRROR_STATUS_SKIPPED = "skipped"
 DISABLED_MIRROR_MODES = {"", "disabled", "off", "none"}
 LOCAL_MIRROR_MODES = {"local", "local_filesystem", "filesystem", "file"}
 PLACEHOLDER_OBJECT_MODES = {"object_storage", "provider_placeholder", "worm_placeholder"}
+AZURE_BLOB_PROVIDER_ALIASES = {"azure", "azure_blob", "azure_blob_storage", "azure_blob_immutability"}
 
 
 class AuditMirrorError(RuntimeError):
@@ -50,6 +51,7 @@ class AuditMirrorConfig:
     azure_container: str = ""
     azure_prefix: str = ""
     azure_credential_mode: str = ""
+    azure_enable_real_io: bool = False
     azure_immutability_required: bool = False
     azure_legal_hold_required: bool = False
     azure_checksum_validation_required: bool = False
@@ -119,6 +121,7 @@ def audit_mirror_config_from_settings(source: Any = settings) -> AuditMirrorConf
         azure_container=str(getattr(source, "audit_object_mirror_azure_container", "") or object_container),
         azure_prefix=str(getattr(source, "audit_object_mirror_azure_prefix", "") or object_prefix),
         azure_credential_mode=str(getattr(source, "audit_object_mirror_azure_credential_mode", "") or ""),
+        azure_enable_real_io=_as_bool(getattr(source, "audit_object_mirror_azure_enable_real_io", False)),
         azure_immutability_required=_as_bool(
             getattr(source, "audit_object_mirror_azure_immutability_required", False)
         ),
@@ -175,6 +178,10 @@ def _safe_path_token(value: str) -> str:
     return token.strip(".-") or "unknown"
 
 
+def _is_azure_blob_provider(config: AuditMirrorConfig) -> bool:
+    return (config.object_provider or "").strip().lower() in AZURE_BLOB_PROVIDER_ALIASES
+
+
 def _mirror_relative_path(operation: WorkflowOperation, config: AuditMirrorConfig) -> Path:
     timestamp = operation.timestamp
     if isinstance(timestamp, str):
@@ -183,11 +190,17 @@ def _mirror_relative_path(operation: WorkflowOperation, config: AuditMirrorConfi
         timestamp = timestamp.replace(tzinfo=UTC)
     workflow = _safe_path_token(operation.workflow)
     operation_id = _safe_path_token(operation.operation_id)
-    return Path(config.object_prefix) / workflow / timestamp.strftime("%Y") / timestamp.strftime("%m") / f"{operation_id}.json"
+    object_prefix = config.azure_prefix if _is_azure_blob_provider(config) and config.azure_prefix else config.object_prefix
+    return Path(object_prefix) / workflow / timestamp.strftime("%Y") / timestamp.strftime("%m") / f"{operation_id}.json"
 
 
 def _mirror_uri(config: AuditMirrorConfig, relative_path: Path) -> str:
     relative = relative_path.as_posix()
+    if _is_azure_blob_provider(config):
+        account_url = config.azure_account_url.rstrip("/")
+        container = (config.azure_container or config.object_container).strip("/")
+        if account_url and container:
+            return f"{account_url}/{container}/{relative}"
     if config.uri_prefix:
         return f"{config.uri_prefix.rstrip('/')}/{relative}"
     return relative
@@ -248,6 +261,36 @@ def mirror_workflow_operation(
             mirrored_at=datetime.now(UTC),
             mirror_uri=uri,
             mirror_checksum=checksum,
+        )
+
+    if _is_azure_blob_provider(active_config):
+        if not active_config.azure_enable_real_io:
+            message = "Azure Blob real I/O is disabled; AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true is required for object writes."
+            if active_config.required:
+                raise AuditMirrorError(message)
+            return AuditMirrorResult(
+                operation_id=operation.operation_id,
+                mirror_mode=mode,
+                mirror_status=AUDIT_MIRROR_STATUS_SKIPPED,
+                mirror_checksum=checksum,
+                mirror_error=message,
+            )
+        from app.services.clinical_audit_mirror_providers import get_audit_mirror_provider
+
+        relative_path = _mirror_relative_path(operation, active_config)
+        provider = get_audit_mirror_provider(active_config)
+        stat = provider.put_object(relative_path.as_posix(), payload, checksum)
+        if stat.reason and stat.checksum != checksum:
+            raise AuditMirrorError(f"Audit mirror target was not written: {stat.reason}")
+        if not stat.exists:
+            raise AuditMirrorError("Azure Blob provider did not confirm mirrored object existence.")
+        return AuditMirrorResult(
+            operation_id=operation.operation_id,
+            mirror_mode=mode,
+            mirror_status=AUDIT_MIRROR_STATUS_MIRRORED,
+            mirrored_at=datetime.now(UTC),
+            mirror_uri=stat.uri,
+            mirror_checksum=stat.checksum or checksum,
         )
 
     if active_config.object_placeholder:

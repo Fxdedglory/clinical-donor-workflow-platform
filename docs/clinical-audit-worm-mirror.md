@@ -6,6 +6,8 @@ Post-RC-07 provider readiness update date: 2026-06-13
 
 Post-RC-08 cloud provider adapter readiness update date: 2026-06-13
 
+Post-RC-09 Azure Blob SDK operations foundation update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-06 adds an object-storage / WORM audit mirroring foundation for clinical workflow audit evidence. It does not replace the database-backed append-only audit table and does not add real cloud SDK calls.
@@ -49,6 +51,8 @@ Post-RC-07 adds deterministic signed-manifest, verification, and recovery drill 
 
 Post-RC-08 adds provider adapter readiness for local filesystem and Azure Blob Storage. Azure readiness validates configuration and reports capabilities without importing the Azure SDK during dry-run checks.
 
+Post-RC-09 adds a guarded Azure Blob SDK operations foundation. Azure upload, stat/head, metadata read, prefix listing, and checksum verification run through a fakeable client boundary. Real Azure SDK construction requires `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`; local/test fake-client paths do not require Azure credentials or network calls.
+
 ## Mirror Service
 
 The service lives in:
@@ -75,7 +79,7 @@ Supported modes:
 | --- | --- |
 | `disabled` | Default. No object/WORM mirror is attempted. |
 | `local_filesystem` | Writes deterministic JSON payloads under a configured local directory for development/testing simulation. |
-| `object_storage` + `azure_blob` provider | Azure Blob readiness mode. Validates provider config and expected URI prefix; real upload/list/head calls remain future work. |
+| `object_storage` + `azure_blob` provider | Azure Blob provider mode. Validates provider config and expected URI prefix; guarded SDK operations are available only when real I/O is explicitly enabled or a test client is injected. |
 | `object_storage` + other provider | Placeholder configuration mode for future provider integration. No network calls are performed by this foundation. |
 
 Local filesystem simulation writes objects under:
@@ -177,6 +181,7 @@ AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL=https://<account>.blob.core.windows.net
 AUDIT_OBJECT_MIRROR_AZURE_CONTAINER=clinical-audit-worm
 AUDIT_OBJECT_MIRROR_AZURE_PREFIX=workflow-audit
 AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE=managed_identity
+AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=false
 AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED=true
 AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED=true
 AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED=true
@@ -220,6 +225,7 @@ When Azure Blob mirroring is required, production startup gates fail if:
 - account URL is missing;
 - container or prefix is missing after fallback resolution;
 - credential mode is missing or describes inline account keys, connection strings, shared keys, plain secrets, or inline SAS tokens;
+- real Azure I/O is enabled but `azure-storage-blob` or required Azure identity dependencies are unavailable;
 - Azure immutability is required but retention policy reference is missing;
 - Azure legal hold is required but legal-hold reference is missing;
 - Azure checksum validation is required without a safe credential mode.
@@ -238,17 +244,17 @@ Replay behavior:
 
 ## Verification
 
-`verify_mirror_inventory` verifies local filesystem simulation payloads without mutating evidence.
+`verify_mirror_inventory` verifies mirror payloads through the active provider contract without mutating evidence. Local filesystem verification reads deterministic local objects. Azure verification can use an injected fake client in tests and can use real SDK calls only when Azure real I/O is enabled.
 
 Verification checks:
 
 - successful non-dry-run mirror attempts only;
-- local mirror object exists;
-- recomputed payload checksum matches the recorded mirror checksum;
+- mirror object exists according to the active provider;
+- provider checksum metadata or downloaded payload checksum matches the recorded mirror checksum;
 - optional manifest object URI/checksum matches the mirror record;
 - manifest entries without a matching mirror record are reported.
 
-Provider placeholder modes are reported as skipped because network verification requires future cloud SDK integration.
+Provider placeholder modes are reported as skipped because no provider contract is available.
 
 Provider readiness dry-runs report:
 
@@ -256,6 +262,8 @@ Provider readiness dry-runs report:
 - expected object URI prefix;
 - capability flags;
 - Azure SDK availability without importing it;
+- Azure real-I/O enabled/disabled state;
+- supported operation methods;
 - validation errors and warnings;
 - `network_calls_performed=false`.
 
@@ -307,8 +315,9 @@ Azure readiness details are in `docs/clinical-azure-blob-worm-readiness.md`.
 
 ## Known Limitations
 
-- No real Azure/AWS/GCP SDK upload/list/head integration is implemented.
+- Azure Blob SDK operation paths are present but disabled unless `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`.
+- No live-cloud Azure integration tests are implemented.
 - Local filesystem simulation is not WORM storage.
 - Signed manifests are checksum-placeholder foundations only; real cryptographic signing remains future work.
 - Legal-hold automation remains future work.
-- Provider credential validation is limited to configuration shape in the production startup gate.
+- Provider-side immutable retention and legal-hold enforcement must be configured and validated in Azure.

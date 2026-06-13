@@ -2,9 +2,11 @@
 
 Post-RC-08 update date: 2026-06-13
 
+Post-RC-09 SDK operations foundation update date: 2026-06-13
+
 ## Purpose
 
-Post-RC-08 adds a provider adapter readiness layer for workflow audit WORM mirroring. It keeps local development deterministic and prepares the codebase for future cloud object storage integration without requiring real cloud credentials or performing network calls in tests.
+Post-RC-08 adds a provider adapter readiness layer for workflow audit WORM mirroring. Post-RC-09 adds a guarded Azure Blob SDK operations foundation. Local development stays deterministic, tests use fake clients, and no real cloud credentials or network calls are required unless real Azure I/O is explicitly enabled.
 
 Service:
 
@@ -38,9 +40,17 @@ It supports deterministic writes, object stat, metadata read, listing, and check
 
 ## Azure Blob Readiness Provider
 
-The Azure provider is readiness-only in Post-RC-08. It validates configuration, reports expected object URI prefix, reports capability assumptions, and exposes checksum verification as `not_checked` until real SDK integration is approved.
+The Azure provider now has a small client boundary for upload, stat/head, metadata read, prefix listing, and checksum verification. Tests inject fake clients through the provider constructor or registry. The real SDK wrapper is only constructed when `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` and no test client is injected.
 
-No Azure SDK import is required for readiness checks. Real methods are guarded and reserved for a later provider integration sprint.
+No Azure SDK import is required for readiness checks or fake-client tests. Missing SDK packages do not break local/dev/test unless real Azure I/O is enabled.
+
+The real adapter expects:
+
+- `azure-storage-blob` for Blob service operations;
+- `azure-identity` for approved non-secret Azure identity credential modes;
+- a pre-created container with provider-side immutability and legal hold configured outside this codebase.
+
+The code does not create Azure resources, assign roles, configure retention, or set legal holds.
 
 ## Readiness Summary
 
@@ -52,10 +62,15 @@ No Azure SDK import is required for readiness checks. Real methods are guarded a
 - capability flags;
 - validation errors and warnings;
 - Azure account/container/prefix/credential-mode readiness details;
+- SDK and Azure identity package availability;
+- real-I/O enabled/disabled state;
+- supported operation methods;
+- no-network dry-run status;
 - `network_calls_performed=false`.
 
 ## Known Limitations
 
-- Azure object upload/list/head/read operations are not implemented.
-- Provider immutability and legal hold are configuration assumptions only.
-- Real cloud SDK integration, credential acquisition, and provider checksum readback remain future work.
+- Azure SDK operations are foundation code paths and remain behind `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO`.
+- Live-cloud integration tests are not implemented.
+- Provider immutability and legal hold are configuration assumptions only; enforcement must be configured in Azure.
+- Provider-side retention/legal hold validation and live recovery drills remain future work.

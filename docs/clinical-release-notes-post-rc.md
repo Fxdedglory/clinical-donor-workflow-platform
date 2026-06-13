@@ -163,7 +163,29 @@ Date: 2026-06-13
 
 ## Remaining Post-RC-08 Items
 
-- Implement real Azure SDK upload/list/head/readback with managed identity.
+- Superseded by Post-RC-09 guarded Azure SDK operation paths; live-cloud validation remains pending.
 - Validate Azure immutability and legal-hold state from provider APIs.
 - Persist provider object metadata and manifest payload objects in the approved WORM container.
 - Add production recovery drills that compare DB audit rows, mirror records, manifest payloads, and Azure object inventory.
+
+## Azure Blob WORM SDK Operations Foundation
+
+Update: CLINICAL-POST-RC-09
+
+Date: 2026-06-13
+
+- Added a fakeable Azure Blob client boundary and guarded SDK adapter in `backend/app/services/clinical_audit_mirror_providers.py`.
+- Implemented Azure provider operation methods for object upload, stat/head, metadata read, prefix listing, and checksum verification.
+- Added `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO`; real SDK construction is disabled by default and required only for approved live Azure I/O.
+- Preserved SDK-free readiness and local/test behavior when Azure packages are absent.
+- Extended recovery verification to use the active provider contract instead of local filesystem assumptions only.
+- Extended production startup gates so required Azure real I/O fails when `azure-storage-blob` or identity dependencies are unavailable.
+- Added fake-client tests for payload bytes, checksum metadata, URI construction, idempotency, metadata reads, prefix listing, checksum pass/fail, SDK-missing behavior, recovery verification, and Azure production gates.
+- Updated WORM provider, Azure readiness, recovery drill, production readiness, production gate, and security readiness documentation.
+
+## Remaining Post-RC-09 Items
+
+- Add live-cloud Azure integration tests after credentials, identity, and a WORM-ready container are approved.
+- Validate provider-side immutable retention and legal-hold state from Azure APIs.
+- Confirm managed/workload identity role assignment and least-privilege access in the hosted environment.
+- Persist signed manifest payload objects in the approved WORM container when compliance owners approve that package flow.

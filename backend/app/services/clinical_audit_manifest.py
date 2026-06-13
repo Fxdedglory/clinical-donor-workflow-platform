@@ -4,7 +4,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -20,11 +19,14 @@ from app.models import (
 from app.services.clinical_audit_mirror import (
     AUDIT_MIRROR_STATUS_MIRRORED,
     AuditMirrorConfig,
-    audit_mirror_checksum,
     audit_mirror_config_from_settings,
     read_db_mirror_events,
 )
-from app.services.clinical_audit_mirror_providers import provider_readiness_summary
+from app.services.clinical_audit_mirror_providers import (
+    AuditMirrorProvider,
+    get_audit_mirror_provider,
+    provider_readiness_summary,
+)
 
 AUDIT_MANIFEST_SCHEMA_VERSION = "clinical.workflow_audit.manifest.v1"
 AUDIT_MANIFEST_STATUS_GENERATED = "generated"
@@ -304,14 +306,6 @@ def read_db_mirror_manifests(db: Session) -> list[ClinicalWorkflowAuditMirrorMan
         return []
 
 
-def _local_path_from_uri(mirror_uri: str, config: AuditMirrorConfig) -> Path:
-    prefix = str(config.uri_prefix or "").rstrip("/")
-    relative = mirror_uri
-    if prefix and mirror_uri.startswith(f"{prefix}/"):
-        relative = mirror_uri[len(prefix) + 1 :]
-    return config.local_root / Path(*[part for part in relative.split("/") if part])
-
-
 def _manifest_object_map(manifest: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not manifest:
         return {}
@@ -328,8 +322,10 @@ def verify_mirror_inventory(
     config: AuditMirrorConfig | None = None,
     manifest: dict[str, Any] | None = None,
     dry_run: bool = False,
+    provider: AuditMirrorProvider | None = None,
 ) -> dict[str, Any]:
     active_config = config or audit_mirror_config_from_settings()
+    active_provider = provider or get_audit_mirror_provider(active_config)
     events = successful_mirror_events(mirror_events)
     manifest_objects = _manifest_object_map(manifest)
     seen_operation_ids: set[str] = set()
@@ -371,38 +367,44 @@ def verify_mirror_inventory(
             results.append(result)
             continue
 
-        if not active_config.local_filesystem:
+        if not event.mirror_uri or not event.mirror_checksum:
+            result["status"] = "missing"
+            result["reason"] = "mirror URI or checksum missing"
+            missing += 1
+            results.append(result)
+            continue
+
+        try:
+            provider_result = active_provider.verify_object_checksum(
+                str(event.mirror_uri),
+                str(event.mirror_checksum),
+            )
+        except Exception as exc:
             if result["status"] == "verified":
                 result["status"] = "skipped"
-                result["reason"] = "provider verification requires cloud SDK integration"
-                skipped += 1
+                result["reason"] = f"provider verification unavailable: {exc}"
+            skipped += 1
             results.append(result)
             continue
 
-        if not event.mirror_uri:
+        result["computed_checksum"] = provider_result.get("computed_checksum")
+        provider_status = str(provider_result.get("status") or "")
+        if provider_status == "verified":
+            if result["status"] == "verified":
+                verified += 1
+        elif provider_status == "missing":
             result["status"] = "missing"
-            result["reason"] = "mirror URI missing"
+            result["reason"] = provider_result.get("reason")
             missing += 1
-            results.append(result)
-            continue
-
-        target = _local_path_from_uri(str(event.mirror_uri), active_config)
-        if not target.exists():
-            result["status"] = "missing"
-            result["reason"] = f"local mirror payload not found: {target}"
-            missing += 1
-            results.append(result)
-            continue
-
-        payload = json.loads(target.read_text(encoding="utf-8"))
-        checksum = audit_mirror_checksum(payload)
-        result["computed_checksum"] = checksum
-        if checksum != event.mirror_checksum:
+        elif provider_status == "checksum_mismatch":
             result["status"] = "checksum_mismatch"
-            result["reason"] = "computed checksum differs from recorded mirror checksum"
+            result["reason"] = provider_result.get("reason")
             mismatched += 1
-        elif result["status"] == "verified":
-            verified += 1
+        else:
+            if result["status"] == "verified":
+                result["status"] = "skipped"
+                result["reason"] = provider_result.get("reason") or "provider verification did not check checksum"
+            skipped += 1
         results.append(result)
 
     manifest_only_operation_ids = sorted(set(manifest_objects) - seen_operation_ids)
@@ -416,6 +418,7 @@ def verify_mirror_inventory(
         "skipped": skipped,
         "dry_run": dry_run,
         "manifest_only_operation_ids": manifest_only_operation_ids,
+        "provider": active_provider.name,
         "results": results,
     }
 
@@ -466,8 +469,10 @@ def audit_mirror_recovery_drill_summary(
     start_at: datetime | None = None,
     end_at: datetime | None = None,
     dry_run: bool = False,
+    provider: AuditMirrorProvider | None = None,
 ) -> dict[str, Any]:
     active_config = config or audit_mirror_config_from_settings()
+    active_provider = provider or get_audit_mirror_provider(active_config)
     audit_events = [
         event
         for event in _read_db_audit_events(db)
@@ -487,8 +492,9 @@ def audit_mirror_recovery_drill_summary(
         config=active_config,
         manifest=manifest,
         dry_run=dry_run,
+        provider=active_provider,
     )
-    provider_readiness = provider_readiness_summary(active_config)
+    provider_readiness = active_provider.readiness_summary() if provider is not None else provider_readiness_summary(active_config)
     manifest_count = len(read_db_mirror_manifests(db))
     missing_mirror_operation_ids = sorted(audit_ids - mirrored_ids)
     orphan_mirror_operation_ids = sorted(

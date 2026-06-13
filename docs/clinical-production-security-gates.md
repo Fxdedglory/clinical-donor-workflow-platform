@@ -8,6 +8,8 @@ Post-RC-07 manifest/signature gate update date: 2026-06-13
 
 Post-RC-08 Azure provider readiness gate update date: 2026-06-13
 
+Post-RC-09 Azure real-I/O gate update date: 2026-06-13
+
 Scope: fail-closed startup validation for production-like environments. The gate is deterministic, uses local configuration only, and does not call a network service or require an external secret manager.
 
 ## Runtime Behavior
@@ -40,6 +42,7 @@ The values `prod`, `production`, `stage`, and `staging` are treated as productio
 - If manifest/signature policy is required, configure `AUDIT_OBJECT_MIRROR_RETENTION_POLICY`, `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED`, `AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED`, `AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM`, and `AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF`.
 - If legal hold is required, configure `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE`.
 - If `AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob` or `azure_blob_immutability`, configure `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE`.
+- Set `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only after Azure Blob writes are approved for the environment and required SDK dependencies are installed.
 - If Azure immutability, legal hold, or checksum validation is required, configure the matching `AUDIT_OBJECT_MIRROR_AZURE_*_REQUIRED` flags plus retention/legal-hold references.
 - `DEFAULT_ANALYTICS_EXPORT_PROFILE=aggregate_safe`.
 - `DEFAULT_COMPLIANCE_EXPORT_PROFILE=compliance_evidence` or `audit_metadata`.
@@ -72,6 +75,8 @@ Startup fails in production when any of these are detected:
 - signature required without manifest required;
 - signed manifests required without signature algorithm or key reference;
 - required Azure Blob mirror without account URL, container, prefix, or safe credential mode;
+- required Azure Blob real I/O enabled without `azure-storage-blob`;
+- required Azure Blob real I/O enabled with identity credential mode but without `azure-identity`;
 - required Azure Blob immutability without retention policy reference;
 - required Azure Blob legal hold without legal hold reference;
 - required Azure Blob checksum validation without safe credential mode;
@@ -115,5 +120,5 @@ Production security gate failed. Refusing to start with unsafe production config
 - The gate validates configuration shape and known flags; it does not prove database migrations have already run.
 - It does not contact PostgreSQL, object storage, Entra ID, or a secret manager.
 - MFA provider integration remains future work; the gate only blocks predictable local bypass values and unsafe auth bypass flags.
-- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, signed manifest metadata, and recovery drill helpers; real provider SDK integration, retention policy creation, legal hold automation, and real signing remain planned.
+- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, signed manifest metadata, and recovery drill helpers; live-cloud validation, retention policy creation, legal hold automation, and real signing remain planned.
 - Small-cell suppression and lightweight role-aware UI masking are implemented; centralized field policy remains future work.

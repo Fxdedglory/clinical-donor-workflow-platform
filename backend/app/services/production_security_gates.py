@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 from collections.abc import Mapping
@@ -44,6 +45,14 @@ UNSAFE_AZURE_CREDENTIAL_MODES = {
     "shared-key",
     "sas_token_inline",
     "plain_secret",
+}
+SAFE_AZURE_CREDENTIAL_MODES = {
+    "managed_identity",
+    "workload_identity",
+    "default_azure_credential",
+    "entra_id",
+    "azure_identity",
+    "azure_cli",
 }
 SAFE_ANALYTICS_EXPORT_PROFILES = {"aggregate_safe", "external_safe"}
 SAFE_AUDIT_EXPORT_PROFILES = {"audit_metadata", "aggregate_safe", "external_safe"}
@@ -90,6 +99,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit_object_mirror_azure_container": "",
     "audit_object_mirror_azure_prefix": "",
     "audit_object_mirror_azure_credential_mode": "",
+    "audit_object_mirror_azure_enable_real_io": False,
     "audit_object_mirror_azure_immutability_required": False,
     "audit_object_mirror_azure_legal_hold_required": False,
     "audit_object_mirror_azure_checksum_validation_required": False,
@@ -192,6 +202,13 @@ def _as_list(value: Any) -> list[str]:
                 return [_text(item) for item in parsed if _text(item)]
         return [item.strip() for item in stripped.split(",") if item.strip()]
     return [_text(value)] if _text(value) else []
+
+
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False
 
 
 def _is_placeholder_secret(value: Any) -> bool:
@@ -434,6 +451,15 @@ def validate_production_security_gates(
             default=DEFAULT_CONFIG["audit_object_mirror_azure_credential_mode"],
         )
     )
+    azure_enable_real_io = _as_bool(
+        _get(
+            source,
+            "audit_object_mirror_azure_enable_real_io",
+            "AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO",
+            default=DEFAULT_CONFIG["audit_object_mirror_azure_enable_real_io"],
+        ),
+        default=False,
+    )
     azure_immutability_required = _as_bool(
         _get(
             source,
@@ -496,6 +522,25 @@ def validate_production_security_gates(
             add(
                 "audit_object_mirror_azure_credential_mode_unsafe",
                 "AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE is required and must not use inline account keys, connection strings, or plain secrets.",
+            )
+        elif azure_credential_mode not in SAFE_AZURE_CREDENTIAL_MODES:
+            add(
+                "audit_object_mirror_azure_credential_mode_unsupported",
+                "AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE must use an approved Azure identity mode.",
+            )
+        if azure_enable_real_io and not _module_available("azure.storage.blob"):
+            add(
+                "audit_object_mirror_azure_sdk_missing",
+                "azure-storage-blob is required when AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true.",
+            )
+        if (
+            azure_enable_real_io
+            and azure_credential_mode in SAFE_AZURE_CREDENTIAL_MODES
+            and not _module_available("azure.identity")
+        ):
+            add(
+                "audit_object_mirror_azure_identity_sdk_missing",
+                "azure-identity is required for Azure identity credential modes when real Azure Blob I/O is enabled.",
             )
         if azure_immutability_required and not mirror_retention_policy:
             add(

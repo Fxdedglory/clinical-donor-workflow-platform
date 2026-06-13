@@ -1,5 +1,6 @@
 import pytest
 
+from app.services import production_security_gates as gates
 from app.services.production_security_gates import (
     assert_production_security_gates,
     validate_production_security_gates,
@@ -178,11 +179,51 @@ def test_production_mode_passes_with_required_azure_blob_readiness_config() -> N
             AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="clinical-audit-worm",
             AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
             AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="managed_identity",
+            AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=False,
             AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED=True,
             AUDIT_OBJECT_MIRROR_RETENTION_POLICY="RET-7Y-WORM",
             AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE="LH-CLINICAL-AUDIT",
+        )
+    )
+
+    assert result.passed is True
+
+
+def test_production_mode_fails_when_required_azure_real_io_lacks_sdk(monkeypatch) -> None:
+    monkeypatch.setattr(gates, "_module_available", lambda module_name: False)
+
+    codes = _failure_codes(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob",
+            AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL="https://clinicalaudit.blob.core.windows.net",
+            AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="managed_identity",
+            AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=True,
+        )
+    )
+
+    assert "audit_object_mirror_azure_sdk_missing" in codes
+    assert "audit_object_mirror_azure_identity_sdk_missing" in codes
+
+
+def test_production_mode_passes_when_required_azure_real_io_dependencies_are_available(monkeypatch) -> None:
+    monkeypatch.setattr(gates, "_module_available", lambda module_name: True)
+
+    result = validate_production_security_gates(
+        _safe_production_config(
+            AUDIT_OBJECT_MIRROR_REQUIRED=True,
+            AUDIT_OBJECT_MIRROR_MODE="object_storage",
+            AUDIT_OBJECT_MIRROR_PROVIDER="azure_blob",
+            AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL="https://clinicalaudit.blob.core.windows.net",
+            AUDIT_OBJECT_MIRROR_AZURE_CONTAINER="clinical-audit-worm",
+            AUDIT_OBJECT_MIRROR_AZURE_PREFIX="workflow-audit",
+            AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE="managed_identity",
+            AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=True,
         )
     )
 

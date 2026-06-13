@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from app.models import (
     ClinicalWorkflowAuditEvent,
     ClinicalWorkflowAuditMirrorEvent,
@@ -149,6 +151,59 @@ def _mirror_event(**overrides) -> ClinicalWorkflowAuditMirrorEvent:
     }
     values.update(overrides)
     return ClinicalWorkflowAuditMirrorEvent(**values)
+
+
+class _FakeAzureBlobClient:
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], dict[str, object]] = {}
+
+    def upload_object(
+        self,
+        *,
+        container: str,
+        name: str,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool = False,
+    ) -> dict[str, object]:
+        key = (container, name)
+        if key in self.objects and not overwrite:
+            raise RuntimeError("fake blob already exists")
+        self.objects[key] = {
+            "name": name,
+            "data": data,
+            "metadata": dict(metadata),
+            "size_bytes": len(data),
+            "etag": f"fake-etag-{len(self.objects) + 1}",
+        }
+        return self.objects[key]
+
+    def get_object_properties(self, *, container: str, name: str) -> dict[str, object] | None:
+        return self.objects.get((container, name))
+
+    def list_objects(self, *, container: str, prefix: str) -> list[dict[str, object]]:
+        return [
+            value
+            for (object_container, object_name), value in sorted(self.objects.items())
+            if object_container == container and object_name.startswith(prefix)
+        ]
+
+    def download_object(self, *, container: str, name: str) -> bytes | None:
+        item = self.objects.get((container, name))
+        return item["data"] if item is not None else None
+
+
+def _azure_mirror_config(**overrides) -> AuditMirrorConfig:
+    values = {
+        "mode": "object_storage",
+        "object_provider": "azure_blob",
+        "azure_account_url": "https://clinicalaudit.blob.core.windows.net",
+        "azure_container": "clinical-audit-worm",
+        "azure_prefix": "workflow-audit",
+        "azure_credential_mode": "managed_identity",
+    }
+    values.update(overrides)
+    return AuditMirrorConfig(**values)
 
 
 def test_db_audit_event_created_on_append_and_required_fields_populated(tmp_path: Path) -> None:
@@ -420,6 +475,150 @@ def test_azure_blob_provider_readiness_does_not_import_sdk_for_dry_run() -> None
     assert provider.sdk_imported is False
 
 
+def test_azure_blob_provider_constructs_without_sdk_when_real_io_disabled() -> None:
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config())
+    provider.sdk_available = lambda: False
+    provider.identity_sdk_available = lambda: False
+
+    summary = provider.readiness_summary()
+
+    assert provider.sdk_imported is False
+    assert summary["sdk_available"] is False
+    assert summary["real_io_enabled"] is False
+    assert summary["ready"] is True
+    assert summary["no_network_dry_run"]["network_calls_performed"] is False
+
+
+def test_azure_blob_provider_real_io_path_fails_clearly_when_sdk_missing() -> None:
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(azure_enable_real_io=True))
+    provider._require_sdk = lambda: (_ for _ in ()).throw(RuntimeError("Azure Blob SDK is not installed"))
+
+    with pytest.raises(RuntimeError, match="Azure Blob SDK is not installed"):
+        provider.put_object("workflow-audit/quality.event_create/2026/06/sdk-missing.json", {"payload": True}, "sha256")
+
+
+def test_azure_blob_provider_fake_client_put_object_stores_payload_and_metadata() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-put-op"))
+    checksum = audit_mirror_checksum(payload)
+
+    stat = provider.put_object(
+        "workflow-audit/quality.event_create/2026/06/azure-put-op.json",
+        payload,
+        checksum,
+    )
+
+    stored = fake_client.objects[("clinical-audit-worm", "workflow-audit/quality.event_create/2026/06/azure-put-op.json")]
+    assert stat.exists is True
+    assert stat.uri == "https://clinicalaudit.blob.core.windows.net/clinical-audit-worm/workflow-audit/quality.event_create/2026/06/azure-put-op.json"
+    assert stat.checksum == checksum
+    assert json.loads(stored["data"].decode("utf-8")) == payload
+    assert stored["metadata"]["audit_checksum"] == checksum
+    assert stored["metadata"]["payload_profile"] == "audit_metadata"
+
+
+def test_azure_blob_provider_fake_client_put_object_is_idempotent_for_matching_checksum() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-idempotent-op"))
+    checksum = audit_mirror_checksum(payload)
+    key = "workflow-audit/quality.event_create/2026/06/azure-idempotent-op.json"
+
+    first = provider.put_object(key, payload, checksum)
+    second = provider.put_object(key, payload, checksum)
+
+    assert first.uri == second.uri
+    assert second.reason is None
+    assert len(fake_client.objects) == 1
+
+
+def test_azure_blob_provider_fake_client_put_object_detects_existing_checksum_mismatch() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-mismatch-existing-op"))
+    checksum = audit_mirror_checksum(payload)
+    key = "workflow-audit/quality.event_create/2026/06/azure-mismatch-existing-op.json"
+
+    provider.put_object(key, payload, checksum)
+    stat = provider.put_object(key, payload, "different-checksum")
+
+    assert stat.exists is True
+    assert stat.checksum == checksum
+    assert stat.reason == "existing object checksum differs"
+
+
+def test_azure_blob_provider_fake_client_stat_and_metadata_return_expected_values() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-stat-op"))
+    checksum = audit_mirror_checksum(payload)
+    uri = provider.put_object(
+        "workflow-audit/quality.event_create/2026/06/azure-stat-op.json",
+        payload,
+        checksum,
+    ).uri
+
+    stat = provider.stat_object(uri)
+    metadata = provider.read_object_metadata(uri)
+
+    assert stat.exists is True
+    assert stat.checksum == checksum
+    assert metadata["exists"] is True
+    assert metadata["audit_checksum"] == checksum
+    assert metadata["blob_name"] == "workflow-audit/quality.event_create/2026/06/azure-stat-op.json"
+
+
+def test_azure_blob_provider_fake_client_list_objects_returns_prefix_matches() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-list-op"))
+    checksum = audit_mirror_checksum(payload)
+    provider.put_object("workflow-audit/quality.event_create/2026/06/azure-list-op.json", payload, checksum)
+    provider.put_object("workflow-audit/orders.result_add/2026/06/azure-list-other-op.json", payload, checksum)
+
+    matches = provider.list_objects("workflow-audit/quality.event_create")
+
+    assert [item.metadata["blob_name"] for item in matches] == [
+        "workflow-audit/quality.event_create/2026/06/azure-list-op.json"
+    ]
+    assert matches[0].checksum == checksum
+
+
+def test_azure_blob_provider_fake_client_checksum_verification_passes_for_match() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-verify-op"))
+    checksum = audit_mirror_checksum(payload)
+    uri = provider.put_object(
+        "workflow-audit/quality.event_create/2026/06/azure-verify-op.json",
+        payload,
+        checksum,
+    ).uri
+
+    result = provider.verify_object_checksum(uri, checksum)
+
+    assert result["status"] == "verified"
+    assert result["computed_checksum"] == checksum
+
+
+def test_azure_blob_provider_fake_client_checksum_verification_fails_for_mismatch() -> None:
+    fake_client = _FakeAzureBlobClient()
+    provider = AzureBlobAuditMirrorProvider(_azure_mirror_config(), client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-verify-mismatch-op"))
+    checksum = audit_mirror_checksum(payload)
+    uri = provider.put_object(
+        "workflow-audit/quality.event_create/2026/06/azure-verify-mismatch-op.json",
+        payload,
+        checksum,
+    ).uri
+
+    result = provider.verify_object_checksum(uri, "different-checksum")
+
+    assert result["status"] == "checksum_mismatch"
+    assert result["computed_checksum"] == checksum
+
+
 def test_audit_object_mirror_checksum_is_deterministic_and_redacted() -> None:
     operation = _operation(
         operation_id="checksum-op",
@@ -674,6 +873,35 @@ def test_mirror_verification_detects_manifest_object_mismatch(tmp_path: Path) ->
     assert result["results"][0]["status"] == "manifest_mismatch"
 
 
+def test_azure_blob_provider_fake_client_participates_in_inventory_verification() -> None:
+    fake_client = _FakeAzureBlobClient()
+    mirror_config = _azure_mirror_config()
+    provider = AzureBlobAuditMirrorProvider(mirror_config, client=fake_client)
+    payload = audit_mirror_payload(_operation(operation_id="azure-inventory-op"))
+    checksum = audit_mirror_checksum(payload)
+    uri = provider.put_object(
+        "workflow-audit/quality.event_create/2026/06/azure-inventory-op.json",
+        payload,
+        checksum,
+    ).uri
+    mirror_events = [
+        _mirror_event(
+            operation_id="azure-inventory-op",
+            mirror_mode="object_storage",
+            mirror_uri=uri,
+            mirror_checksum=checksum,
+        )
+    ]
+
+    result = verify_mirror_inventory(mirror_events, config=mirror_config, provider=provider)
+
+    assert result["provider"] == "azure_blob"
+    assert result["verified"] == 1
+    assert result["missing"] == 0
+    assert result["mismatched"] == 0
+    assert result["results"][0]["computed_checksum"] == checksum
+
+
 def test_audit_mirror_recovery_drill_compares_db_rows_to_mirror_records(tmp_path: Path) -> None:
     db = _WorkflowAuditDb()
     mirror_config = AuditMirrorConfig(mode="local_filesystem", local_root=tmp_path / "worm")
@@ -715,3 +943,37 @@ def test_audit_mirror_recovery_drill_includes_provider_readiness_summary(tmp_pat
     assert result["provider_readiness"]["capabilities"]["verify_object_checksum"] is True
     assert result["manifest_count"] == 0
     assert result["mirrored_object_count"] == 1
+
+
+def test_audit_mirror_recovery_drill_includes_azure_real_io_state() -> None:
+    fake_client = _FakeAzureBlobClient()
+    mirror_config = _azure_mirror_config(azure_enable_real_io=True)
+    provider = AzureBlobAuditMirrorProvider(mirror_config, client=fake_client)
+    operation = _operation(operation_id="azure-recovery-op")
+    payload = audit_mirror_payload(operation)
+    checksum = audit_mirror_checksum(payload)
+    uri = provider.put_object(
+        "workflow-audit/quality.event_create/2026/06/azure-recovery-op.json",
+        payload,
+        checksum,
+    ).uri
+    db = _WorkflowAuditDb(
+        audit_events=[workflow_operation_to_audit_event(operation)],
+        mirror_events=[
+            _mirror_event(
+                operation_id="azure-recovery-op",
+                mirror_mode="object_storage",
+                mirror_uri=uri,
+                mirror_checksum=checksum,
+            )
+        ],
+    )
+    db.flush()
+
+    result = audit_mirror_recovery_drill_summary(db, config=mirror_config, provider=provider)
+
+    assert result["provider_readiness"]["provider"] == "azure_blob"
+    assert result["provider_readiness"]["real_io_enabled"] is True
+    assert result["provider_readiness"]["client_injected"] is True
+    assert result["verification"]["provider"] == "azure_blob"
+    assert result["verification"]["verified"] == 1

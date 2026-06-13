@@ -4,6 +4,8 @@ Post-RC-07 update date: 2026-06-13
 
 Post-RC-08 Azure readiness update date: 2026-06-13
 
+Post-RC-09 Azure SDK operations foundation update date: 2026-06-13
+
 ## Purpose
 
 This checklist documents provider readiness assumptions for workflow audit WORM evidence. It does not create retention policies or legal holds in any cloud provider.
@@ -35,6 +37,7 @@ AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL=https://<account>.blob.core.windows.net
 AUDIT_OBJECT_MIRROR_AZURE_CONTAINER=clinical-audit-worm
 AUDIT_OBJECT_MIRROR_AZURE_PREFIX=workflow-audit
 AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE=managed_identity
+AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=false
 AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED=true
 AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED=true
 AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED=true
@@ -60,13 +63,14 @@ When manifest/signature policy is required, startup also fails for:
 - signature required without manifest required;
 - signed manifests required without signature algorithm or key reference.
 - Azure Blob required without account URL, container, prefix, or safe credential mode.
+- Azure Blob real I/O enabled without required SDK dependencies.
 - Azure Blob immutability, legal hold, or checksum validation required without supporting readiness settings.
 
 Local/dev/test mode reports these as warnings only when the policy flags are explicitly set.
 
 ## Provider Integration Path
 
-Future Azure/AWS/GCP integration should add:
+Azure Blob SDK operation paths now exist behind `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO`. Future Azure/AWS/GCP integration should add:
 
 - upload client with no raw PHI/ePHI payloads beyond redacted audit metadata;
 - provider-side immutability policy validation;
@@ -75,11 +79,13 @@ Future Azure/AWS/GCP integration should add:
 - manifest object write and retention;
 - real signature or key-management integration;
 - operational replay guidance with change-control approval.
+- live-cloud recovery drills with compliance signoff.
 
 Azure Blob integration should prefer managed identity or workload identity. Inline account keys, connection strings, shared keys, plain secrets, and inline SAS tokens are not acceptable production credential modes.
 
 ## Known Limitations
 
-- The repository currently provides provider readiness and local simulation only.
+- The repository currently provides provider readiness, local simulation, fake-client Azure tests, and guarded Azure SDK operation paths.
 - Retention and legal hold controls must be configured and proven in the selected cloud provider.
+- Live Azure validation, provider-side immutability readback, and legal-hold enforcement checks remain future work.
 - Legal/compliance owners must approve retention duration, hold naming, and evidence package export procedures.

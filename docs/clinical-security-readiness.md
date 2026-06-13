@@ -16,6 +16,8 @@ Post-RC-07 WORM provider readiness update date: 2026-06-13
 
 Post-RC-08 Azure Blob adapter readiness update date: 2026-06-13
 
+Post-RC-09 Azure Blob SDK operations foundation update date: 2026-06-13
+
 Scope: Release Candidate Security / Production Readiness Pass. This review documents the current security posture without adding new clinical modules or introducing new heavyweight scanners.
 
 ## Repository-Native Review Process
@@ -68,7 +70,7 @@ Local and demo environments are allowed to prioritize reproducible workflows and
 | --- | --- | --- |
 | Authentication | JWT auth, session records, and RBAC are enabled for operational routes. | Same, plus hardened secrets, cookie security, and external identity/MFA roadmap completion. |
 | Demo credentials | Seeded/demo passwords can exist locally. | No shared demo credentials. Seeded users must be removed, disabled, or reset during deployment. |
-| Audit storage | `metadata/workflow_operations.json` supports local evidence and testability; local filesystem WORM mirror simulation, Azure Blob readiness checks, manifest generation, and recovery drill helpers are available for development/testing. | Database-backed append-only audit storage is primary; object-storage/WORM mirror provider, retention, legal hold, real signatures, provider checksum validation, and recovery drill evidence must be approved before production evidence immutability signoff. |
+| Audit storage | `metadata/workflow_operations.json` supports local evidence and testability; local filesystem WORM mirror simulation, Azure Blob readiness checks, fake-client SDK operation tests, manifest generation, and recovery drill helpers are available for development/testing. | Database-backed append-only audit storage is primary; object-storage/WORM mirror provider, retention, legal hold, real signatures, provider checksum validation, and recovery drill evidence must be approved before production evidence immutability signoff. |
 | Export delivery | Clinical analytics/compliance exports store metadata and row-count contracts. | External warehouse/clearinghouse delivery remains out of scope until dedicated controls are implemented. |
 | PHI masking | Post-RC-02 includes deterministic export/audit redaction profiles. Post-RC-04 adds small-cell suppression for aggregate report/export count cells. Post-RC-05 adds lightweight UI masking. | Centralized UI field policy and approved external delivery controls remain production gate items. |
 | Dependency scanning | Preflight, `pip check`, and `npm audit` are used in RC1. | CI should include an approved Python vulnerability scanner and npm audit policy gate. |
@@ -196,12 +198,27 @@ Implemented:
 - provider readiness output in recovery drill summaries;
 - production gate checks for required Azure account URL, container, prefix, credential mode, immutability, legal hold, and checksum validation settings.
 
+Post-RC-09 supersedes the upload/list/head/readback limitation with guarded SDK operation paths. Azure resource creation, role assignment, provider-side immutability/legal-hold enforcement, and live-cloud validation remain future work.
+
+## Post-RC-09 Azure Blob SDK Operations Foundation
+
+Post-RC-09 extends `backend/app/services/clinical_audit_mirror_providers.py`.
+
+Implemented:
+
+- injectable Azure Blob client boundary for fake-client tests;
+- guarded SDK adapter for upload, stat/head, metadata read, prefix listing, and checksum verification;
+- `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO` feature flag;
+- SDK-free readiness summaries that report SDK availability, real-I/O state, supported methods, and no-network dry-run status;
+- provider-contract verification in recovery drill inventory checks;
+- production startup gate checks for required Azure SDK dependencies when real I/O is enabled.
+
 Not implemented:
 
-- real Azure Blob upload/list/head/readback;
-- Azure resource creation or role assignment;
-- provider-side immutability or legal-hold enforcement;
-- credential acquisition through Azure SDK.
+- live-cloud integration tests;
+- Azure resource creation, role assignment, retention policy creation, or legal-hold automation;
+- provider-side immutable retention/legal-hold status enforcement from code;
+- external evidence delivery or warehouse integration.
 
 ## Known Findings
 
@@ -209,7 +226,7 @@ Not implemented:
 | --- | --- | --- | --- | --- |
 | Vite/esbuild advisories from `npm audit` | High | RC1 `npm audit --audit-level=high` reported two high-severity advisories and recommended a Vite 8 major upgrade. | Resolved in RC2 with bounded Vite 8 / React plugin 6 upgrade. | Continue to run `npm audit --audit-level=high` in release validation. |
 | Production defaults are fail-open if not overridden | High | `SECRET_KEY`, `COOKIE_SECURE=false`, `MFA_DEV_BYPASS_CODE=000000`, local CORS/database defaults, and optional encryption keys exist as defaults/examples. | Resolved in Post-RC-03 with production-like startup gates. | Keep deployment settings aligned to `docs/clinical-production-security-gates.md`. |
-| Workflow audit remains filesystem-backed | High | `metadata/workflow_operations.json` full-file append pattern. | Resolved by Post-RC-01 DB-backed append-only audit storage with JSON mirror/fallback; Post-RC-06 adds WORM mirror foundation; Post-RC-07 adds manifest and recovery drill foundations; Post-RC-08 adds Azure Blob adapter readiness. | Add real provider SDK integration, retention policy enforcement, legal hold automation, provider checksum readback, and real signature controls before production evidence immutability signoff. |
+| Workflow audit remains filesystem-backed | High | `metadata/workflow_operations.json` full-file append pattern. | Resolved by Post-RC-01 DB-backed append-only audit storage with JSON mirror/fallback; Post-RC-06 adds WORM mirror foundation; Post-RC-07 adds manifest and recovery drill foundations; Post-RC-08 adds Azure Blob adapter readiness; Post-RC-09 adds guarded Azure SDK operation paths. | Complete live Azure validation, retention policy enforcement, legal hold automation, provider checksum readback signoff, and real signature controls before production evidence immutability signoff. |
 | Generic foundation workflow commit lacks user auth | Medium | `/api/clinical/workflows/commit` requires confirmation header but does not require an authenticated user. | Resolved in Post-RC-02. | Continue to prefer module-specific commit endpoints and keep generic commit admin-only. |
 | Report audit activity is available through broad report-read access | Medium | `/api/clinical/reports/audit-activity` uses report read guard. | Documented as minimum-necessary review item. | RC2: split audit activity access behind `audit.review` or a dedicated audit reporting permission. |
 | No repository-native Python vulnerability scanner | Medium | `pyproject.toml` dev extras include pytest/httpx/ruff only. | Documented. | RC2: add approved scanner to CI after dependency policy is agreed. |
@@ -220,10 +237,10 @@ Not implemented:
 
 1. Keep the Post-RC-03 production startup gate enabled and expand it as new production-only flags are introduced.
 2. Keep frontend dependency audit in release validation after the RC2 Vite 8 remediation.
-3. Configure real object-storage/WORM provider integration for workflow audit evidence if immutable off-database evidence is required.
+3. Configure and validate live object-storage/WORM provider integration for workflow audit evidence if immutable off-database evidence is required.
 4. Split report audit activity and export metadata permissions where compliance owners require least-privilege separation.
 5. Add CI-visible vulnerability scanning for Python and frontend dependencies using approved tooling.
 6. Add centralized UI field policy and production policy signoff before external delivery.
 7. Keep the Post-RC-04 route drift and small-cell suppression tests in release validation.
 8. Keep signed manifest and recovery drill evidence in production readiness review once provider integration is approved.
-9. Keep Azure Blob provider readiness output in release validation when Azure is selected as the WORM target.
+9. Keep Azure Blob provider readiness output and real-I/O dependency gate checks in release validation when Azure is selected as the WORM target.

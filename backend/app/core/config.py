@@ -78,6 +78,10 @@ class Settings(BaseSettings):
         default="",
         alias="AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE",
     )
+    audit_object_mirror_azure_enable_real_io: bool = Field(
+        default=False,
+        alias="AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO",
+    )
     audit_object_mirror_azure_immutability_required: bool = Field(
         default=False,
         alias="AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED",
