@@ -12,6 +12,8 @@ Post-RC-09 Azure real-I/O gate update date: 2026-06-13
 
 Post-RC-10 Azure live harness note date: 2026-06-13
 
+Post-RC-11 Azure evidence package note date: 2026-06-13
+
 Scope: fail-closed startup validation for production-like environments. The gate is deterministic, uses local configuration only, and does not call a network service or require an external secret manager.
 
 ## Runtime Behavior
@@ -109,7 +111,7 @@ For App Service startup checks:
 
 In production-like environments, both startup paths refuse unsafe settings before the app opens traffic.
 
-The production gate remains local-only. It does not run live Azure pytest checks, upload objects, or call Azure APIs. Use `scripts/check_azure_worm_readiness.py --json` for dry-run Azure WORM readiness evidence and `docs/clinical-azure-worm-live-validation.md` for the opt-in live process.
+The production gate remains local-only. It does not run live Azure pytest checks, upload objects, or call Azure APIs. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence and `docs/clinical-azure-worm-live-validation.md` for the opt-in live process.
 
 ## Failure Example
 
@@ -125,5 +127,5 @@ Production security gate failed. Refusing to start with unsafe production config
 - The gate validates configuration shape and known flags; it does not prove database migrations have already run.
 - It does not contact PostgreSQL, object storage, Entra ID, or a secret manager.
 - MFA provider integration remains future work; the gate only blocks predictable local bypass values and unsafe auth bypass flags.
-- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, signed manifest metadata, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, and real signing remain planned.
+- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, sanitized evidence artifacts, signed manifest metadata, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, and real signing remain planned.
 - Small-cell suppression and lightweight role-aware UI masking are implemented; centralized field policy remains future work.

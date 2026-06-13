@@ -24,6 +24,8 @@ Post-RC Azure Blob SDK operations foundation update date: 2026-06-13
 
 Post-RC Azure WORM live harness update date: 2026-06-13
 
+Post-RC Azure WORM evidence package update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -90,8 +92,9 @@ Disallowed production values:
 9. If object/WORM mirroring is enabled after DB backfill, run mirror replay for DB rows without successful mirror attempts.
 10. Generate a manifest for the accepted mirror evidence package and persist manifest metadata if compliance owners approve the package.
 11. Run the recovery drill summary for the selected evidence window and retain the report.
-12. Run application smoke tests before opening user traffic.
-13. Confirm the production startup security gate passes with target hosted settings.
+12. If Azure is the approved WORM provider, generate sanitized validation evidence with `scripts\check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json`.
+13. Run application smoke tests before opening user traffic.
+14. Confirm the production startup security gate passes with target hosted settings.
 
 ## Validation Commands
 
@@ -165,7 +168,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 27. Azure Blob provider readiness summary reports the expected URI prefix, safe credential mode, SDK availability, real-I/O enabled/disabled state, and no validation errors before Azure mirroring is required.
 28. If `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`, confirm `azure-storage-blob` and `azure-identity` are installed in the runtime image and a non-production live-cloud smoke test has been signed off.
 29. Run `scripts/check_azure_worm_readiness.py --json` and retain the dry-run output before any live Azure write is approved.
-30. Confirm any `azure_worm_live` pytest run used a dedicated non-production prefix and was explicitly enabled with `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true`.
+30. Run `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` and confirm `upload_attempted=false`, `network_calls_performed=false`, and no raw credentials or PHI/ePHI are present.
+31. Confirm any `azure_worm_live` pytest run used a dedicated non-production prefix and was explicitly enabled with `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true`.
 
 ## Audit And Export Review Checklist
 
@@ -184,6 +188,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm Azure credential mode uses managed identity, workload identity, or another approved non-inline secret mode before Azure mirroring is required.
 - Confirm `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO` remains false until the approved Azure container, identity role assignment, SDK dependencies, and live-cloud smoke test are complete.
 - Confirm live Azure WORM validation uses `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` and does not run in normal CI.
+- Confirm sanitized Azure WORM validation evidence includes provider readiness, prefix safety, credential mode, immutability, legal hold, checksum validation, blockers, warnings, and validation result.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.

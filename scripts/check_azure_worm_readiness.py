@@ -20,6 +20,10 @@ from app.services.clinical_audit_mirror import (  # noqa: E402
     audit_mirror_payload,
 )
 from app.services.clinical_audit_mirror_providers import AzureBlobAuditMirrorProvider  # noqa: E402
+from app.services.clinical_azure_worm_evidence import (  # noqa: E402
+    build_validation_evidence,
+    write_validation_evidence,
+)
 from app.services.clinical_azure_worm_live_readiness import (  # noqa: E402
     LIVE_TESTS_ENV,
     build_live_readiness_report,
@@ -93,6 +97,8 @@ def _print_human(report: dict[str, Any]) -> None:
     print(f"live_test_prefix={report['live_test_prefix'] or '<unset>'}")
     print(f"upload_attempted={report['upload_attempted']}")
     print(f"network_calls_performed={report['network_calls_performed']}")
+    if report.get("evidence_out"):
+        print(f"evidence_out={report['evidence_out']}")
     if report["blocking_issues"]:
         print("blocking_issues:")
         for issue in report["blocking_issues"]:
@@ -108,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--strict", action="store_true", help="Return nonzero when readiness has blocking issues.")
     parser.add_argument(
+        "--evidence-out",
+        help="Write a sanitized Azure WORM validation evidence JSON artifact to this path.",
+    )
+    parser.add_argument(
         "--live-write",
         action="store_true",
         help=(
@@ -120,12 +130,21 @@ def main(argv: list[str] | None = None) -> int:
     report = build_report(live_write_requested=args.live_write)
     if args.live_write:
         if report["blocking_issues"] or report["provider_readiness"].get("ready") is not True:
+            if args.evidence_out:
+                evidence = build_validation_evidence(report, environment_mode=settings.app_env)
+                evidence_path = write_validation_evidence(args.evidence_out, evidence)
+                report["evidence_out"] = str(evidence_path)
             if args.json:
                 print(json.dumps(report, indent=2, sort_keys=True, default=str))
             else:
                 _print_human(report)
             return 2
         report = run_live_write(report)
+
+    if args.evidence_out:
+        evidence = build_validation_evidence(report, environment_mode=settings.app_env)
+        evidence_path = write_validation_evidence(args.evidence_out, evidence)
+        report["evidence_out"] = str(evidence_path)
 
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True, default=str))

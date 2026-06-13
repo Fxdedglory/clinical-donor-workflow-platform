@@ -6,6 +6,8 @@ Post-RC-09 SDK operations foundation update date: 2026-06-13
 
 Post-RC-10 live readiness harness update date: 2026-06-13
 
+Post-RC-11 validation evidence package update date: 2026-06-13
+
 ## Purpose
 
 This checklist documents Azure Blob Storage readiness assumptions for clinical workflow audit WORM evidence. Post-RC-09 adds guarded SDK operation code paths, but this checklist still does not create Azure resources, assign roles, configure immutability, or require real credentials for local/test validation.
@@ -76,6 +78,13 @@ Post-RC-10 adds:
 - prefix and live-write safety guards;
 - operational checklist in `docs/clinical-azure-worm-live-validation.md`.
 
+Post-RC-11 adds:
+
+- sanitized `--evidence-out` JSON artifact generation for dry-run and approved live-write checks;
+- evidence summaries for provider, account/container/prefix readiness, credential mode, immutability, legal hold, checksum validation, blockers, warnings, and validation result;
+- tests proving dry-run evidence does not upload objects or perform network calls;
+- operator checklist and evidence template documents.
+
 Readiness checks do not perform network calls or import the Azure SDK. Real SDK construction is attempted only when `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` and no fake/test client is injected.
 
 ## Dependency Behavior
@@ -108,16 +117,25 @@ Run:
 
 The command prints provider readiness, real-I/O state, live-test flag state, live-test prefix status, and blocking issues. It does not upload objects or perform network calls unless `--live-write` is explicitly supplied.
 
+To retain a sanitized artifact for release evidence, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json
+```
+
+The evidence artifact intentionally excludes raw credentials and PHI/ePHI. It reports `upload_attempted=false` and `network_calls_performed=false` in dry-run mode.
+
 ## Future Integration Path
 
 1. Add approved Azure SDK dependencies to the deployment environment if live Azure writes are enabled.
 2. Validate managed-identity or workload-identity role assignment against the target container.
 3. Run the dry-run readiness script and retain the JSON output.
-4. Run a non-production live-cloud smoke test against a disposable WORM-ready container using the `azure_worm_live` marker.
-5. Verify upload with redacted audit metadata payloads only.
-6. Read back object properties and checksum metadata.
-7. Validate immutability and legal-hold status from Azure APIs.
-8. Link manifest payload storage to mirror records and manifest metadata.
-9. Run production recovery drills with compliance signoff.
+4. Generate and retain sanitized evidence with `--evidence-out`.
+5. Run a non-production live-cloud smoke test against a disposable WORM-ready container using the `azure_worm_live` marker.
+6. Verify upload with redacted audit metadata payloads only.
+7. Read back object properties and checksum metadata.
+8. Validate immutability and legal-hold status from Azure APIs.
+9. Link manifest payload storage to mirror records and manifest metadata.
+10. Run production recovery drills with compliance signoff.
 
-See `docs/clinical-azure-worm-live-validation.md` for the full live validation checklist.
+See `docs/clinical-azure-worm-live-validation.md`, `docs/clinical-azure-worm-validation-evidence-template.md`, and `docs/clinical-azure-worm-operator-checklist.md` for the full validation and evidence checklist.

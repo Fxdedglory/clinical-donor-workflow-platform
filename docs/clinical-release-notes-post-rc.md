@@ -209,3 +209,24 @@ Date: 2026-06-13
 - Run live Azure validation only after managed/workload identity, WORM policy, and test prefix approvals.
 - Validate provider-side immutability and legal-hold state from Azure APIs.
 - Add evidence-package signing with approved key management when compliance owners approve the flow.
+
+## Azure WORM Validation Evidence Package
+
+Update: CLINICAL-POST-RC-11
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_azure_worm_evidence.py` for sanitized Azure WORM validation evidence generation.
+- Added `--evidence-out` to `scripts/check_azure_worm_readiness.py` for dry-run and approved live-write evidence artifacts.
+- Included provider, environment, real-I/O, live-test, live-write, upload, network, account/container/prefix, credential mode, immutability, legal hold, checksum, blocker, warning, validation result, and data-safety summaries.
+- Preserved repo-safe defaults: dry-run evidence requires no credentials, performs no uploads, performs no network calls, and excludes raw credentials and PHI/ePHI.
+- Added focused tests for evidence JSON creation, dry-run no-upload/no-network posture, incomplete-config blockers, prefix safety status, sanitizer behavior, and default live-test skip posture.
+- Added `docs/clinical-azure-worm-validation-evidence-template.md` and `docs/clinical-azure-worm-operator-checklist.md`.
+- Updated Azure WORM live validation, Azure Blob readiness, provider adapter, recovery drill, production readiness, production gate, and security readiness documentation.
+
+## Remaining Post-RC-11 Items
+
+- Run live Azure validation only after external storage, identity, WORM policy, and compliance approvals.
+- Validate provider-side immutability and legal-hold state from Azure APIs.
+- Add approved cryptographic signing for evidence packages.
+- Keep external evidence delivery and automated cleanup out of scope until separately approved.

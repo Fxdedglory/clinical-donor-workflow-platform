@@ -2,6 +2,8 @@
 
 Post-RC-10 update date: 2026-06-13
 
+Post-RC-11 evidence package update date: 2026-06-13
+
 ## Purpose
 
 This runbook defines the skipped-by-default Azure Blob WORM live integration readiness harness. It prepares the repository for future live validation without requiring credentials, creating Azure resources, or running network calls during normal tests.
@@ -26,6 +28,12 @@ Dry-run readiness remains the default:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\check_azure_worm_readiness.py --json
+```
+
+Dry-run evidence can be retained with a sanitized artifact:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json
 ```
 
 ## Required Azure Assumptions
@@ -65,18 +73,19 @@ AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true
 
 ## Validation Steps
 
-1. Run the dry-run readiness script and retain the JSON output.
+1. Run the dry-run readiness script with `--evidence-out` and retain the sanitized evidence JSON plus command output.
 2. Confirm no blocking issues are present.
-3. Confirm `real_io_enabled=true`, `live_tests_enabled=true`, and the live test prefix is dedicated.
-4. Run the marked pytest file only after the dry-run is approved:
+3. Confirm `upload_attempted=false` and `network_calls_performed=false` for dry-run evidence.
+4. Confirm `real_io_enabled=true`, `live_tests_enabled=true`, and the live test prefix is dedicated before approved live validation.
+5. Run the marked pytest file only after the dry-run is approved:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\integration\test_azure_worm_live_integration.py -m azure_worm_live
 ```
 
-5. If approved, run the script with `--live-write` to perform one write/stat/list/checksum check under the live test prefix.
-6. Capture object URI, checksum, object metadata, Azure container policy screenshots or exports, and test output.
-7. Retain evidence with the release readiness package.
+6. If approved, run the script with `--live-write --evidence-out` to perform one write/stat/list/checksum check under the live test prefix.
+7. Capture object URI, checksum, object metadata, Azure container policy screenshots or exports, and test output.
+8. Retain evidence with the release readiness package.
 
 ## Rollback And Cleanup
 
@@ -87,7 +96,8 @@ AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true
 
 ## Evidence To Capture
 
-- Dry-run readiness JSON.
+- Sanitized dry-run evidence JSON from `--evidence-out`.
+- Dry-run readiness JSON or stdout from the same command.
 - Live pytest output, if run.
 - `--live-write` output, if run.
 - Azure storage account and container policy export.
@@ -95,9 +105,12 @@ AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true
 - Retention policy and legal hold approval references.
 - Recovery drill summary for any accepted live evidence package.
 
+See `docs/clinical-azure-worm-validation-evidence-template.md` and `docs/clinical-azure-worm-operator-checklist.md` for the required artifact fields and operator handoff checklist.
+
 ## Known Limitations
 
 - The repository does not create Azure resources.
 - The harness does not enforce provider-side immutability or legal hold from code.
 - Live tests are not part of normal CI and must remain opt-in.
+- Sanitized evidence proves repository readiness posture; Azure policy enforcement still requires external provider evidence.
 - Real cryptographic manifest signing remains future work.

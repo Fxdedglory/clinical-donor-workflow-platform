@@ -8,6 +8,8 @@ Post-RC-09 provider verification update date: 2026-06-13
 
 Post-RC-10 live harness update date: 2026-06-13
 
+Post-RC-11 evidence package update date: 2026-06-13
+
 ## Purpose
 
 This drill validates that database workflow audit rows, mirror attempt rows, provider mirror objects, and signed manifests can be reconciled without mutating production evidence.
@@ -22,6 +24,7 @@ The drill is read-only. It does not restore, delete, rewrite, or backfill audit 
 - optional signed manifest payload
 - local simulation root or future provider object inventory
 - provider readiness summary
+- sanitized Azure WORM validation evidence JSON, when Azure is the target provider
 - optional start/end timestamp range
 
 ## Helper
@@ -50,7 +53,7 @@ Post-RC-08 also includes provider readiness output:
 - provider validation errors and warnings;
 - Azure account/container/prefix/credential-mode readiness when Azure Blob is configured.
 - Azure SDK availability, real-I/O enabled/disabled state, supported operations, and no-network dry-run status.
-- Azure live harness status when `scripts/check_azure_worm_readiness.py --json` is captured with the evidence package.
+- Azure live harness status when `scripts/check_azure_worm_readiness.py --json --evidence-out ...` is captured with the evidence package.
 
 ## Local Drill Procedure
 
@@ -59,7 +62,7 @@ Post-RC-08 also includes provider readiness output:
 3. Query successful non-dry-run mirror records for those operation ids.
 4. Verify provider payload checksums against `mirror_checksum`.
 5. Compare manifest object URI/checksum entries against mirror records.
-6. Review provider readiness output and resolve configuration validation errors.
+6. Review provider readiness output and sanitized Azure WORM evidence, then resolve configuration validation errors.
 7. Report missing DB-to-mirror rows, missing local objects, checksum mismatches, manifest mismatches, and mirror rows outside the selected audit set.
 8. Preserve all evidence sources after review.
 
@@ -78,10 +81,11 @@ The drill is ready for recovery review when:
 
 Provider verification now uses the active provider contract. Local filesystem checks remain deterministic. Azure Blob checks can run through fake clients in tests and through real SDK calls only when `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`. The procedure should still remain read-only until database owners and compliance owners approve a separate restore or replay action.
 
-Post-RC-10 adds skipped-by-default live validation skeletons. If a live Azure validation run is accepted, retain the dry-run readiness JSON, live pytest output, object URI/checksum, and storage policy evidence before running the recovery drill summary.
+Post-RC-10 adds skipped-by-default live validation skeletons. Post-RC-11 adds sanitized evidence JSON generation through `--evidence-out`. If a live Azure validation run is accepted, retain the dry-run evidence JSON, live pytest output, object URI/checksum, and storage policy evidence before running the recovery drill summary.
 
 ## Known Limitations
 
 - Azure Blob SDK operation paths are available behind the real-I/O feature flag, and live test skeletons are skipped by default.
 - Placeholder signatures do not prove signer identity.
 - Provider-side immutable retention and legal hold status are documented assumptions, not enforced by this helper.
+- Sanitized evidence JSON is an input to recovery review, not a substitute for Azure policy exports or live provider-side verification.
