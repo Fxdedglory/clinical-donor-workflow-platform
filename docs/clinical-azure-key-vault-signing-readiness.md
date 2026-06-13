@@ -4,6 +4,8 @@ Post-RC-13 update date: 2026-06-13
 
 Post-RC-14 live validation harness update date: 2026-06-13
 
+Post-RC-15 lifecycle readiness update date: 2026-06-13
+
 ## Purpose
 
 This runbook documents the Azure Key Vault signing SDK operations readiness foundation for clinical audit WORM manifests. The repository now has a real-capable signing and verification path, but local validation remains SDK-free and network-free unless real I/O is explicitly enabled.
@@ -32,6 +34,16 @@ AUDIT_MANIFEST_AZURE_KEY_VERSION=<approved-key-version>
 AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE=managed_identity
 AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=false
 AUDIT_MANIFEST_AZURE_KEY_VAULT_REQUIRE_HSM=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_KEY_ROTATION_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ROTATION_INTERVAL_DAYS=0
+AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_NAME=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_VERSION=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REF=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REF=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REF=
 ```
 
 Real I/O also requires `azure-keyvault-keys` and `azure-identity` in the runtime image. The repository does not require those packages for local/dev/test.
@@ -79,9 +91,21 @@ Sanitized Azure WORM evidence may include:
 - key name, key version, and key reference metadata;
 - credential mode;
 - SDK availability;
+- lifecycle summary with rotation, next-key, retirement policy, access-log review, and incident recovery status;
 - signature verification status.
 
 Evidence must not include key material, private keys, raw credentials, secrets, PHI, or ePHI.
+
+## Lifecycle Readiness
+
+When lifecycle controls are required, configure safe metadata references and rerun dry-run evidence. Production gates fail when required Key Vault signing has incomplete lifecycle metadata for rotation interval, next key, retirement policy, access-log review, or incident recovery. Local/dev/test runs report the same conditions as warnings unless strict production validation is requested.
+
+Detailed procedures live in:
+
+- `docs/clinical-azure-key-vault-key-lifecycle.md`;
+- `docs/clinical-azure-key-vault-rotation-runbook.md`;
+- `docs/clinical-azure-key-vault-access-log-review.md`;
+- `docs/clinical-azure-key-vault-incident-recovery.md`.
 
 ## Readiness Commands
 
@@ -120,11 +144,12 @@ Before enabling real Key Vault I/O:
 7. Enable real I/O only in an approved non-production validation environment.
 8. Sign and verify a non-PHI manifest with `--live-sign`.
 9. Retain operation evidence, key version, identity assignment, access logs, and recovery drill output.
+10. Confirm lifecycle readiness references are present when rotation, access-log review, or incident recovery controls are required.
 
 ## Known Limitations
 
 - This foundation does not create Azure resources.
 - Live Key Vault validation is not run by default.
 - Dry-run evidence can be blocked because configuration is incomplete; this does not mean a network call was attempted.
-- Key rotation, key retirement, access-log review workflow, and incident recovery runbooks remain future operational work.
+- Key rotation automation, access-log ingestion automation, and cloud-side incident recovery execution remain future operational work.
 - Manifest signing does not replace provider-side immutable retention, legal hold, or Azure Blob WORM validation.

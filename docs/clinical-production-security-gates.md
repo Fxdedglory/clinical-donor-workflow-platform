@@ -20,6 +20,8 @@ Post-RC-13 Azure Key Vault signing gate update date: 2026-06-13
 
 Post-RC-14 Azure Key Vault live validation note date: 2026-06-13
 
+Post-RC-15 Azure Key Vault lifecycle gate update date: 2026-06-13
+
 Scope: fail-closed startup validation for production-like environments. The gate is deterministic, uses local configuration only, and does not call a network service or require an external secret manager.
 
 ## Runtime Behavior
@@ -55,6 +57,8 @@ The values `prod`, `production`, `stage`, and `staging` are treated as productio
 - If `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`, configure `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE` with an approved non-inline-secret identity mode.
 - Set `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` only after Key Vault access, SDK dependencies, and live validation approval are complete.
 - `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_LIVE_ALLOW_PRODUCTION_KEY` are operational validation controls, not startup gate bypasses.
+- If Key Vault key rotation is required, configure `AUDIT_MANIFEST_AZURE_KEY_VAULT_KEY_ROTATION_REQUIRED=true`, `AUDIT_MANIFEST_AZURE_KEY_VAULT_ROTATION_INTERVAL_DAYS`, `AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_NAME`, and `AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_VERSION`.
+- If Key Vault retirement, access-log review, or incident recovery readiness is required, configure the matching `AUDIT_MANIFEST_AZURE_KEY_VAULT_*_REQUIRED=true` flag and safe `*_REF` evidence reference.
 - If legal hold is required, configure `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE`.
 - If `AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob` or `azure_blob_immutability`, configure `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE`.
 - Set `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only after Azure Blob writes are approved for the environment and required SDK dependencies are installed.
@@ -97,6 +101,11 @@ Startup fails in production when any of these are detected:
 - real-capable Azure Key Vault signing without safe credential mode;
 - real-capable Azure Key Vault signing real I/O enabled without `azure-keyvault-keys`;
 - real-capable Azure Key Vault signing real I/O enabled without `azure-identity`;
+- required Azure Key Vault key rotation without a positive rotation interval;
+- required Azure Key Vault key rotation without next key name and version metadata;
+- required Azure Key Vault retirement policy without a retirement policy reference;
+- required Azure Key Vault access-log review without an access-log review reference;
+- required Azure Key Vault incident recovery without an incident recovery reference;
 - missing or unsafe manifest signing algorithm;
 - required Azure Blob mirror without account URL, container, prefix, or safe credential mode;
 - required Azure Blob real I/O enabled without `azure-storage-blob`;
@@ -130,7 +139,7 @@ For App Service startup checks:
 
 In production-like environments, both startup paths refuse unsafe settings before the app opens traffic.
 
-The production gate remains local-only. It does not run live Azure pytest checks, upload objects, call Azure APIs, or call a signing provider. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence, `scripts/check_azure_key_vault_signing_readiness.py --json --evidence-out <approved-evidence-path>\key-vault-signing-evidence.json` for Key Vault signing evidence, and the live validation runbooks for opt-in live processes.
+The production gate remains local-only. It does not run live Azure pytest checks, upload objects, call Azure APIs, or call a signing provider. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence, `scripts/check_azure_key_vault_signing_readiness.py --json --evidence-out <approved-evidence-path>\key-vault-signing-evidence.json` for Key Vault signing and lifecycle evidence, and the live validation runbooks for opt-in live processes.
 
 ## Failure Example
 
@@ -146,5 +155,5 @@ Production security gate failed. Refusing to start with unsafe production config
 - The gate validates configuration shape and known flags; it does not prove database migrations have already run.
 - It does not contact PostgreSQL, object storage, Entra ID, or a secret manager.
 - MFA provider integration remains future work; the gate only blocks predictable local bypass values and unsafe auth bypass flags.
-- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, sanitized evidence artifacts, deterministic local HMAC manifest signing, provider-placeholder signing metadata, real-capable Azure Key Vault signing hooks behind an explicit feature flag, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, live Key Vault validation, and cloud KMS operations remain planned.
+- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, sanitized evidence artifacts, deterministic local HMAC manifest signing, provider-placeholder signing metadata, real-capable Azure Key Vault signing hooks behind an explicit feature flag, Key Vault lifecycle readiness gates, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, live Key Vault validation, and cloud KMS operations remain planned.
 - Small-cell suppression and lightweight role-aware UI masking are implemented; centralized field policy remains future work.

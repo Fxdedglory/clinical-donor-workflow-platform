@@ -21,6 +21,10 @@ from app.services.clinical_audit_signing import (
     UNSAFE_AZURE_KEY_VAULT_CREDENTIAL_MODES,
     UNSAFE_SIGNING_ALGORITHMS,
 )
+from app.services.clinical_key_vault_lifecycle import (
+    key_vault_lifecycle_config_from_settings,
+    validate_key_vault_lifecycle_config,
+)
 from app.services.clinical_phi import (
     DEFAULT_AGGREGATE_EXPORT_PROFILE,
     DEFAULT_AUDIT_EXPORT_PROFILE,
@@ -120,6 +124,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit_manifest_azure_key_vault_credential_mode": "",
     "audit_manifest_azure_key_vault_enable_real_io": False,
     "audit_manifest_azure_key_vault_require_hsm": False,
+    "audit_manifest_azure_key_vault_key_rotation_required": False,
+    "audit_manifest_azure_key_vault_rotation_interval_days": 0,
+    "audit_manifest_azure_key_vault_next_key_name": "",
+    "audit_manifest_azure_key_vault_next_key_version": "",
+    "audit_manifest_azure_key_vault_retirement_policy_required": False,
+    "audit_manifest_azure_key_vault_retirement_policy_ref": "",
+    "audit_manifest_azure_key_vault_access_log_review_required": False,
+    "audit_manifest_azure_key_vault_access_log_review_ref": "",
+    "audit_manifest_azure_key_vault_incident_recovery_required": False,
+    "audit_manifest_azure_key_vault_incident_recovery_ref": "",
     "audit_object_mirror_azure_account_url": "",
     "audit_object_mirror_azure_container": "",
     "audit_object_mirror_azure_prefix": "",
@@ -533,6 +547,7 @@ def validate_production_security_gates(
         ),
         default=False,
     )
+    manifest_key_vault_lifecycle_config = key_vault_lifecycle_config_from_settings(source)
     azure_account_url = _text(
         _get(
             source,
@@ -767,6 +782,13 @@ def validate_production_security_gates(
                 "audit_manifest_signing_algorithm_unsafe",
                 "AUDIT_MANIFEST_SIGNING_ALGORITHM must be an approved non-deprecated signing algorithm.",
             )
+    if manifest_signing_required and manifest_signing_mode in {
+        SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER,
+        SIGNING_MODE_AZURE_KEY_VAULT,
+    }:
+        for lifecycle_issue in validate_key_vault_lifecycle_config(manifest_key_vault_lifecycle_config):
+            if lifecycle_issue.severity == "error":
+                add(lifecycle_issue.code, lifecycle_issue.message)
 
     try:
         analytics_profile = _configured_profile(

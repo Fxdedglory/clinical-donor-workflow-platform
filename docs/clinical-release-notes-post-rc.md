@@ -249,7 +249,7 @@ Date: 2026-06-13
 
 - Implement approved live external KMS or Azure Key Vault signing and verification.
 - Validate provider-side immutability and legal-hold state from Azure APIs.
-- Define production key lifecycle, rotation, access logging, and incident recovery procedures.
+- Superseded by Post-RC-15 lifecycle readiness runbooks; cloud-side key lifecycle execution remains pending.
 - Keep live-cloud signing and Azure WORM validation opt-in until compliance owners approve execution.
 
 ## Azure Key Vault Signing SDK Operations Readiness
@@ -270,8 +270,7 @@ Date: 2026-06-13
 ## Remaining Post-RC-13 Items
 
 - Run live Azure Key Vault validation only after Key Vault, identity, SDK, logging, and compliance approvals.
-- Define key lifecycle, rotation, retirement, and access review procedures.
-- Document signing-key incident recovery and manifest re-verification procedures.
+- Superseded by Post-RC-15 lifecycle readiness runbooks; cloud-side key rotation, access review execution, and incident recovery exercises remain pending.
 - Keep live Azure WORM validation and Key Vault signing out of normal CI unless separately approved.
 
 ## Azure Key Vault Signing Live Validation Harness
@@ -290,6 +289,26 @@ Date: 2026-06-13
 ## Remaining Post-RC-14 Items
 
 - Execute live Key Vault validation only after Azure resources, identity permissions, SDK runtime, access logging, and compliance approval are in place.
-- Define key rotation, key retirement, and re-verification procedures.
-- Add access-log review and incident recovery procedures outside the repository.
+- Superseded by Post-RC-15 lifecycle readiness runbooks; cloud-side key rotation execution, access-log evidence review, and incident recovery exercises remain pending.
 - Keep Key Vault live signing and Azure WORM live validation out of normal CI unless separately approved.
+
+## Azure Key Vault Signing Lifecycle Readiness
+
+Update: CLINICAL-POST-RC-15
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_key_vault_lifecycle.py` for sanitized Key Vault lifecycle readiness parsing, validation, logical current/next key references, and data-safety metadata.
+- Added lifecycle settings for rotation requirement, rotation interval, next key name/version, retirement policy reference, access-log review reference, and incident recovery reference.
+- Extended Key Vault signing readiness reports and evidence artifacts with `lifecycle_summary`.
+- Extended production gates so required Key Vault signing fails when required rotation, retirement, access-log review, or incident recovery metadata is incomplete.
+- Added focused tests for lifecycle sanitizer behavior, secret/key-material exclusion, rotation validation, evidence output, and production gate blockers.
+- Added Key Vault lifecycle, rotation, access-log review, and incident recovery runbooks.
+- Updated signing, live validation, operator, production gate, production readiness, and security readiness documentation.
+
+## Remaining Post-RC-15 Items
+
+- Execute cloud-side key rotation only through approved Azure/change-control procedures.
+- Validate access-log evidence from Azure Monitor or the approved logging platform outside repository tests.
+- Run incident recovery tabletop exercises and retain signoff evidence.
+- Keep Key Vault live signing, Azure WORM live validation, and incident actions out of normal CI unless separately approved.

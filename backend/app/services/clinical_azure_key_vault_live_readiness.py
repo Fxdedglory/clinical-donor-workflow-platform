@@ -18,6 +18,10 @@ from app.services.clinical_audit_signing import (
     audit_manifest_signing_config_from_settings,
     azure_key_vault_readiness_summary,
 )
+from app.services.clinical_key_vault_lifecycle import (
+    key_vault_lifecycle_config_from_settings,
+    key_vault_lifecycle_readiness_summary,
+)
 
 LIVE_TESTS_ENV = "CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS"
 LIVE_KEY_OVERRIDE_ENV = "AUDIT_MANIFEST_AZURE_KEY_VAULT_LIVE_ALLOW_PRODUCTION_KEY"
@@ -250,6 +254,33 @@ def build_key_vault_live_readiness_report(
     require_live = live_enabled or live_sign_requested
     readiness = azure_key_vault_readiness_summary(active_config)
     issues = validate_key_vault_signing_config(active_config, env=source, require_live=require_live)
+    lifecycle_config = (
+        key_vault_lifecycle_config_from_settings(source)
+        if env is not None
+        else key_vault_lifecycle_config_from_settings()
+    )
+    lifecycle_summary = key_vault_lifecycle_readiness_summary(
+        lifecycle_config,
+        signing_config=active_config,
+    )
+    issues.extend(
+        _issue(
+            str(issue.get("code") or "azure_key_vault_lifecycle_incomplete"),
+            str(issue.get("message") or "Azure Key Vault lifecycle readiness is incomplete."),
+            severity=str(issue.get("severity") or "error"),
+        )
+        for issue in lifecycle_summary.get("blocking_issues", [])
+        if isinstance(issue, Mapping)
+    )
+    issues.extend(
+        _issue(
+            str(issue.get("code") or "azure_key_vault_lifecycle_warning"),
+            str(issue.get("message") or "Azure Key Vault lifecycle readiness warning."),
+            severity="warning",
+        )
+        for issue in lifecycle_summary.get("warnings", [])
+        if isinstance(issue, Mapping)
+    )
     if live_sign_requested and not live_enabled:
         issues.append(
             _issue(
@@ -262,6 +293,7 @@ def build_key_vault_live_readiness_report(
     return {
         "mode": "live_sign" if live_sign_requested else "dry_run",
         "signing_readiness": readiness,
+        "lifecycle_readiness": lifecycle_summary,
         "signing_mode": active_config.normalized_mode,
         "signing_required": active_config.required,
         "signature_algorithm": active_config.effective_algorithm or None,
@@ -276,6 +308,8 @@ def build_key_vault_live_readiness_report(
         "verification_attempted": False,
         "network_calls_performed": False,
         "ready_for_live_validation": live_enabled and not errors and readiness.get("real_io_ready") is True,
+        "lifecycle_blocking_issues": lifecycle_summary.get("blocking_issues") or [],
+        "lifecycle_warnings": lifecycle_summary.get("warnings") or [],
         "blocking_issues": [issue.__dict__ for issue in errors],
         "warnings": [issue.__dict__ for issue in warnings],
     }
@@ -328,6 +362,9 @@ def build_key_vault_signing_evidence(
     readiness = report.get("signing_readiness") or {}
     if not isinstance(readiness, Mapping):
         readiness = {}
+    lifecycle_readiness = report.get("lifecycle_readiness") or {}
+    if not isinstance(lifecycle_readiness, Mapping):
+        lifecycle_readiness = {}
     blocking_issues = report.get("blocking_issues") or []
     evidence = {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
@@ -359,6 +396,7 @@ def build_key_vault_signing_evidence(
             "sdk_available": bool(readiness.get("sdk_available")),
             "modules": readiness.get("sdk_modules") or {},
         },
+        "lifecycle_summary": lifecycle_readiness,
         "algorithm": report.get("signature_algorithm"),
         "signing_readiness_status": (
             "ready" if not blocking_issues and readiness.get("metadata_ready") is True else "blocked"

@@ -79,6 +79,7 @@ def build_report(*, live_sign_requested: bool) -> dict[str, Any]:
 
 def _print_human(report: dict[str, Any]) -> None:
     readiness = report.get("signing_readiness") or {}
+    lifecycle = report.get("lifecycle_readiness") or {}
     print("Clinical Azure Key Vault signing readiness")
     print(f"mode={report['mode']}")
     print(f"signing_mode={report.get('signing_mode')}")
@@ -95,6 +96,13 @@ def _print_human(report: dict[str, Any]) -> None:
     print(f"key_version={readiness.get('key_version') or '<unset>'}")
     print(f"sdk_available={readiness.get('sdk_available')}")
     print(f"real_io_ready={readiness.get('real_io_ready')}")
+    print(f"rotation_required={lifecycle.get('rotation_required')}")
+    print(f"rotation_interval_days={lifecycle.get('rotation_interval_days') or '<unset>'}")
+    print(f"current_key_reference={lifecycle.get('current_key_reference') or '<unset>'}")
+    print(f"next_key_reference={lifecycle.get('next_key_reference') or '<unset>'}")
+    print(f"retirement_policy_status={lifecycle.get('retirement_policy_status') or '<unset>'}")
+    print(f"access_log_review_status={lifecycle.get('access_log_review_status') or '<unset>'}")
+    print(f"incident_recovery_status={lifecycle.get('incident_recovery_status') or '<unset>'}")
     if report.get("verification_status"):
         print(f"verification_status={report['verification_status']}")
     if report.get("evidence_out"):

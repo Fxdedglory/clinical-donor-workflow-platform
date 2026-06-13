@@ -6,6 +6,8 @@ Post-RC-13 Azure Key Vault SDK readiness update date: 2026-06-13
 
 Post-RC-14 Azure Key Vault live validation harness update date: 2026-06-13
 
+Post-RC-15 Azure Key Vault lifecycle readiness update date: 2026-06-13
+
 ## Purpose
 
 This runbook defines the repository-safe cryptographic signing foundation for workflow audit WORM manifests. It adds deterministic signing and verification behavior without requiring live Azure Key Vault, external KMS credentials, cloud resources, or network calls during local validation.
@@ -38,6 +40,16 @@ AUDIT_MANIFEST_AZURE_KEY_VERSION=
 AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE=
 AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=false
 AUDIT_MANIFEST_AZURE_KEY_VAULT_REQUIRE_HSM=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_KEY_ROTATION_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ROTATION_INTERVAL_DAYS=0
+AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_NAME=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_VERSION=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REF=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REF=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REQUIRED=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REF=
 ```
 
 Legacy compatibility settings are still read when the preferred settings are absent:
@@ -112,6 +124,19 @@ CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true
 
 The live harness refuses ambiguous or production-like key names/references unless `AUDIT_MANIFEST_AZURE_KEY_VAULT_LIVE_ALLOW_PRODUCTION_KEY=true` is set after approval. Dedicated non-production identifiers should include clear tokens such as `validation`, `test`, `sandbox`, or `nonprod`.
 
+## Azure Key Vault Lifecycle Readiness
+
+Post-RC-15 adds repository-safe lifecycle readiness metadata for Key Vault signing. Dry-run evidence now includes a `lifecycle_summary` with rotation requirement, rotation interval, current logical key reference, next logical key reference, retirement policy status, access-log review status, incident recovery status, blockers, warnings, and data-safety flags.
+
+Lifecycle requirement flags are disabled by default. When enabled, the matching `*_REF` values should point to approved runbooks, monitor queries, tickets, or evidence packages. They must not contain raw credentials, key material, PHI, or ePHI.
+
+Reference runbooks:
+
+- `docs/clinical-azure-key-vault-key-lifecycle.md`;
+- `docs/clinical-azure-key-vault-rotation-runbook.md`;
+- `docs/clinical-azure-key-vault-access-log-review.md`;
+- `docs/clinical-azure-key-vault-incident-recovery.md`.
+
 ## Operation Boundary
 
 The signing service exposes an injectable Azure Key Vault client boundary. Unit tests use a fake client with `sign(algorithm, digest)` and `verify(algorithm, digest, signature)` methods. The real wrapper imports Azure SDK modules only when real I/O is enabled and no fake client is supplied.
@@ -159,6 +184,10 @@ Production-like startup fails when:
 - Azure Key Vault placeholder or real-capable mode lacks vault URL or key name;
 - `azure_key_vault` mode lacks a safe `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE`;
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` but `azure-keyvault-keys` or `azure-identity` is unavailable;
+- Azure Key Vault key rotation is required but rotation interval or next key reference is incomplete;
+- Azure Key Vault retirement policy is required but no retirement policy reference is configured;
+- Azure Key Vault access-log review is required but no access-log review reference is configured;
+- Azure Key Vault incident recovery is required but no incident recovery reference is configured;
 - signing algorithm is missing, deprecated, or unsupported.
 
 Local/dev/test reports the same findings as warnings.
@@ -178,7 +207,7 @@ Live integration should:
 
 - No live Azure Key Vault network call runs in normal tests or dry-run readiness.
 - The SDK operation path is present, but live Key Vault validation remains opt-in and externally approved.
-- The live validation harness verifies one non-PHI manifest checksum only; it does not prove key rotation, access-log ingestion, or incident recovery readiness.
+- The live validation harness verifies one non-PHI manifest checksum only; lifecycle readiness metadata documents rotation, access-log review, and incident recovery controls but does not execute cloud-side actions.
 - `checksum_placeholder` is not cryptographic signing.
 - Local HMAC is deterministic and testable, but not a production signing architecture unless separately approved.
 - Manifest payload signing does not replace provider-side immutable retention, legal hold, or live object verification.

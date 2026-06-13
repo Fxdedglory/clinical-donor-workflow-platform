@@ -32,6 +32,8 @@ Post-RC Azure Key Vault signing readiness update date: 2026-06-13
 
 Post-RC Azure Key Vault live validation harness update date: 2026-06-13
 
+Post-RC Azure Key Vault lifecycle readiness update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -58,6 +60,10 @@ Required production settings:
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE` when `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` only after Key Vault SDK dependencies, identity access, and live validation approval are complete
 - `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_LIVE_ALLOW_PRODUCTION_KEY=true` only for approved Key Vault live validation windows
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_KEY_ROTATION_REQUIRED`, `AUDIT_MANIFEST_AZURE_KEY_VAULT_ROTATION_INTERVAL_DAYS`, `AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_NAME`, and `AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_VERSION` when Key Vault rotation readiness is required
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REQUIRED` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REF` when Key Vault retirement policy readiness is required
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REQUIRED` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REF` when Key Vault access-log review readiness is required
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REQUIRED` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REF` when Key Vault incident recovery readiness is required
 - `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE` when Azure Blob is the approved provider
 - `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only in approved environments with Azure SDK dependencies installed and managed/workload identity configured
 - `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true` and `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` only for approved non-production live validation runs
@@ -185,6 +191,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 33. If `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`, confirm fake-client signing tests pass, Key Vault readiness metadata is present in sanitized evidence, and real I/O remains disabled unless separately approved.
 34. Run `scripts/check_azure_key_vault_signing_readiness.py --json --evidence-out <approved-evidence-path>\key-vault-signing-evidence.json` and confirm dry-run evidence reports `signing_attempted=false`, `verification_attempted=false`, and `network_calls_performed=false`.
 35. If `--live-sign` or the `azure_key_vault_live` marker is approved, confirm the key name/reference is dedicated to validation and `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true` was explicitly set.
+36. Confirm `lifecycle_summary` records rotation interval, current key reference, next key reference, retirement policy status, access-log review status, and incident recovery status when those controls are required.
+37. Confirm production gates fail in a production-like dry run if required Key Vault lifecycle references are intentionally removed.
 
 ## Audit And Export Review Checklist
 
@@ -207,7 +215,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm sanitized Azure WORM validation evidence includes provider readiness, prefix safety, credential mode, immutability, legal hold, checksum validation, blockers, warnings, and validation result.
 - Confirm sanitized Azure WORM validation evidence includes manifest signing mode, required flag, algorithm, key reference, and verification status without key material.
 - Confirm sanitized Azure WORM validation evidence includes Azure Key Vault real-I/O state, credential mode, key name/version, SDK availability, and readiness status without raw vault credentials or key material when Key Vault signing is selected.
-- Confirm dedicated Key Vault signing evidence includes live sign requested, signing attempted, verification attempted, network calls performed, key metadata, SDK availability, blockers, warnings, and validation result.
+- Confirm dedicated Key Vault signing evidence includes live sign requested, signing attempted, verification attempted, network calls performed, key metadata, SDK availability, lifecycle summary, blockers, warnings, and validation result.
+- Confirm Key Vault lifecycle references point to approved rotation, retirement, access-log review, and incident recovery runbooks or evidence packages without raw credentials, key material, PHI, or ePHI.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.

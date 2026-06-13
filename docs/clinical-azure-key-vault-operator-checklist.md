@@ -2,6 +2,8 @@
 
 Post-RC-14 update date: 2026-06-13
 
+Post-RC-15 lifecycle readiness update date: 2026-06-13
+
 ## Scope
 
 This checklist is for operators preparing Azure Key Vault signing readiness or live sign/verify evidence for clinical audit WORM manifests. Repository commands remain safe by default and must not call Azure unless live validation is explicitly enabled.
@@ -12,6 +14,7 @@ This checklist is for operators preparing Azure Key Vault signing readiness or l
 - Confirm no raw credentials are placed in `.env`, shell history, script arguments, or evidence paths.
 - Confirm `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=false` for dry-run evidence.
 - Confirm the selected key name/reference is non-PHI and non-secret metadata.
+- Confirm lifecycle requirement flags and `*_REF` values match approved rotation, access-log review, and incident recovery controls.
 - Confirm `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=false` unless live signing has approval.
 
 ## Dry-Run Evidence
@@ -32,6 +35,7 @@ Review:
 - `vault_summary.vault_url_configured` reports presence only, not the raw URL
 - `credential_mode_summary.mode` uses an approved identity mode
 - `sdk_availability` is understood before live validation
+- `lifecycle_summary` shows required rotation, retirement, access-log review, and incident recovery controls as documented
 - `blocking_issues` are resolved or accepted as dry-run blockers
 
 ## Before Live Validation
@@ -44,6 +48,7 @@ Confirm:
 - Managed identity or workload identity has least-privilege sign and verify permissions.
 - `azure-keyvault-keys` and `azure-identity` are installed.
 - Key Vault diagnostic/access logging is enabled.
+- Key lifecycle, rotation, access-log review, and incident recovery references are approved when required.
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true`.
 - `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true`.
 - Compliance owners approved `--live-sign`.
@@ -76,6 +81,8 @@ Stop and retain evidence if:
 
 Include dry-run evidence, live evidence if run, command stdout, Key Vault key/version evidence, identity permission evidence, SDK/runtime evidence, access-log evidence, approval references, and follow-up items.
 
+Include lifecycle evidence from `lifecycle_summary` when rotation, retirement, access-log review, or incident recovery readiness is required.
+
 ## Disable Procedure
 
 After validation, set:
@@ -89,4 +96,4 @@ Remove temporary validation-only permissions if approved. Preserve evidence arti
 
 ## Signoff
 
-Record approver, date, environment, command results, evidence paths, key version, identity, and unresolved risks for key lifecycle, rotation, access logging, and incident recovery.
+Record approver, date, environment, command results, evidence paths, key version, identity, lifecycle references, and unresolved risks for rotation, access logging, and incident recovery.

@@ -95,6 +95,46 @@ class Settings(BaseSettings):
         default=False,
         alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_REQUIRE_HSM",
     )
+    audit_manifest_azure_key_vault_key_rotation_required: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_KEY_ROTATION_REQUIRED",
+    )
+    audit_manifest_azure_key_vault_rotation_interval_days: int = Field(
+        default=0,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_ROTATION_INTERVAL_DAYS",
+    )
+    audit_manifest_azure_key_vault_next_key_name: str = Field(
+        default="",
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_NAME",
+    )
+    audit_manifest_azure_key_vault_next_key_version: str = Field(
+        default="",
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_NEXT_KEY_VERSION",
+    )
+    audit_manifest_azure_key_vault_retirement_policy_required: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REQUIRED",
+    )
+    audit_manifest_azure_key_vault_retirement_policy_ref: str = Field(
+        default="",
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_RETIREMENT_POLICY_REF",
+    )
+    audit_manifest_azure_key_vault_access_log_review_required: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REQUIRED",
+    )
+    audit_manifest_azure_key_vault_access_log_review_ref: str = Field(
+        default="",
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_ACCESS_LOG_REVIEW_REF",
+    )
+    audit_manifest_azure_key_vault_incident_recovery_required: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REQUIRED",
+    )
+    audit_manifest_azure_key_vault_incident_recovery_ref: str = Field(
+        default="",
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_INCIDENT_RECOVERY_REF",
+    )
     audit_object_mirror_azure_account_url: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL")
     audit_object_mirror_azure_container: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_CONTAINER")
     audit_object_mirror_azure_prefix: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_PREFIX")
