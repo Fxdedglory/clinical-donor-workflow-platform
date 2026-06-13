@@ -2,9 +2,11 @@
 
 Post-RC-12 update date: 2026-06-13
 
+Post-RC-13 Azure Key Vault SDK readiness update date: 2026-06-13
+
 ## Purpose
 
-This runbook defines the repository-safe cryptographic signing foundation for workflow audit WORM manifests. It adds deterministic signing and verification behavior without requiring live Azure Key Vault, external KMS credentials, cloud resources, or network calls.
+This runbook defines the repository-safe cryptographic signing foundation for workflow audit WORM manifests. It adds deterministic signing and verification behavior without requiring live Azure Key Vault, external KMS credentials, cloud resources, or network calls during local validation.
 
 ## Signing Modes
 
@@ -15,6 +17,7 @@ This runbook defines the repository-safe cryptographic signing foundation for wo
 | `local_hmac_sha256` | Uses `AUDIT_MANIFEST_LOCAL_HMAC_KEY` to produce a deterministic HMAC signature. Verification is supported locally. | Dev/test only unless explicitly allowed for a production-like dry run. |
 | `external_kms_placeholder` | Validates external KMS metadata and marks provider verification pending. No network calls. | Accepted as a production-safe placeholder when key reference and algorithm are configured. |
 | `azure_key_vault_placeholder` | Validates Azure Key Vault metadata and marks provider verification pending. No network calls. | Accepted as a production-safe placeholder when vault URL, key name, key reference, and algorithm are configured. |
+| `azure_key_vault` | Real-capable Azure Key Vault signing/verification path behind `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO`. Fake-client tests exercise the operation contract without Azure credentials. | Accepted as readiness configuration when metadata and safe credential mode are configured. Real I/O also requires SDK packages. |
 
 ## Configuration
 
@@ -30,6 +33,9 @@ AUDIT_MANIFEST_ALLOW_LOCAL_SIGNING_IN_PRODUCTION=false
 AUDIT_MANIFEST_AZURE_KEY_VAULT_URL=
 AUDIT_MANIFEST_AZURE_KEY_NAME=
 AUDIT_MANIFEST_AZURE_KEY_VERSION=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE=
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=false
+AUDIT_MANIFEST_AZURE_KEY_VAULT_REQUIRE_HSM=false
 ```
 
 Legacy compatibility settings are still read when the preferred settings are absent:
@@ -56,6 +62,32 @@ AUDIT_MANIFEST_LOCAL_HMAC_KEY=<local test value outside Git>
 
 The key value must not be logged, committed, written into evidence artifacts, or copied into release docs. Evidence may record that local signing material is configured, but never records the material itself.
 
+## Azure Key Vault Readiness Flow
+
+`azure_key_vault` is the real-capable provider mode. It remains safe by default because real SDK construction is blocked unless:
+
+```text
+AUDIT_MANIFEST_SIGNING_REQUIRED=true
+AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault
+AUDIT_MANIFEST_SIGNING_ALGORITHM=rsa-pss-sha256
+AUDIT_MANIFEST_SIGNING_KEY_REF=keyvault://clinical-audit/manifest/v1
+AUDIT_MANIFEST_AZURE_KEY_VAULT_URL=https://<vault-name>.vault.azure.net
+AUDIT_MANIFEST_AZURE_KEY_NAME=clinical-audit-manifest
+AUDIT_MANIFEST_AZURE_KEY_VERSION=<approved-key-version>
+AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE=managed_identity
+AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true
+```
+
+Approved credential modes are non-inline-secret identity modes such as `managed_identity`, `workload_identity`, `default_azure_credential`, `entra_id`, `azure_identity`, and `azure_cli`. Inline client secrets, account keys, shared keys, connection strings, and SAS-style values are blocked by production gates.
+
+When real I/O is enabled without an injected test client, the runtime image must include `azure-keyvault-keys` and `azure-identity`. The repository does not add those packages by default; local/dev/test continues to work without them when real I/O is disabled.
+
+## Operation Boundary
+
+The signing service exposes an injectable Azure Key Vault client boundary. Unit tests use a fake client with `sign(algorithm, digest)` and `verify(algorithm, digest, signature)` methods. The real wrapper imports Azure SDK modules only when real I/O is enabled and no fake client is supplied.
+
+The provider signs the SHA-256 digest of the canonical signing payload. The manifest stores an `azure-key-vault:<base64-signature>` value, the configured algorithm, and the key reference. It never stores key material, client secrets, or private keys.
+
 ## Manifest Behavior
 
 Manifest generation keeps:
@@ -76,9 +108,11 @@ Verification reports:
 
 - `checksum_status=verified` or `checksum_mismatch`;
 - `signature_verification_status=verified` for valid local HMAC signatures;
+- `signature_verification_status=verified` for valid Azure Key Vault signatures when verification runs through the enabled provider or fake client;
 - `signature_verification_status=non_production_placeholder` for matching checksum placeholders;
 - `signature_verification_status=pending_provider_verification` for external KMS or Azure Key Vault placeholders;
-- `signature_verification_status=failed` for tampered local HMAC manifests.
+- `signature_verification_status=pending_provider_verification` for `azure_key_vault` when real I/O is disabled;
+- `signature_verification_status=failed` for tampered local HMAC or Azure Key Vault manifests.
 
 Recovery drill summaries include `manifest_signature_verification` so operators can see checksum and signature status alongside provider object verification.
 
@@ -91,24 +125,28 @@ Production-like startup fails when:
 - `local_hmac_sha256` is configured without explicit local-signing allowance;
 - local HMAC signing is configured without local signing material;
 - external/KMS or Key Vault mode lacks `AUDIT_MANIFEST_SIGNING_KEY_REF`;
-- Azure Key Vault placeholder mode lacks vault URL or key name;
+- Azure Key Vault placeholder or real-capable mode lacks vault URL or key name;
+- `azure_key_vault` mode lacks a safe `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE`;
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` but `azure-keyvault-keys` or `azure-identity` is unavailable;
 - signing algorithm is missing, deprecated, or unsupported.
 
 Local/dev/test reports the same findings as warnings.
 
-## Future Azure Key Vault Path
+## Future Azure Key Vault Live Validation Path
 
 Future live integration should:
 
 1. Resolve approved managed/workload identity access to Azure Key Vault.
-2. Replace `azure_key_vault_placeholder` with a real provider implementation.
-3. Sign the canonical manifest checksum through Key Vault without exporting private key material.
-4. Verify signatures with public key or Key Vault verify APIs.
-5. Retain Key Vault operation evidence, key version, role assignment evidence, and WORM manifest payload.
+2. Install the minimal Azure SDK packages in the target runtime image.
+3. Run dry-run readiness and production gates with real I/O disabled.
+4. Enable `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` only in an approved validation environment.
+5. Sign and verify a non-PHI manifest through Key Vault.
+6. Retain Key Vault operation evidence, key version, role assignment evidence, access logging evidence, and WORM manifest payload.
 
 ## Known Limitations
 
-- No real KMS or Azure Key Vault network call is performed by this foundation.
+- No live Azure Key Vault network call runs in normal tests or dry-run readiness.
+- The SDK operation path is present, but live Key Vault validation remains opt-in and externally approved.
 - `checksum_placeholder` is not cryptographic signing.
 - Local HMAC is deterministic and testable, but not a production signing architecture unless separately approved.
 - Manifest payload signing does not replace provider-side immutable retention, legal hold, or live object verification.

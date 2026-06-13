@@ -6,6 +6,8 @@ Post-RC-11 evidence package update date: 2026-06-13
 
 Post-RC-12 manifest signing foundation update date: 2026-06-13
 
+Post-RC-13 Azure Key Vault signing readiness update date: 2026-06-13
+
 ## Purpose
 
 This runbook defines the skipped-by-default Azure Blob WORM live integration readiness harness. It prepares the repository for future live validation without requiring credentials, creating Azure resources, or running network calls during normal tests.
@@ -48,6 +50,7 @@ Dry-run evidence can be retained with a sanitized artifact:
 - Managed identity or workload identity has least-privilege blob data permissions.
 - Inline account keys, connection strings, shared keys, plain secrets, and inline SAS tokens are not used.
 - Manifest signing mode, algorithm, and key reference are approved before signed manifest evidence is accepted.
+- If `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`, Key Vault URL, key name/version, safe credential mode, SDK dependency plan, and real-I/O approval are documented before live signing validation.
 
 ## Required Configuration
 
@@ -87,8 +90,9 @@ AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true
 ```
 
 6. If approved, run the script with `--live-write --evidence-out` to perform one write/stat/list/checksum check under the live test prefix.
-7. Capture object URI, checksum, object metadata, Azure container policy screenshots or exports, and test output.
-8. Retain evidence with the release readiness package.
+7. If approved separately, run a non-PHI Key Vault signing validation with `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true`.
+8. Capture object URI, checksum, object metadata, Azure container policy screenshots or exports, Key Vault key/version evidence, and test output.
+9. Retain evidence with the release readiness package.
 
 ## Rollback And Cleanup
 
@@ -105,6 +109,7 @@ AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true
 - `--live-write` output, if run.
 - Azure storage account and container policy export.
 - Identity assignment and least-privilege role evidence.
+- Key Vault sign/verify role evidence when `azure_key_vault` signing is enabled.
 - Retention policy and legal hold approval references.
 - Recovery drill summary for any accepted live evidence package.
 - Manifest signing verification status from the recovery drill, when a manifest is included.
@@ -117,4 +122,4 @@ See `docs/clinical-azure-worm-validation-evidence-template.md`, `docs/clinical-a
 - The harness does not enforce provider-side immutability or legal hold from code.
 - Live tests are not part of normal CI and must remain opt-in.
 - Sanitized evidence proves repository readiness posture; Azure policy enforcement still requires external provider evidence.
-- Real Azure Key Vault signing remains future work; Post-RC-12 only validates Key Vault metadata without network calls.
+- Real Azure Key Vault signing hooks are available behind an explicit feature flag, but live Key Vault validation is not part of normal CI and must remain separately approved.

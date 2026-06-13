@@ -12,6 +12,8 @@ Post-RC-10 Azure live harness update date: 2026-06-13
 
 Post-RC-12 manifest signing foundation update date: 2026-06-13
 
+Post-RC-13 Azure Key Vault signing readiness update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-06 adds an object-storage / WORM audit mirroring foundation for clinical workflow audit evidence. It does not replace the database-backed append-only audit table and does not add real cloud SDK calls.
@@ -156,7 +158,8 @@ Supported signing modes are:
 - `checksum_placeholder` for non-production compatibility;
 - `local_hmac_sha256` for deterministic dev/test verification;
 - `external_kms_placeholder` for provider metadata validation without network calls;
-- `azure_key_vault_placeholder` for Azure Key Vault metadata validation without network calls.
+- `azure_key_vault_placeholder` for Azure Key Vault metadata validation without network calls;
+- `azure_key_vault` for real-capable Azure Key Vault signing behind an explicit real-I/O feature flag.
 
 Generated manifests can be persisted to:
 
@@ -244,8 +247,10 @@ When manifests or signatures are required, production startup gates also fail if
 - `AUDIT_MANIFEST_SIGNING_REQUIRED=true` without `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true`;
 - manifest signing is required but mode is disabled or `checksum_placeholder`;
 - local HMAC signing is configured in production without explicit allowance;
-- external/KMS or Azure Key Vault placeholder modes are missing key reference;
-- Azure Key Vault placeholder mode is missing vault URL or key name;
+- external/KMS or Azure Key Vault modes are missing key reference;
+- Azure Key Vault placeholder or real-capable mode is missing vault URL or key name;
+- `azure_key_vault` mode is missing a safe credential mode;
+- Azure Key Vault real I/O is enabled but `azure-keyvault-keys` or `azure-identity` is unavailable;
 - signing algorithm is missing or unsafe.
 
 When Azure Blob mirroring is required, production startup gates fail if:

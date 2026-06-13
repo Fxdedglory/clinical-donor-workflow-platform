@@ -83,6 +83,18 @@ class Settings(BaseSettings):
     audit_manifest_azure_key_vault_url: str = Field(default="", alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_URL")
     audit_manifest_azure_key_name: str = Field(default="", alias="AUDIT_MANIFEST_AZURE_KEY_NAME")
     audit_manifest_azure_key_version: str = Field(default="", alias="AUDIT_MANIFEST_AZURE_KEY_VERSION")
+    audit_manifest_azure_key_vault_credential_mode: str = Field(
+        default="",
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE",
+    )
+    audit_manifest_azure_key_vault_enable_real_io: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO",
+    )
+    audit_manifest_azure_key_vault_require_hsm: bool = Field(
+        default=False,
+        alias="AUDIT_MANIFEST_AZURE_KEY_VAULT_REQUIRE_HSM",
+    )
     audit_object_mirror_azure_account_url: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL")
     audit_object_mirror_azure_container: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_CONTAINER")
     audit_object_mirror_azure_prefix: str = Field(default="", alias="AUDIT_OBJECT_MIRROR_AZURE_PREFIX")

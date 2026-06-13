@@ -34,6 +34,7 @@ from app.services.clinical_audit_signing import (
     SIGNING_MODE_DISABLED,
     AuditManifestSigningConfig,
     audit_manifest_signing_config_from_settings,
+    azure_key_vault_key_reference,
     canonical_signing_payload,
     sign_manifest_checksum,
     signature_status_for_config,
@@ -75,6 +76,9 @@ class AuditManifestConfig:
     azure_key_vault_url: str = ""
     azure_key_name: str = ""
     azure_key_version: str = ""
+    azure_key_vault_credential_mode: str = ""
+    azure_key_vault_enable_real_io: bool = False
+    azure_key_vault_require_hsm: bool = False
 
     @property
     def normalized_mirror_mode(self) -> str:
@@ -94,6 +98,9 @@ class AuditManifestConfig:
             azure_key_vault_url=self.azure_key_vault_url,
             azure_key_name=self.azure_key_name,
             azure_key_version=self.azure_key_version,
+            azure_key_vault_credential_mode=self.azure_key_vault_credential_mode,
+            azure_key_vault_enable_real_io=self.azure_key_vault_enable_real_io,
+            azure_key_vault_require_hsm=self.azure_key_vault_require_hsm,
             environment=self.environment,
         )
 
@@ -154,6 +161,9 @@ def audit_manifest_config_from_settings(source: Any = settings) -> AuditManifest
         azure_key_vault_url=signing_config.azure_key_vault_url,
         azure_key_name=signing_config.azure_key_name,
         azure_key_version=signing_config.azure_key_version,
+        azure_key_vault_credential_mode=signing_config.azure_key_vault_credential_mode,
+        azure_key_vault_enable_real_io=signing_config.azure_key_vault_enable_real_io,
+        azure_key_vault_require_hsm=signing_config.azure_key_vault_require_hsm,
     )
 
 
@@ -240,6 +250,8 @@ def generate_audit_mirror_manifest(
     config: AuditManifestConfig | None = None,
     generated_at: datetime | None = None,
     generated_by: str | None = None,
+    signing_client: Any | None = None,
+    signing_client_factory: Any | None = None,
 ) -> dict[str, Any]:
     active_config = config or audit_manifest_config_from_settings()
     objects = _manifest_objects(mirror_events)
@@ -248,7 +260,7 @@ def generate_audit_mirror_manifest(
     signing_config = active_config.signing_config()
     signature_status = signature_status_for_config(signing_config)
     signature_algorithm = signing_config.effective_algorithm or None
-    signature_key_ref = signing_config.key_ref or None
+    signature_key_ref = azure_key_vault_key_reference(signing_config) or signing_config.key_ref or None
     base = {
         "schema_version": AUDIT_MANIFEST_SCHEMA_VERSION,
         "generated_at": _iso(generated_at_value),
@@ -276,7 +288,12 @@ def generate_audit_mirror_manifest(
     manifest_id = f"audit-manifest-{_manifest_fingerprint(base)[:24]}"
     unsigned_manifest = {"manifest_id": manifest_id, **base}
     manifest_checksum = audit_manifest_checksum(unsigned_manifest)
-    signature_result = sign_manifest_checksum(manifest_checksum, signing_config)
+    signature_result = sign_manifest_checksum(
+        manifest_checksum,
+        signing_config,
+        signing_client=signing_client,
+        signing_client_factory=signing_client_factory,
+    )
     return {
         **unsigned_manifest,
         "manifest_checksum": manifest_checksum,
@@ -345,6 +362,9 @@ def _signing_config_for_manifest(
         azure_key_vault_url=source.azure_key_vault_url,
         azure_key_name=source.azure_key_name,
         azure_key_version=source.azure_key_version,
+        azure_key_vault_credential_mode=source.azure_key_vault_credential_mode,
+        azure_key_vault_enable_real_io=source.azure_key_vault_enable_real_io,
+        azure_key_vault_require_hsm=source.azure_key_vault_require_hsm,
         environment=source.environment,
     )
 
@@ -353,6 +373,8 @@ def verify_audit_mirror_manifest(
     manifest: dict[str, Any],
     *,
     signing_config: AuditManifestSigningConfig | None = None,
+    signing_client: Any | None = None,
+    signing_client_factory: Any | None = None,
 ) -> dict[str, Any]:
     expected_checksum = audit_manifest_checksum(_manifest_without_checksum_fields(manifest))
     recorded_checksum = str(manifest.get("manifest_checksum") or "")
@@ -362,6 +384,8 @@ def verify_audit_mirror_manifest(
         manifest_checksum=expected_checksum,
         signature=manifest.get("signature"),
         config=active_signing_config,
+        signing_client=signing_client,
+        signing_client_factory=signing_client_factory,
     )
     signature_status = signature_verification["signature_verification_status"]
     blocking_signature_statuses = {

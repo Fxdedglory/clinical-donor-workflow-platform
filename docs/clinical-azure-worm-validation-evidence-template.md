@@ -4,6 +4,8 @@ Post-RC-11 update date: 2026-06-13
 
 Post-RC-12 manifest signing update date: 2026-06-13
 
+Post-RC-13 Azure Key Vault signing readiness update date: 2026-06-13
+
 ## Purpose
 
 This template defines the sanitized evidence artifact produced by the Azure WORM readiness harness. It is repo-safe by default: dry-run mode does not require Azure credentials, does not upload objects, does not perform network calls, and does not include PHI/ePHI or raw credential material.
@@ -58,7 +60,7 @@ The evidence writer only emits whitelisted operational readiness fields. It does
 
 `storage_readiness_summary` may show configured container and prefix names because operators need to confirm the selected WORM target. The account URL is summarized as configured/unconfigured only.
 
-`manifest_signing_summary` may show signing mode, required flag, algorithm, signature key reference, and verification status. It must not include `AUDIT_MANIFEST_LOCAL_HMAC_KEY` or any private key material.
+`manifest_signing_summary` may show signing mode, required flag, algorithm, signature key reference, verification status, Azure Key Vault real-I/O state, key name, key version, credential mode, and SDK availability. It must not include `AUDIT_MANIFEST_LOCAL_HMAC_KEY`, raw Key Vault credentials, client secrets, private keys, or the raw vault URL.
 
 ## Review Outcomes
 
@@ -79,5 +81,6 @@ For release review, retain:
 - Azure policy exports or screenshots for immutability and legal hold;
 - managed/workload identity role assignment evidence;
 - manifest signing configuration approval and key-reference evidence;
+- Azure Key Vault key/version, identity permission, and access-log evidence when `azure_key_vault` signing is approved;
 - approval reference for the live-test prefix;
 - live pytest and `--live-write` output only if live validation was separately approved.

@@ -10,6 +10,8 @@ Post-RC-11 validation evidence package update date: 2026-06-13
 
 Post-RC-12 manifest signing foundation update date: 2026-06-13
 
+Post-RC-13 Azure Key Vault signing readiness update date: 2026-06-13
+
 ## Purpose
 
 This checklist documents Azure Blob Storage readiness assumptions for clinical workflow audit WORM evidence. Post-RC-09 adds guarded SDK operation code paths, but this checklist still does not create Azure resources, assign roles, configure immutability, or require real credentials for local/test validation.
@@ -94,6 +96,13 @@ Post-RC-12 adds:
 - production gate failures for required signing with disabled or checksum-placeholder modes;
 - evidence output fields for manifest signing metadata and verification status.
 
+Post-RC-13 adds:
+
+- real-capable `azure_key_vault` manifest signing and verification hooks behind `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO`;
+- injectable fake-client tests for Key Vault canonical payload signing, verification, tamper failure, key reference metadata, and SDK-missing behavior;
+- sanitized evidence fields for Key Vault provider readiness, credential mode, SDK availability, and real-I/O state;
+- production gate checks for Key Vault signing metadata, safe credential mode, and SDK dependencies when real I/O is enabled.
+
 Readiness checks do not perform network calls or import the Azure SDK. Real SDK construction is attempted only when `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` and no fake/test client is injected.
 
 ## Dependency Behavior
@@ -102,6 +111,11 @@ Local/dev/test can run without Azure packages when real I/O is disabled. If real
 
 - `azure-storage-blob`;
 - `azure-identity` for identity-based credential modes.
+
+If real Azure Key Vault signing I/O is enabled, production gates require:
+
+- `azure-keyvault-keys`;
+- `azure-identity`.
 
 Missing dependencies fail clearly before real object operations proceed.
 
@@ -146,7 +160,8 @@ It also reports manifest signing mode, required flag, algorithm, key reference, 
 7. Read back object properties and checksum metadata.
 8. Validate immutability and legal-hold status from Azure APIs.
 9. Link manifest payload storage to mirror records and manifest metadata.
-10. Verify manifest checksum and signature status in the recovery drill summary.
-11. Run production recovery drills with compliance signoff.
+10. If Key Vault signing is approved, validate `azure_key_vault` signing and verification first with fake-client tests, then with opt-in live Key Vault evidence.
+11. Verify manifest checksum and signature status in the recovery drill summary.
+12. Run production recovery drills with compliance signoff.
 
-See `docs/clinical-azure-worm-live-validation.md`, `docs/clinical-azure-worm-validation-evidence-template.md`, `docs/clinical-azure-worm-operator-checklist.md`, and `docs/clinical-audit-manifest-signing.md` for the full validation, evidence, and signing checklist.
+See `docs/clinical-azure-worm-live-validation.md`, `docs/clinical-azure-worm-validation-evidence-template.md`, `docs/clinical-azure-worm-operator-checklist.md`, `docs/clinical-audit-manifest-signing.md`, and `docs/clinical-azure-key-vault-signing-readiness.md` for the full validation, evidence, and signing checklist.

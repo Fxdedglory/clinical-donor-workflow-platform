@@ -9,13 +9,16 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.services.clinical_audit_signing import (
+    SAFE_AZURE_KEY_VAULT_CREDENTIAL_MODES,
     SAFE_SIGNING_ALGORITHMS,
+    SIGNING_MODE_AZURE_KEY_VAULT,
     SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER,
     SIGNING_MODE_CHECKSUM_PLACEHOLDER,
     SIGNING_MODE_DISABLED,
     SIGNING_MODE_EXTERNAL_KMS_PLACEHOLDER,
     SIGNING_MODE_LOCAL_HMAC_SHA256,
     SIGNING_MODES,
+    UNSAFE_AZURE_KEY_VAULT_CREDENTIAL_MODES,
     UNSAFE_SIGNING_ALGORITHMS,
 )
 from app.services.clinical_phi import (
@@ -114,6 +117,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit_manifest_azure_key_vault_url": "",
     "audit_manifest_azure_key_name": "",
     "audit_manifest_azure_key_version": "",
+    "audit_manifest_azure_key_vault_credential_mode": "",
+    "audit_manifest_azure_key_vault_enable_real_io": False,
+    "audit_manifest_azure_key_vault_require_hsm": False,
     "audit_object_mirror_azure_account_url": "",
     "audit_object_mirror_azure_container": "",
     "audit_object_mirror_azure_prefix": "",
@@ -510,6 +516,23 @@ def validate_production_security_gates(
             default=DEFAULT_CONFIG["audit_manifest_azure_key_name"],
         )
     )
+    manifest_azure_key_vault_credential_mode = _normalized(
+        _get(
+            source,
+            "audit_manifest_azure_key_vault_credential_mode",
+            "AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE",
+            default=DEFAULT_CONFIG["audit_manifest_azure_key_vault_credential_mode"],
+        )
+    )
+    manifest_azure_key_vault_enable_real_io = _as_bool(
+        _get(
+            source,
+            "audit_manifest_azure_key_vault_enable_real_io",
+            "AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO",
+            default=DEFAULT_CONFIG["audit_manifest_azure_key_vault_enable_real_io"],
+        ),
+        default=False,
+    )
     azure_account_url = _text(
         _get(
             source,
@@ -692,23 +715,48 @@ def validate_production_security_gates(
             )
         if (
             manifest_signing_mode
-            in {SIGNING_MODE_EXTERNAL_KMS_PLACEHOLDER, SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER}
+            in {
+                SIGNING_MODE_EXTERNAL_KMS_PLACEHOLDER,
+                SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER,
+                SIGNING_MODE_AZURE_KEY_VAULT,
+            }
             and not manifest_signing_key_ref
         ):
             add(
                 "audit_manifest_signing_key_ref_missing",
                 "AUDIT_MANIFEST_SIGNING_KEY_REF is required when external/KMS manifest signing is configured.",
             )
-        if manifest_signing_mode == SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER:
+        if manifest_signing_mode in {SIGNING_MODE_AZURE_KEY_VAULT_PLACEHOLDER, SIGNING_MODE_AZURE_KEY_VAULT}:
             if not manifest_azure_key_vault_url:
                 add(
                     "audit_manifest_azure_key_vault_url_missing",
-                    "AUDIT_MANIFEST_AZURE_KEY_VAULT_URL is required for Azure Key Vault placeholder signing.",
+                    "AUDIT_MANIFEST_AZURE_KEY_VAULT_URL is required for Azure Key Vault signing.",
                 )
             if not manifest_azure_key_name:
                 add(
                     "audit_manifest_azure_key_name_missing",
-                    "AUDIT_MANIFEST_AZURE_KEY_NAME is required for Azure Key Vault placeholder signing.",
+                    "AUDIT_MANIFEST_AZURE_KEY_NAME is required for Azure Key Vault signing.",
+                )
+        if manifest_signing_mode == SIGNING_MODE_AZURE_KEY_VAULT:
+            if manifest_azure_key_vault_credential_mode in UNSAFE_AZURE_KEY_VAULT_CREDENTIAL_MODES:
+                add(
+                    "audit_manifest_azure_key_vault_credential_mode_unsafe",
+                    "AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE is required and must use a non-secret Azure identity mode.",
+                )
+            elif manifest_azure_key_vault_credential_mode not in SAFE_AZURE_KEY_VAULT_CREDENTIAL_MODES:
+                add(
+                    "audit_manifest_azure_key_vault_credential_mode_unsupported",
+                    "AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE must use an approved Azure identity mode.",
+                )
+            if manifest_azure_key_vault_enable_real_io and not _module_available("azure.keyvault.keys.crypto"):
+                add(
+                    "audit_manifest_azure_key_vault_sdk_missing",
+                    "azure-keyvault-keys is required when AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true.",
+                )
+            if manifest_azure_key_vault_enable_real_io and not _module_available("azure.identity"):
+                add(
+                    "audit_manifest_azure_key_vault_identity_sdk_missing",
+                    "azure-identity is required when AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true.",
                 )
         if (
             not normalized_signing_algorithm

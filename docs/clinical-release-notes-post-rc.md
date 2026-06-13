@@ -251,3 +251,25 @@ Date: 2026-06-13
 - Validate provider-side immutability and legal-hold state from Azure APIs.
 - Define production key lifecycle, rotation, access logging, and incident recovery procedures.
 - Keep live-cloud signing and Azure WORM validation opt-in until compliance owners approve execution.
+
+## Azure Key Vault Signing SDK Operations Readiness
+
+Update: CLINICAL-POST-RC-13
+
+Date: 2026-06-13
+
+- Added real-capable `azure_key_vault` manifest signing mode behind `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO`.
+- Added an injectable Azure Key Vault signing client boundary plus a guarded SDK wrapper for future `azure-keyvault-keys` and `azure-identity` use.
+- Kept local/dev/test safe without Azure SDK packages unless real Key Vault I/O is explicitly enabled.
+- Added fake-client tests for deterministic canonical payload signing, verification success, manifest tamper failure, key reference handling, SDK-missing behavior, and sanitized evidence metadata.
+- Extended audit manifest generation and verification to accept injected signing clients while preserving existing local HMAC behavior.
+- Extended sanitized Azure WORM evidence output with Key Vault readiness, real-I/O state, credential mode, key name/version, SDK availability, and verification metadata without key material.
+- Extended production gates for required Key Vault metadata, safe credential mode, and SDK dependencies when real I/O is enabled.
+- Added `docs/clinical-azure-key-vault-signing-readiness.md` and updated Azure WORM, production gate, readiness, security, evidence, and operator docs.
+
+## Remaining Post-RC-13 Items
+
+- Run live Azure Key Vault validation only after Key Vault, identity, SDK, logging, and compliance approvals.
+- Define key lifecycle, rotation, retirement, and access review procedures.
+- Document signing-key incident recovery and manifest re-verification procedures.
+- Keep live Azure WORM validation and Key Vault signing out of normal CI unless separately approved.

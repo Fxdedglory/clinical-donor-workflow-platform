@@ -28,6 +28,8 @@ Post-RC Azure WORM evidence package update date: 2026-06-13
 
 Post-RC manifest signing foundation update date: 2026-06-13
 
+Post-RC Azure Key Vault signing readiness update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -50,7 +52,9 @@ Required production settings:
 - `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE` when legal hold is required
 - `AUDIT_OBJECT_MIRROR_MANIFEST_REQUIRED=true` only after manifest retention is approved
 - `AUDIT_MANIFEST_SIGNING_REQUIRED=true`, `AUDIT_MANIFEST_SIGNING_MODE`, `AUDIT_MANIFEST_SIGNING_ALGORITHM`, and `AUDIT_MANIFEST_SIGNING_KEY_REF` only after signature policy is approved
-- `AUDIT_MANIFEST_AZURE_KEY_VAULT_URL` and `AUDIT_MANIFEST_AZURE_KEY_NAME` when Azure Key Vault placeholder signing is selected
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_URL` and `AUDIT_MANIFEST_AZURE_KEY_NAME` when Azure Key Vault placeholder or real-capable signing is selected
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE` when `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`
+- `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` only after Key Vault SDK dependencies, identity access, and live validation approval are complete
 - `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE` when Azure Blob is the approved provider
 - `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only in approved environments with Azure SDK dependencies installed and managed/workload identity configured
 - `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true` and `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` only for approved non-production live validation runs
@@ -175,6 +179,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 30. Run `scripts/check_azure_worm_readiness.py --json` and retain the dry-run output before any live Azure write is approved.
 31. Run `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` and confirm `upload_attempted=false`, `network_calls_performed=false`, and no raw credentials or PHI/ePHI are present.
 32. Confirm any `azure_worm_live` pytest run used a dedicated non-production prefix and was explicitly enabled with `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true`.
+33. If `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`, confirm fake-client signing tests pass, Key Vault readiness metadata is present in sanitized evidence, and real I/O remains disabled unless separately approved.
 
 ## Audit And Export Review Checklist
 
@@ -196,6 +201,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm live Azure WORM validation uses `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` and does not run in normal CI.
 - Confirm sanitized Azure WORM validation evidence includes provider readiness, prefix safety, credential mode, immutability, legal hold, checksum validation, blockers, warnings, and validation result.
 - Confirm sanitized Azure WORM validation evidence includes manifest signing mode, required flag, algorithm, key reference, and verification status without key material.
+- Confirm sanitized Azure WORM validation evidence includes Azure Key Vault real-I/O state, credential mode, key name/version, SDK availability, and readiness status without raw vault credentials or key material when Key Vault signing is selected.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.
@@ -219,7 +225,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 
 ## Known Limitations
 
-- Workflow operation audit is now DB-backed with JSON mirror/fallback, an object/WORM mirror foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, signed manifest metadata, deterministic local HMAC signing, provider-placeholder signing metadata, and recovery drill helpers. Azure resource provisioning, retention policy creation, legal-hold automation, and live cloud KMS/Key Vault signing are not implemented by the repository.
+- Workflow operation audit is now DB-backed with JSON mirror/fallback, an object/WORM mirror foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, signed manifest metadata, deterministic local HMAC signing, provider-placeholder signing metadata, real-capable Azure Key Vault signing hooks behind an explicit feature flag, and recovery drill helpers. Azure resource provisioning, retention policy creation, legal-hold automation, and approved live cloud KMS/Key Vault validation are not implemented by default.
 - Post-RC-02 adds export/audit redaction profiles, Post-RC-04 adds small-cell suppression for aggregate report/export count cells, and Post-RC-05 adds lightweight role-aware UI masking. A full centralized field-policy engine remains future work.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup now fails closed on unsafe production-like secrets, cookie, CORS, database, audit, export, auth, and generic commit settings.
