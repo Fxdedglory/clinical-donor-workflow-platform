@@ -22,6 +22,8 @@ Post-RC Azure Blob adapter readiness update date: 2026-06-13
 
 Post-RC Azure Blob SDK operations foundation update date: 2026-06-13
 
+Post-RC Azure WORM live harness update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -46,6 +48,7 @@ Required production settings:
 - `AUDIT_OBJECT_MIRROR_SIGNATURE_REQUIRED=true`, `AUDIT_OBJECT_MIRROR_SIGNATURE_ALGORITHM`, and `AUDIT_OBJECT_MIRROR_SIGNATURE_KEY_REF` only after signature policy is approved
 - `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE` when Azure Blob is the approved provider
 - `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only in approved environments with Azure SDK dependencies installed and managed/workload identity configured
+- `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true` and `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` only for approved non-production live validation runs
 - `AUDIT_OBJECT_MIRROR_AZURE_IMMUTABILITY_REQUIRED`, `AUDIT_OBJECT_MIRROR_AZURE_LEGAL_HOLD_REQUIRED`, and `AUDIT_OBJECT_MIRROR_AZURE_CHECKSUM_VALIDATION_REQUIRED` only after provider-side controls are approved
 - `DEFAULT_ANALYTICS_EXPORT_PROFILE=aggregate_safe`
 - `DEFAULT_COMPLIANCE_EXPORT_PROFILE=compliance_evidence`
@@ -161,6 +164,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 26. WORM recovery drill summary reports no missing mirror rows, missing objects, checksum mismatches, or manifest mismatches for the accepted package.
 27. Azure Blob provider readiness summary reports the expected URI prefix, safe credential mode, SDK availability, real-I/O enabled/disabled state, and no validation errors before Azure mirroring is required.
 28. If `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`, confirm `azure-storage-blob` and `azure-identity` are installed in the runtime image and a non-production live-cloud smoke test has been signed off.
+29. Run `scripts/check_azure_worm_readiness.py --json` and retain the dry-run output before any live Azure write is approved.
+30. Confirm any `azure_worm_live` pytest run used a dedicated non-production prefix and was explicitly enabled with `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true`.
 
 ## Audit And Export Review Checklist
 
@@ -178,6 +183,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm provider readiness summary is retained with the recovery drill report.
 - Confirm Azure credential mode uses managed identity, workload identity, or another approved non-inline secret mode before Azure mirroring is required.
 - Confirm `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO` remains false until the approved Azure container, identity role assignment, SDK dependencies, and live-cloud smoke test are complete.
+- Confirm live Azure WORM validation uses `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` and does not run in normal CI.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.
@@ -201,7 +207,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 
 ## Known Limitations
 
-- Workflow operation audit is now DB-backed with JSON mirror/fallback, an object/WORM mirror foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, signed manifest metadata, and recovery drill helpers. Live-cloud validation, retention policy creation, legal-hold automation, and real cryptographic signing are not yet implemented.
+- Workflow operation audit is now DB-backed with JSON mirror/fallback, an object/WORM mirror foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, signed manifest metadata, and recovery drill helpers. Azure resource provisioning, retention policy creation, legal-hold automation, and real cryptographic signing are not implemented by the repository.
 - Post-RC-02 adds export/audit redaction profiles, Post-RC-04 adds small-cell suppression for aggregate report/export count cells, and Post-RC-05 adds lightweight role-aware UI masking. A full centralized field-policy engine remains future work.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
 - Production startup now fails closed on unsafe production-like secrets, cookie, CORS, database, audit, export, auth, and generic commit settings.

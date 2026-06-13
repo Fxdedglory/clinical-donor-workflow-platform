@@ -185,7 +185,27 @@ Date: 2026-06-13
 
 ## Remaining Post-RC-09 Items
 
-- Add live-cloud Azure integration tests after credentials, identity, and a WORM-ready container are approved.
+- Superseded by Post-RC-10 skipped-by-default live integration skeletons; approved live execution remains pending.
 - Validate provider-side immutable retention and legal-hold state from Azure APIs.
 - Confirm managed/workload identity role assignment and least-privilege access in the hosted environment.
 - Persist signed manifest payload objects in the approved WORM container when compliance owners approve that package flow.
+
+## Azure WORM Live Integration Readiness Harness
+
+Update: CLINICAL-POST-RC-10
+
+Date: 2026-06-13
+
+- Added `backend/app/services/clinical_azure_worm_live_readiness.py` with explicit live-test flag, prefix safety, and readiness report helpers.
+- Added pytest marker `azure_worm_live` and skipped-by-default integration skeletons under `tests/integration`.
+- Added `scripts/check_azure_worm_readiness.py` for dry-run provider readiness output and explicit `--live-write` future validation.
+- Added safety tests for default skip posture, explicit env-flag enablement, dedicated non-production test prefixes, override warnings, and script dry-run no-upload behavior.
+- Added `docs/clinical-azure-worm-live-validation.md` with Azure resource assumptions, retention/legal-hold checklist, identity checklist, live validation steps, evidence capture, and cleanup notes.
+- Updated Azure WORM readiness, provider adapter, recovery drill, production readiness, security gate, and security readiness docs.
+
+## Remaining Post-RC-10 Items
+
+- Provision or identify approved Azure storage resources outside the repository.
+- Run live Azure validation only after managed/workload identity, WORM policy, and test prefix approvals.
+- Validate provider-side immutability and legal-hold state from Azure APIs.
+- Add evidence-package signing with approved key management when compliance owners approve the flow.

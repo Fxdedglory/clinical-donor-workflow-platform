@@ -8,6 +8,8 @@ Post-RC-08 cloud provider adapter readiness update date: 2026-06-13
 
 Post-RC-09 Azure Blob SDK operations foundation update date: 2026-06-13
 
+Post-RC-10 Azure live harness update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-06 adds an object-storage / WORM audit mirroring foundation for clinical workflow audit evidence. It does not replace the database-backed append-only audit table and does not add real cloud SDK calls.
@@ -52,6 +54,8 @@ Post-RC-07 adds deterministic signed-manifest, verification, and recovery drill 
 Post-RC-08 adds provider adapter readiness for local filesystem and Azure Blob Storage. Azure readiness validates configuration and reports capabilities without importing the Azure SDK during dry-run checks.
 
 Post-RC-09 adds a guarded Azure Blob SDK operations foundation. Azure upload, stat/head, metadata read, prefix listing, and checksum verification run through a fakeable client boundary. Real Azure SDK construction requires `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`; local/test fake-client paths do not require Azure credentials or network calls.
+
+Post-RC-10 adds a skipped-by-default Azure live readiness harness. Normal pytest, preflight, and dry-run readiness commands do not contact Azure. Live tests require `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true` and a dedicated `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX`.
 
 ## Mirror Service
 
@@ -312,11 +316,12 @@ Detailed drill steps are in `docs/clinical-audit-worm-recovery-drill.md`.
 
 Provider adapter details are in `docs/clinical-audit-worm-provider-adapters.md`.
 Azure readiness details are in `docs/clinical-azure-blob-worm-readiness.md`.
+Azure live validation details are in `docs/clinical-azure-worm-live-validation.md`.
 
 ## Known Limitations
 
 - Azure Blob SDK operation paths are present but disabled unless `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true`.
-- No live-cloud Azure integration tests are implemented.
+- Azure live integration skeletons are skipped by default and must not run in normal CI.
 - Local filesystem simulation is not WORM storage.
 - Signed manifests are checksum-placeholder foundations only; real cryptographic signing remains future work.
 - Legal-hold automation remains future work.

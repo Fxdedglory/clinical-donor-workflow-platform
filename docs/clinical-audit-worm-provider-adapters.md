@@ -4,9 +4,13 @@ Post-RC-08 update date: 2026-06-13
 
 Post-RC-09 SDK operations foundation update date: 2026-06-13
 
+Post-RC-10 live readiness harness update date: 2026-06-13
+
 ## Purpose
 
 Post-RC-08 adds a provider adapter readiness layer for workflow audit WORM mirroring. Post-RC-09 adds a guarded Azure Blob SDK operations foundation. Local development stays deterministic, tests use fake clients, and no real cloud credentials or network calls are required unless real Azure I/O is explicitly enabled.
+
+Post-RC-10 adds a live integration readiness harness that remains skipped by default. The harness gives operators a future path to validate real Azure write/stat/list/checksum behavior only after explicit environment flags and a dedicated test prefix are configured.
 
 Service:
 
@@ -52,6 +56,28 @@ The real adapter expects:
 
 The code does not create Azure resources, assign roles, configure retention, or set legal holds.
 
+## Live Integration Harness
+
+Live tests use the `azure_worm_live` pytest marker and are skipped unless:
+
+```text
+CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true
+```
+
+They also require:
+
+```text
+AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX=workflow-audit/live-validation-test
+```
+
+The prefix guard rejects missing, ambiguous, or production-like prefixes. The dry-run command is:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_azure_worm_readiness.py --json
+```
+
+Use `--live-write` only after change-control approval for one live write/stat/checksum check under the configured test prefix.
+
 ## Readiness Summary
 
 `provider_readiness_summary` returns:
@@ -71,6 +97,6 @@ The code does not create Azure resources, assign roles, configure retention, or 
 ## Known Limitations
 
 - Azure SDK operations are foundation code paths and remain behind `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO`.
-- Live-cloud integration tests are not implemented.
+- Live-cloud integration tests are skeletonized and skipped by default.
 - Provider immutability and legal hold are configuration assumptions only; enforcement must be configured in Azure.
 - Provider-side retention/legal hold validation and live recovery drills remain future work.

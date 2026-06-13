@@ -4,6 +4,8 @@ Post-RC-08 update date: 2026-06-13
 
 Post-RC-09 SDK operations foundation update date: 2026-06-13
 
+Post-RC-10 live readiness harness update date: 2026-06-13
+
 ## Purpose
 
 This checklist documents Azure Blob Storage readiness assumptions for clinical workflow audit WORM evidence. Post-RC-09 adds guarded SDK operation code paths, but this checklist still does not create Azure resources, assign roles, configure immutability, or require real credentials for local/test validation.
@@ -29,6 +31,15 @@ AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE=LH-CLINICAL-AUDIT
 `managed_identity`, `workload_identity`, or another approved non-inline secret mode should be used for credential mode. Inline account keys, connection strings, shared keys, plain secrets, and inline SAS tokens are blocked by production gates when Azure mirroring is required.
 
 Set `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only in an environment approved to contact the Azure Blob account. When this flag is false, readiness summaries and fake-client tests do not import the Azure SDK or perform network calls.
+
+Live validation is opt-in and skipped by default. To enable future live tests, set:
+
+```text
+CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true
+AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX=workflow-audit/live-validation-test
+```
+
+The live test prefix must be dedicated to non-production validation. Ambiguous or production-like prefixes are rejected unless `AUDIT_OBJECT_MIRROR_AZURE_LIVE_ALLOW_PRODUCTION_PREFIX=true` is set after change-control approval.
 
 ## Provider Capabilities Expected
 
@@ -57,6 +68,14 @@ Post-RC-08 and Post-RC-09 provide:
 - production startup gate enforcement for required Azure settings;
 - recovery drill provider readiness summary.
 
+Post-RC-10 adds:
+
+- pytest marker `azure_worm_live`;
+- skipped-by-default integration skeletons under `tests/integration`;
+- dry-run readiness script `scripts/check_azure_worm_readiness.py`;
+- prefix and live-write safety guards;
+- operational checklist in `docs/clinical-azure-worm-live-validation.md`.
+
 Readiness checks do not perform network calls or import the Azure SDK. Real SDK construction is attempted only when `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` and no fake/test client is injected.
 
 ## Dependency Behavior
@@ -79,13 +98,26 @@ Unit tests inject an in-memory fake client that implements the provider boundary
 
 The fake validates payload bytes, metadata checksum storage, URI construction, idempotent writes, prefix listing, matching checksum verification, and mismatch detection without using credentials or the network.
 
+## Dry-Run Readiness Command
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_azure_worm_readiness.py --json
+```
+
+The command prints provider readiness, real-I/O state, live-test flag state, live-test prefix status, and blocking issues. It does not upload objects or perform network calls unless `--live-write` is explicitly supplied.
+
 ## Future Integration Path
 
 1. Add approved Azure SDK dependencies to the deployment environment if live Azure writes are enabled.
 2. Validate managed-identity or workload-identity role assignment against the target container.
-3. Run a non-production live-cloud smoke test against a disposable WORM-ready container.
-4. Verify upload with redacted audit metadata payloads only.
-5. Read back object properties and checksum metadata.
-6. Validate immutability and legal-hold status from Azure APIs.
-7. Link manifest payload storage to mirror records and manifest metadata.
-8. Run production recovery drills with compliance signoff.
+3. Run the dry-run readiness script and retain the JSON output.
+4. Run a non-production live-cloud smoke test against a disposable WORM-ready container using the `azure_worm_live` marker.
+5. Verify upload with redacted audit metadata payloads only.
+6. Read back object properties and checksum metadata.
+7. Validate immutability and legal-hold status from Azure APIs.
+8. Link manifest payload storage to mirror records and manifest metadata.
+9. Run production recovery drills with compliance signoff.
+
+See `docs/clinical-azure-worm-live-validation.md` for the full live validation checklist.

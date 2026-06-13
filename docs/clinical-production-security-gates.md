@@ -10,6 +10,8 @@ Post-RC-08 Azure provider readiness gate update date: 2026-06-13
 
 Post-RC-09 Azure real-I/O gate update date: 2026-06-13
 
+Post-RC-10 Azure live harness note date: 2026-06-13
+
 Scope: fail-closed startup validation for production-like environments. The gate is deterministic, uses local configuration only, and does not call a network service or require an external secret manager.
 
 ## Runtime Behavior
@@ -43,6 +45,7 @@ The values `prod`, `production`, `stage`, and `staging` are treated as productio
 - If legal hold is required, configure `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE`.
 - If `AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob` or `azure_blob_immutability`, configure `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE`.
 - Set `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only after Azure Blob writes are approved for the environment and required SDK dependencies are installed.
+- Live validation flags such as `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS` and `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` are operational test controls, not startup gate bypasses.
 - If Azure immutability, legal hold, or checksum validation is required, configure the matching `AUDIT_OBJECT_MIRROR_AZURE_*_REQUIRED` flags plus retention/legal-hold references.
 - `DEFAULT_ANALYTICS_EXPORT_PROFILE=aggregate_safe`.
 - `DEFAULT_COMPLIANCE_EXPORT_PROFILE=compliance_evidence` or `audit_metadata`.
@@ -106,6 +109,8 @@ For App Service startup checks:
 
 In production-like environments, both startup paths refuse unsafe settings before the app opens traffic.
 
+The production gate remains local-only. It does not run live Azure pytest checks, upload objects, or call Azure APIs. Use `scripts/check_azure_worm_readiness.py --json` for dry-run Azure WORM readiness evidence and `docs/clinical-azure-worm-live-validation.md` for the opt-in live process.
+
 ## Failure Example
 
 If `APP_ENV=prod` and `SECRET_KEY=change-me-for-production-demo-only`, startup fails with:
@@ -120,5 +125,5 @@ Production security gate failed. Refusing to start with unsafe production config
 - The gate validates configuration shape and known flags; it does not prove database migrations have already run.
 - It does not contact PostgreSQL, object storage, Entra ID, or a secret manager.
 - MFA provider integration remains future work; the gate only blocks predictable local bypass values and unsafe auth bypass flags.
-- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, signed manifest metadata, and recovery drill helpers; live-cloud validation, retention policy creation, legal hold automation, and real signing remain planned.
+- Object-storage/WORM audit mirroring has a local/provider-placeholder foundation, Azure Blob readiness checks, guarded Azure SDK operation paths, skipped-by-default live harnesses, signed manifest metadata, and recovery drill helpers; Azure resource provisioning, retention policy creation, legal hold automation, and real signing remain planned.
 - Small-cell suppression and lightweight role-aware UI masking are implemented; centralized field policy remains future work.
