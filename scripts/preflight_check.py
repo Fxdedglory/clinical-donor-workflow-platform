@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "backend"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
 
 REQUIRED_DOCS = [
     "docs/architecture/azure_hosting_readiness_audit.md",
@@ -34,6 +38,9 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def main() -> None:
+    from app.core.config import settings
+    from app.services.production_security_gates import validate_production_security_gates
+
     checks: list[dict] = []
 
     def add(name: str, passed: bool, detail: str, severity: str = "error") -> None:
@@ -79,6 +86,21 @@ def main() -> None:
         uv_files.append("pyproject.toml")
     add("Docker artifacts are legacy only", bool(docker_files), ", ".join(docker_files), severity="warning")
     add("uv artifacts absent", not uv_files, ", ".join(uv_files) or "none")
+
+    gate_result = validate_production_security_gates(settings)
+    if gate_result.production_like:
+        add(
+            "production security gates pass",
+            gate_result.passed,
+            "; ".join(f"{issue.code}: {issue.message}" for issue in gate_result.failures) or "passed",
+        )
+    else:
+        add(
+            "production security gates local warning inventory",
+            True,
+            f"{len(gate_result.warnings)} production-hardening warning(s) in {gate_result.environment} mode",
+            severity="warning",
+        )
 
     failed = [check for check in checks if not check["passed"] and check["severity"] == "error"]
     payload = {

@@ -18,7 +18,7 @@ Date: 2026-06-13
 
 - Object-storage immutability/WORM mirror remains planned.
 - Full role-aware UI masking and production free-text review remain planned.
-- Production startup fail-closed checks for unsafe defaults remain planned.
+- Production startup fail-closed checks are implemented in CLINICAL-POST-RC-03.
 
 ## PHI/ePHI Export Hardening And Generic Commit Lockdown
 
@@ -40,5 +40,26 @@ Date: 2026-06-13
 - Small-cell suppression for report aggregates remains planned.
 - Full role-aware UI field masking remains planned.
 - Object-storage immutability/WORM mirror remains planned.
-- Production startup fail-closed checks for unsafe defaults remain planned.
+- External secret manager and Entra-backed MFA integration remain planned.
 - External warehouse, FHIR/HL7, Power BI, clearinghouse, and object export delivery remain out of scope until separately approved.
+
+## Production Startup Fail-Closed Security Gates
+
+Update: CLINICAL-POST-RC-03
+
+Date: 2026-06-13
+
+- Added deterministic production startup gate service in `backend/app/services/production_security_gates.py`.
+- Wired the gate into `backend/app/main.py` so production-like environments fail before app startup when unsafe defaults are present.
+- Added App Service startup check and preflight visibility without breaking normal local development.
+- Added settings for workflow audit mode, export profile defaults, PHI redaction, generic foundation commit lockdown, debug mode, and auth bypass controls.
+- Added focused tests for local warning behavior, production failure conditions, and safe production config pass behavior.
+- Added `docs/clinical-production-security-gates.md` and updated readiness/runbook documentation.
+
+## Remaining Post-RC Security Items
+
+- Route-permission drift inventory tests remain planned.
+- Small-cell suppression remains planned.
+- Full role-aware UI field masking remains planned.
+- Object-storage immutability/WORM mirror remains planned.
+- External secret manager and Entra-backed MFA integration remain future deployment-hardening work.

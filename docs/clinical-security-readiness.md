@@ -6,6 +6,8 @@ RC2 update date: 2026-06-13
 
 Post-RC-02 PHI/export hardening update date: 2026-06-13
 
+Post-RC-03 production startup gate update date: 2026-06-13
+
 Scope: Release Candidate Security / Production Readiness Pass. This review documents the current security posture without adding new clinical modules or introducing new heavyweight scanners.
 
 ## Repository-Native Review Process
@@ -38,7 +40,7 @@ Production deployments must inject sensitive values through managed app settings
 
 | Setting | Local/dev expectation | Production expectation |
 | --- | --- | --- |
-| `APP_ENV` | `dev` is acceptable locally. | Set to `prod` and use it as the operational signal for stricter deployment gates. |
+| `APP_ENV` | `dev` is acceptable locally. | Set `APP_ENV=prod` and use it as the operational signal for stricter deployment gates. |
 | `DATABASE_URL` | Local or container database URL may use demo credentials. | Use production database credentials, TLS, least-privilege runtime user, and a rotation plan. |
 | `SECRET_KEY` | Demo placeholder exists for local bootstrapping. | Generate a strong unique value outside Git. Rotate with a planned session invalidation window. |
 | `ENCRYPTION_KEY` | May be empty while field-level encryption is not implemented. | Required before production-grade sensitive-field encryption is enabled. Store outside Git. |
@@ -90,12 +92,34 @@ Generic foundation commit hardening:
 - External partner/supplier users are rejected even if they can reach the route.
 - Module-specific commit endpoints remain the preferred path for real clinical workflows.
 
+## Post-RC-03 Production Startup Gates
+
+Post-RC-03 adds `backend/app/services/production_security_gates.py` and wires it into `backend/app/main.py`. Production-like startup now fails closed before the application opens traffic when critical security, audit, export, auth, or database defaults are unsafe.
+
+Production-like values are `prod`, `production`, `stage`, and `staging` from `APP_ENV`, `ENVIRONMENT`, or `CLINICAL_ENV`.
+
+The gate blocks:
+
+- default or missing `SECRET_KEY` and `ENCRYPTION_KEY`;
+- insecure cookie settings;
+- wildcard or localhost CORS origins;
+- `DEBUG=true` and reload/dev startup modes;
+- missing, SQLite, non-PostgreSQL, or localhost `DATABASE_URL`;
+- JSON-only workflow audit storage;
+- unsafe default export profiles or disabled PHI/ePHI redaction;
+- broadly enabled generic foundation commit;
+- disabled authentication, demo auth bypass, demo user mode, or predictable MFA bypass code.
+
+Local/dev mode returns warnings instead of raising, and `scripts/preflight_check.py` reports the warning inventory without requiring production secrets.
+
+Reference: `docs/clinical-production-security-gates.md`.
+
 ## Known Findings
 
 | Finding | Severity | Evidence | RC1 disposition | Remediation |
 | --- | --- | --- | --- | --- |
 | Vite/esbuild advisories from `npm audit` | High | RC1 `npm audit --audit-level=high` reported two high-severity advisories and recommended a Vite 8 major upgrade. | Resolved in RC2 with bounded Vite 8 / React plugin 6 upgrade. | Continue to run `npm audit --audit-level=high` in release validation. |
-| Production defaults are fail-open if not overridden | High | `SECRET_KEY`, `COOKIE_SECURE=false`, `MFA_DEV_BYPASS_CODE=000000`, and optional encryption keys exist as defaults/examples. | Documented. No code gate added in RC1. | RC2: add startup validation that rejects unsafe defaults when `APP_ENV=prod`. |
+| Production defaults are fail-open if not overridden | High | `SECRET_KEY`, `COOKIE_SECURE=false`, `MFA_DEV_BYPASS_CODE=000000`, local CORS/database defaults, and optional encryption keys exist as defaults/examples. | Resolved in Post-RC-03 with production-like startup gates. | Keep deployment settings aligned to `docs/clinical-production-security-gates.md`. |
 | Workflow audit remains filesystem-backed | High | `metadata/workflow_operations.json` full-file append pattern. | Resolved by Post-RC-01 DB-backed append-only audit storage with JSON mirror/fallback. | Add object-storage/WORM mirror before production evidence immutability signoff. |
 | Generic foundation workflow commit lacks user auth | Medium | `/api/clinical/workflows/commit` requires confirmation header but does not require an authenticated user. | Resolved in Post-RC-02. | Continue to prefer module-specific commit endpoints and keep generic commit admin-only. |
 | Report audit activity is available through broad report-read access | Medium | `/api/clinical/reports/audit-activity` uses report read guard. | Documented as minimum-necessary review item. | RC2: split audit activity access behind `audit.review` or a dedicated audit reporting permission. |
@@ -103,7 +127,7 @@ Generic foundation commit hardening:
 
 ## Remediation Plan
 
-1. Add a production startup safety check for `APP_ENV=prod` that rejects default `SECRET_KEY`, insecure cookie settings, predictable MFA bypass, and missing production encryption settings.
+1. Keep the Post-RC-03 production startup gate enabled and expand it as new production-only flags are introduced.
 2. Keep frontend dependency audit in release validation after the RC2 Vite 8 remediation.
 3. Add object-storage mirroring for workflow audit evidence if immutable off-database evidence is required.
 4. Split report audit activity and export metadata permissions where compliance owners require least-privilege separation.

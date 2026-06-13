@@ -59,10 +59,12 @@ from app.services.adls_historical import (
     run_clinical_historical_adls_upload,
 )
 from app.services.adls_smoke import CONFIRMATION_PHRASE, run_adls_smoke_upload
+from app.services.production_security_gates import assert_production_security_gates
 
 APP_NAME = "clinical-donor-platform"
 APP_STARTED_MONOTONIC = time.monotonic()
 PERFORMANCE_LOGGER = logging.getLogger("clinical.performance")
+PRODUCTION_SECURITY_GATE_RESULT = assert_production_security_gates(settings)
 
 
 class AdlsSmokeUploadRequest(BaseModel):

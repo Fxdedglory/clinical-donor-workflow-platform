@@ -25,12 +25,16 @@ def check() -> None:
     if PACKAGED_SITE_PACKAGES.exists():
         sys.path.insert(0, str(PACKAGED_SITE_PACKAGES))
     from app.core.config import settings
+    from app.services.production_security_gates import assert_production_security_gates
 
+    gate_result = assert_production_security_gates(settings)
     print("Clinical Donor App Service startup check")
     print(f"startup_mode={settings.startup_mode}")
     print(f"port={settings.port}")
     print(f"serve_frontend={settings.serve_frontend}")
     print(f"frontend_dist_dir={settings.frontend_dist_dir}")
+    print("production_security_gate=passed")
+    print(f"production_security_gate_warnings={len(gate_result.warnings)}")
     print(f"backend_path={BACKEND}")
     print("status=ok")
 

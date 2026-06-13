@@ -8,6 +8,8 @@ Post-RC audit durability update date: 2026-06-13
 
 Post-RC PHI/export hardening update date: 2026-06-13
 
+Post-RC production startup gate update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -20,7 +22,16 @@ Required production settings:
 - `COOKIE_SECURE=true`
 - `COOKIE_SAMESITE=lax` unless partner redirect testing requires another approved value
 - `CORS_ORIGINS` restricted to approved production domains
-- `ENCRYPTION_KEY` before field-level sensitive-data encryption is enabled
+- `ENCRYPTION_KEY` generated outside Git
+- `WORKFLOW_AUDIT_STORAGE=db_with_json_mirror`
+- `WORKFLOW_AUDIT_DB_REQUIRED=true`
+- `DEFAULT_ANALYTICS_EXPORT_PROFILE=aggregate_safe`
+- `DEFAULT_COMPLIANCE_EXPORT_PROFILE=compliance_evidence`
+- `DEFAULT_AUDIT_EXPORT_PROFILE=audit_metadata`
+- `PHI_REDACTION_ENABLED=true`
+- `ALLOW_GENERIC_FOUNDATION_COMMIT=false`
+- `GENERIC_WORKFLOW_COMMIT_ADMIN_ONLY=true`
+- `AUTHENTICATION_ENABLED=true`
 - `BACKUP_ENCRYPTION_KEY` before hosted backup automation is enabled
 - `EMAIL_PROVIDER` and provider credentials if notification delivery is enabled
 - `VITE_API_BASE_URL` only when frontend and backend are hosted separately
@@ -32,6 +43,9 @@ Disallowed production values:
 - demo/shared passwords
 - local database credentials
 - local `.env` values copied into hosted settings without review
+- wildcard or localhost `CORS_ORIGINS`
+- SQLite or JSON-only workflow audit settings
+- `DEBUG=true`, reload/dev server startup modes, or auth bypass flags
 
 ## Migration Sequence
 
@@ -47,6 +61,7 @@ Disallowed production values:
 5. Confirm `202606130001_clinical_workflow_audit_events.py` is applied.
 6. If `metadata/workflow_operations.json` contains historical entries, run the JSON backfill helper in the target environment and retain the source JSON file.
 7. Run application smoke tests before opening user traffic.
+8. Confirm the production startup security gate passes with target hosted settings.
 
 ## Validation Commands
 
@@ -106,7 +121,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 13. Quality compliance export preview/commit require authorized quality/audit/compliance access and record the selected export profile.
 14. Quality audit evidence works for an authorized QA/audit role, reads DB-backed operations after backfill, and supports safe profile redaction such as `external_safe`.
 15. Generic `/api/clinical/workflows/commit` rejects external users and internal users without `clinical_admin.manage` or `system.admin`.
-16. Clinical admin mutation requires admin mutation permission and confirmation.
+16. `scripts/start_app_service.py --check` reports `production_security_gate=passed` in the target environment.
+17. Clinical admin mutation requires admin mutation permission and confirmation.
 
 ## Audit And Export Review Checklist
 
@@ -121,6 +137,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm workflow audit change payloads do not store raw PHI/ePHI details after redaction.
 - Confirm no external delivery is enabled for analytics/compliance exports.
 - Confirm PHI/ePHI UI masking, small-cell suppression, and free-text review requirements are documented before detailed or external exports.
+- Confirm `docs/clinical-production-security-gates.md` required variables are set in the hosted app configuration.
 
 ## Rollback Notes
 
@@ -136,5 +153,5 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Workflow operation audit is now DB-backed with JSON mirror/fallback; object-storage immutability is not yet implemented.
 - Post-RC-02 adds export/audit redaction profiles, but no full role-aware UI masking framework exists yet.
 - Vite/esbuild audit advisories were resolved in RC2 with the bounded Vite 8 upgrade.
-- Production startup does not yet fail closed on unsafe default secrets/cookie settings.
+- Production startup now fails closed on unsafe production-like secrets, cookie, CORS, database, audit, export, auth, and generic commit settings.
 - Analytics/compliance exports are metadata/evidence contracts only; external warehouse, FHIR/HL7, Power BI, clearinghouse, and notification delivery integrations remain out of scope.
