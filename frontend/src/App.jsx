@@ -239,8 +239,22 @@ const clinicalSections = [
     label: "Reports",
     route: "/clinical/reports",
     icon: BarChart3,
-    status: "Planned workflow",
-    workflows: ["Screening outcomes", "Audit activity", "Operational exports"],
+    status: "Active",
+    workflows: [
+      "Dashboard aggregates",
+      "Patient throughput",
+      "Scheduling utilization",
+      "Screening outcomes",
+      "Deferral trends",
+      "Encounter volume",
+      "Orders and results",
+      "Care plan aging",
+      "Billing work queue",
+      "Quality trends",
+      "Audit activity",
+      "Analytics export preview",
+      "Analytics export commit",
+    ],
   },
   {
     id: "clinical_admin",
@@ -4799,7 +4813,7 @@ function ClinicalBillingPage({ token, navigate }) {
               <h3>Handoffs</h3>
               <div className="workflow-list">
                 <button type="button" className="workflow-row" onClick={() => navigate("/clinical/quality")}><span>Quality / Compliance</span><StatusPill status="Planned" /></button>
-                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Reporting</span><StatusPill status="Foundation pending" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Reporting</span><StatusPill status="Active" /></button>
               </div>
             </section>
           </div>
@@ -5493,7 +5507,7 @@ function ClinicalQualityPage({ token, navigate }) {
               <h3>Handoffs</h3>
               <div className="workflow-list">
                 <button type="button" className="workflow-row" onClick={() => navigate("/clinical/admin")}><span>Quality categories and approval paths</span><StatusPill status="Planned workflow" /></button>
-                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Quality compliance reports</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Quality compliance reports</span><StatusPill status="Active" /></button>
               </div>
             </section>
           </div>
@@ -5515,6 +5529,417 @@ function ClinicalQualityPage({ token, navigate }) {
           onSuccess={workflowSuccess}
         />
       )}
+    </div>
+  );
+}
+
+const reportModuleOptions = [
+  { key: "patient_throughput", label: "Patient Throughput", endpoint: "/api/clinical/reports/patient-throughput" },
+  { key: "scheduling_utilization", label: "Scheduling Utilization", endpoint: "/api/clinical/reports/scheduling-utilization" },
+  { key: "screening_outcomes", label: "Screening Outcomes", endpoint: "/api/clinical/reports/screening-outcomes" },
+  { key: "deferrals", label: "Deferrals", endpoint: "/api/clinical/reports/deferrals" },
+  { key: "encounter_volume", label: "Encounter Volume", endpoint: "/api/clinical/reports/encounter-volume" },
+  { key: "orders_results", label: "Orders / Results", endpoint: "/api/clinical/reports/orders-results" },
+  { key: "care_plan_aging", label: "Care Plan Aging", endpoint: "/api/clinical/reports/care-plan-aging" },
+  { key: "billing_work_queue", label: "Billing Work Queue", endpoint: "/api/clinical/reports/billing-work-queue" },
+  { key: "quality_trends", label: "Quality Trends", endpoint: "/api/clinical/reports/quality-trends" },
+  { key: "audit_activity", label: "Audit Activity", endpoint: "/api/clinical/reports/audit-activity" },
+];
+
+const reportStatusOptions = [
+  "active",
+  "scheduled",
+  "checked_in",
+  "in_progress",
+  "completed",
+  "open",
+  "generated",
+  "closed",
+  "cancelled",
+];
+
+function reportModuleLabel(key) {
+  return reportModuleOptions.find((item) => item.key === key)?.label || String(key || "").replaceAll("_", " ");
+}
+
+function reportMetricValue(metric) {
+  const value = Number(metric?.value || 0);
+  const label = String(metric?.label || "").toLowerCase();
+  if (metric?.unit === "currency" || ["balance", "charges", "payment", "adjustment", "amount"].some((term) => label.includes(term))) {
+    return formatMoney(value);
+  }
+  return Number.isInteger(value) ? formatNumber(value) : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function countRows(counts, labelColumn = "category") {
+  return Object.entries(counts || {})
+    .map(([label, count]) => ({ [labelColumn]: label, count }))
+    .sort((left, right) => Number(right.count) - Number(left.count));
+}
+
+function reportTableConfig(definition, report) {
+  if (!report) return { rows: [], columns: ["metric", "value"] };
+  if (definition.key === "patient_throughput") {
+    return { rows: countRows(report.status_counts, "status"), columns: ["status", "count"] };
+  }
+  if (definition.key === "scheduling_utilization") {
+    const rows = (report.provider_utilization || []).map((item) => ({
+      provider_id: item.provider_id || "Unassigned",
+      appointments: item.appointments || 0,
+      scheduled_minutes: item.scheduled_minutes || 0,
+    }));
+    return rows.length
+      ? { rows, columns: ["provider_id", "appointments", "scheduled_minutes"] }
+      : { rows: countRows(report.appointment_type_breakdown, "appointment_type"), columns: ["appointment_type", "count"] };
+  }
+  if (definition.key === "screening_outcomes") {
+    return { rows: countRows(report.outcome_counts, "outcome"), columns: ["outcome", "count"] };
+  }
+  if (definition.key === "deferrals") {
+    const rows = report.patient_context?.length ? report.patient_context : countRows(report.type_counts, "deferral_type");
+    return { rows, columns: rows[0] ? Object.keys(rows[0]) : ["deferral_type", "count"] };
+  }
+  if (definition.key === "encounter_volume") {
+    const rows = [
+      ...countRows(report.status_counts, "label").map((row) => ({ type: "encounter", ...row })),
+      ...countRows(report.note_status_counts, "label").map((row) => ({ type: "note", ...row })),
+    ];
+    return { rows, columns: ["type", "label", "count"] };
+  }
+  if (definition.key === "orders_results") {
+    const rows = [
+      ...countRows(report.order_status_counts, "label").map((row) => ({ type: "order", ...row })),
+      ...countRows(report.result_status_counts, "label").map((row) => ({ type: "result", ...row })),
+    ];
+    return { rows, columns: ["type", "label", "count"] };
+  }
+  if (definition.key === "care_plan_aging") {
+    const rows = [
+      ...countRows(report.status_counts, "label").map((row) => ({ type: "plan", ...row })),
+      ...countRows(report.task_status_counts, "label").map((row) => ({ type: "task", ...row })),
+      ...countRows(report.priority_counts, "label").map((row) => ({ type: "priority", ...row })),
+    ];
+    return { rows, columns: ["type", "label", "count"] };
+  }
+  if (definition.key === "billing_work_queue") {
+    const rows = Object.entries(report.balances || {}).map(([metric, value]) => ({ metric, value: formatMoney(value) }));
+    return { rows, columns: ["metric", "value"] };
+  }
+  if (definition.key === "quality_trends") {
+    const rows = [
+      ...countRows(report.severity_counts, "label").map((row) => ({ type: "severity", ...row })),
+      ...countRows(report.status_counts, "label").map((row) => ({ type: "status", ...row })),
+      ...countRows(report.category_counts, "label").map((row) => ({ type: "category", ...row })),
+    ];
+    return { rows, columns: ["type", "label", "count"] };
+  }
+  if (definition.key === "audit_activity") {
+    const rows = [...(report.operations || [])].reverse().map((operation) => ({
+      workflow: operation.workflow,
+      entity: `${operation.entity_type || ""}:${operation.entity_id || ""}`,
+      actor: operation.actor,
+      timestamp: formatDateTime(operation.timestamp),
+    }));
+    return { rows, columns: ["workflow", "entity", "actor", "timestamp"] };
+  }
+  return { rows: [], columns: ["metric", "value"] };
+}
+
+function ReportPanel({ definition, report }) {
+  const config = reportTableConfig(definition, report);
+  return (
+    <section>
+      <div className="section-heading-row">
+        <h3>{definition.label}</h3>
+        <StatusPill status="Active" />
+      </div>
+      <div className="summary-grid report-summary-grid">
+        {(report?.metrics || []).slice(0, 4).map((metric) => (
+          <span key={metric.label}>{metric.label}<strong>{reportMetricValue(metric)}</strong></span>
+        ))}
+      </div>
+      <Table rows={config.rows.slice(0, 10)} columns={config.columns} />
+      {(report?.warnings || []).map((warning) => (
+        <div className="notice-state compact-notice" key={`${definition.key}-${warning.warning_type}`}>{warning.message}</div>
+      ))}
+    </section>
+  );
+}
+
+function ReportsExportModal({ token, filters, onClose, onSuccess }) {
+  const [form, setForm] = useState(() => ({
+    modules: reportModuleOptions.map((item) => item.key),
+    export_format: "json",
+    include_detail: false,
+    date_from: filters.date_from,
+    date_to: filters.date_to,
+    status: filters.status,
+    module: filters.module,
+    actor: filters.actor,
+    workflow: filters.workflow,
+    entity_type: "",
+    entity_id: "",
+    reason: "Generate analytics export",
+  }));
+  const [preview, setPreview] = useState(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const validationIssues = [];
+  if (!form.modules.length) validationIssues.push("Select at least one report module.");
+  if (!form.reason.trim()) validationIssues.push("Reason is required.");
+
+  function toggleModule(module) {
+    setForm((current) => ({
+      ...current,
+      modules: current.modules.includes(module)
+        ? current.modules.filter((item) => item !== module)
+        : [...current.modules, module],
+    }));
+  }
+
+  function payload() {
+    return compactPayload({
+      modules: form.modules,
+      export_format: form.export_format,
+      include_detail: Boolean(form.include_detail),
+      date_from: form.date_from,
+      date_to: form.date_to,
+      status: form.status,
+      module: form.module,
+      actor: form.actor,
+      workflow: form.workflow,
+      entity_type: form.entity_type,
+      entity_id: form.entity_id,
+      reason: form.reason,
+    });
+  }
+
+  async function previewExport(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    if (validationIssues.length) return;
+    try {
+      const result = await apiRequest("/api/clinical/reports/analytics-exports/preview", {
+        token,
+        method: "POST",
+        body: payload(),
+      });
+      setPreview(result);
+      setMessage(result.blocking_issues?.length ? "Preview has blocking issues." : "Preview ready for confirmation.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function commitExport() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await apiRequest("/api/clinical/reports/analytics-exports", {
+        token,
+        method: "POST",
+        headers: { "X-Confirm-Generation": "true" },
+        body: { ...payload(), preview_hash: preview?.preview_hash },
+      });
+      setMessage(`Committed ${result.operation_id}.`);
+      onSuccess(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const rowCounts = Object.entries(preview?.row_counts || {}).map(([module, row_count]) => ({
+    module: reportModuleLabel(module),
+    row_count,
+  }));
+
+  return (
+    <div className="modal-backdrop">
+      <section className="workflow-modal reports-modal" role="dialog" aria-modal="true" aria-label="Generate analytics export">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Reporting analytics</p>
+            <h3>Generate Analytics Export</h3>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </div>
+        <form className="stacked-form" onSubmit={previewExport}>
+          <div className="form-grid">
+            <label>Date from<input type="date" value={form.date_from} onChange={(event) => setForm({ ...form, date_from: event.target.value })} /></label>
+            <label>Date to<input type="date" value={form.date_to} onChange={(event) => setForm({ ...form, date_to: event.target.value })} /></label>
+            <label>Format<select value={form.export_format} onChange={(event) => setForm({ ...form, export_format: event.target.value })}><option value="json">JSON</option><option value="csv">CSV</option></select></label>
+            <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="">All</option>{reportStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+            <label>Audit module<select value={form.module} onChange={(event) => setForm({ ...form, module: event.target.value })}><option value="">All</option>{reportModuleOptions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+            <label>Workflow<input value={form.workflow} onChange={(event) => setForm({ ...form, workflow: event.target.value })} placeholder="reports.analytics_export" /></label>
+            <label>Actor<input value={form.actor} onChange={(event) => setForm({ ...form, actor: event.target.value })} /></label>
+            <label>Entity type<input value={form.entity_type} onChange={(event) => setForm({ ...form, entity_type: event.target.value })} /></label>
+            <label>Entity ID<input value={form.entity_id} onChange={(event) => setForm({ ...form, entity_id: event.target.value })} /></label>
+          </div>
+          <div className="preference-list report-module-picker">
+            {reportModuleOptions.map((module) => (
+              <label className="checkbox-row" key={module.key}>
+                <input type="checkbox" checked={form.modules.includes(module.key)} onChange={() => toggleModule(module.key)} />
+                {module.label}
+              </label>
+            ))}
+            <label className="checkbox-row">
+              <input type="checkbox" checked={form.include_detail} onChange={(event) => setForm({ ...form, include_detail: event.target.checked })} />
+              Include detail metadata
+            </label>
+          </div>
+          <label>Reason<textarea rows="3" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} /></label>
+          {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
+          {preview && (
+            <div className="preview-panel">
+              <StatusPill status={preview.blocking_issues?.length ? "failed" : "passed"} />
+              <p>{preview.summary}</p>
+              <Table rows={rowCounts} columns={["module", "row_count"]} />
+              {preview.blocking_issues?.map((issue) => <div className="conflict-row blocking" key={`${issue.issue_type}-${issue.field}`}>{issue.message}</div>)}
+              {preview.warnings?.map((warning) => <div className="conflict-row warning" key={`${warning.warning_type}-${warning.field}`}>{warning.message}</div>)}
+            </div>
+          )}
+          {message && <div className="notice-state">{message}</div>}
+          {error && <div className="error-state">{error}</div>}
+          <div className="modal-actions">
+            <button type="submit" disabled={Boolean(validationIssues.length)}><FileCheck2 size={16} />Preview</button>
+            <button type="button" className="secondary-button" disabled={!preview || preview.blocking_issues?.length || submitting} onClick={commitExport}>
+              <CheckCircle2 size={16} />
+              Confirm
+            </button>
+          </div>
+          <div className="notice-state">Commit sends X-Confirm-Generation: true and appends a workflow audit operation.</div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function ClinicalReportsPage({ token, navigate }) {
+  const [filters, setFilters] = useState({
+    date_from: defaultDateInput(-30),
+    date_to: defaultDateInput(0),
+    status: "",
+    module: "",
+    actor: "",
+    workflow: "",
+  });
+  const [dashboard, setDashboard] = useState(null);
+  const [reports, setReports] = useState({});
+  const [exports, setExports] = useState([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function queryString() {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    return params.toString();
+  }
+
+  async function loadReports() {
+    setLoading(true);
+    setError("");
+    const qs = queryString();
+    try {
+      const [dashboardPayload, exportsPayload, ...reportPayloads] = await Promise.all([
+        apiRequest(`/api/clinical/reports/dashboard${qs ? `?${qs}` : ""}`, { token }),
+        apiRequest("/api/clinical/reports/analytics-exports", { token }),
+        ...reportModuleOptions.map((definition) => apiRequest(`${definition.endpoint}${qs ? `?${qs}` : ""}`, { token })),
+      ]);
+      setDashboard(dashboardPayload);
+      setExports(exportsPayload || []);
+      setReports(Object.fromEntries(reportModuleOptions.map((definition, index) => [definition.key, reportPayloads[index]])));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) loadReports();
+  }, [token]);
+
+  const exportRows = exports.slice(0, 10).map((item) => ({
+    export: item.export_number,
+    status: item.status,
+    modules: (item.modules || []).length,
+    rows: Object.values(item.row_counts || {}).reduce((total, count) => total + Number(count || 0), 0),
+    format: item.export_format,
+    generated_at: formatDateTime(item.generated_at),
+  }));
+
+  return (
+    <div className="clinical-shell">
+      <section className="clinical-hero">
+        <div>
+          <p className="eyebrow">Reporting / analytics readiness</p>
+          <h2>Reports</h2>
+          <StatusPill status="Active" />
+        </div>
+        <div className="clinical-actions">
+          <button type="button" onClick={() => setModalOpen(true)}><BarChart3 size={16} />Generate Export</button>
+          <button type="button" className="secondary-button" onClick={loadReports}><RefreshCw size={16} />Refresh</button>
+          <button type="button" className="secondary-button" onClick={() => navigate("/clinical/quality")}><ShieldCheck size={16} />Quality</button>
+        </div>
+      </section>
+      <section>
+        <div className="reports-filter">
+          <label>Date from<input type="date" value={filters.date_from} onChange={(event) => updateFilter("date_from", event.target.value)} /></label>
+          <label>Date to<input type="date" value={filters.date_to} onChange={(event) => updateFilter("date_to", event.target.value)} /></label>
+          <label>Status<select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All</option>{reportStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>Audit module<select value={filters.module} onChange={(event) => updateFilter("module", event.target.value)}><option value="">All</option>{reportModuleOptions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+          <label>Workflow<input value={filters.workflow} onChange={(event) => updateFilter("workflow", event.target.value)} /></label>
+          <label>Actor<input value={filters.actor} onChange={(event) => updateFilter("actor", event.target.value)} /></label>
+          <button type="button" onClick={loadReports}><FileCheck2 size={16} />Apply</button>
+        </div>
+      </section>
+      {error && <div className="error-state">{error}</div>}
+      {loading ? <div className="notice-state">Loading reporting datasets...</div> : (
+        <>
+          <div className="content-grid">
+            {(dashboard?.metrics || []).map((metric) => (
+              <MetricCard key={metric.label} label={metric.label} value={reportMetricValue(metric)} tone={metric.tone} />
+            ))}
+          </div>
+          <div className="reports-detail-grid">
+            {reportModuleOptions.map((definition) => (
+              <ReportPanel key={definition.key} definition={definition} report={reports[definition.key]} />
+            ))}
+            <section>
+              <div className="section-heading-row">
+                <h3>Analytics Exports</h3>
+                <button type="button" onClick={() => setModalOpen(true)}><UploadCloud size={15} />New Export</button>
+              </div>
+              <Table rows={exportRows} columns={["export", "status", "modules", "rows", "format", "generated_at"]} />
+            </section>
+            <section>
+              <h3>Recent Audit</h3>
+              <Table rows={(dashboard?.recent_audit_operations || []).map((operation) => ({ workflow: operation.workflow, entity_type: operation.entity_type, entity_id: operation.entity_id, actor: operation.actor, timestamp: formatDateTime(operation.timestamp) }))} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} />
+            </section>
+            <section>
+              <h3>Handoffs</h3>
+              <div className="workflow-list">
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/admin")}><span>Report permissions and catalogs</span><StatusPill status="Active" /></button>
+                <div className="workflow-row"><span>Power BI / Snowflake delivery</span><StatusPill status="Planned workflow" /></div>
+                <div className="workflow-row"><span>FHIR / HL7 analytics extract</span><StatusPill status="Foundation pending" /></div>
+                <div className="workflow-row"><span>Production audit storage policy</span><StatusPill status="Planned workflow" /></div>
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+      {modalOpen && <ReportsExportModal token={token} filters={filters} onClose={() => setModalOpen(false)} onSuccess={loadReports} />}
     </div>
   );
 }
@@ -5985,7 +6410,7 @@ function ClinicalAdminPage({ token, navigate }) {
               <h3>Handoffs</h3>
               <div className="workflow-list">
                 <button type="button" className="workflow-row" onClick={() => navigate("/clinical/quality")}><span>Quality categories and approval-controlled closure</span><StatusPill status="Active" /></button>
-                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Reporting / analytics configuration consumers</span><StatusPill status="Planned workflow" /></button>
+                <button type="button" className="workflow-row" onClick={() => navigate("/clinical/reports")}><span>Reporting / analytics configuration consumers</span><StatusPill status="Active" /></button>
               </div>
             </section>
           </div>
@@ -6002,6 +6427,9 @@ function ClinicalModuleSection({ section, route, token, navigate }) {
   }
   if (section.id === "clinical_quality") {
     return <ClinicalQualityPage token={token} navigate={navigate} />;
+  }
+  if (section.id === "clinical_reports") {
+    return <ClinicalReportsPage token={token} navigate={navigate} />;
   }
   if (section.id === "clinical_billing") {
     return <ClinicalBillingPage token={token} navigate={navigate} />;

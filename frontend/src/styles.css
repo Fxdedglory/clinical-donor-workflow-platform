@@ -407,6 +407,7 @@ section,
 .care-plan-filter,
 .billing-filter,
 .quality-filter,
+.reports-filter,
 .admin-filter {
   align-items: end;
   display: grid;
@@ -441,6 +442,12 @@ section,
     minmax(130px, 170px) minmax(160px, 210px) minmax(150px, 190px) auto;
 }
 
+.reports-filter {
+  grid-template-columns:
+    minmax(130px, 170px) minmax(130px, 170px) minmax(130px, 160px) minmax(170px, 220px)
+    minmax(170px, 1fr) minmax(150px, 190px) auto;
+}
+
 .schedule-layout,
 .screening-layout,
 .encounter-layout,
@@ -456,6 +463,7 @@ section,
 .care-plan-detail-grid,
 .billing-detail-grid,
 .quality-detail-grid,
+.reports-detail-grid,
 .admin-detail-grid {
   display: grid;
   gap: 1rem;
@@ -506,6 +514,22 @@ section,
 
 .quality-modal {
   max-width: 980px;
+}
+
+.reports-modal {
+  max-width: 980px;
+}
+
+.report-summary-grid {
+  margin-bottom: 0.8rem;
+}
+
+.report-module-picker {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compact-notice {
+  margin-top: 0.75rem;
 }
 
 .admin-modal {
@@ -868,6 +892,7 @@ pre {
   .care-plan-filter,
   .billing-filter,
   .quality-filter,
+  .reports-filter,
   .admin-filter,
   .screening-detail-grid,
   .encounter-detail-grid,
@@ -875,6 +900,7 @@ pre {
   .care-plan-detail-grid,
   .billing-detail-grid,
   .quality-detail-grid,
+  .reports-detail-grid,
   .admin-detail-grid,
   .admin-preview-grid {
     grid-template-columns: 1fr;
@@ -908,5 +934,9 @@ pre {
   .topbar-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .report-module-picker {
+    grid-template-columns: 1fr;
   }
 }

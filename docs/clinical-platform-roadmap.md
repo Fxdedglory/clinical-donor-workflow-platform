@@ -26,7 +26,7 @@ Important repository state from Sprint 0:
 | Care Plans | Sprint 7 adds patient-linked care plans, goals, interventions, tasks, team assignment, progress timeline, closure, RBAC, audit, and an operational UI. | Add richer task lifecycle updates, cross-plan case load balancing, referral automation, and downstream Billing/Quality handoff. |
 | Billing / Insurance | Sprint 8 adds billing accounts, insurance verification, charge capture, claim drafts/lines, payment posting, denial/rework, RBAC, audit, and an operational UI. | Add real clearinghouse submission, EDI 837/835, prior authorization, coding master data ingestion, appeals, and payer integrations. |
 | Quality / Compliance | Sprint 9 adds patient-linked quality events, adverse events, investigations, CAPA/deviation linkage, closure approval, audit evidence, compliance export, RBAC, tests, and an operational UI. Sprint 10 adds admin-managed quality categories and approval paths. | Add investigation templates, external response routing, and report-ready compliance packages. |
-| Reporting / Analytics | Dashboards, monitoring, and export metadata exist. | Add clinical module reports with date/status/entity filters and export surfaces. |
+| Reporting / Analytics | Sprint 11 adds clinical module reports, aggregate dashboard metrics, date/status/entity/audit filters, analytics export preview/commit, RBAC, tests, and an operational UI. | Add external warehouse delivery, analytics marts/views, BI semantic models, FHIR/HL7 extracts, signed report packages, and retention policy automation. |
 | Clinical Administration | Sprint 10 adds versioned clinical templates, appointment types, provider schedule templates, screening and deferral rules, note templates, order catalogs, billing code lists, quality categories, approval paths, notification templates, RBAC overview, tests, and an operational UI. | Add advanced approval execution, notification delivery, recurring schedule engines, and production policy review workflows. |
 | Audit / Workflow Operations | Database audit, transition history, and append-only workflow operation audit exist across clinical modules. | Add retention policy, export signing, and report packaging controls. |
 
@@ -583,11 +583,49 @@ Implemented administration foundation:
 - Modal workflows follow Form -> Validation Summary -> Preview -> Commit Confirmation -> Success.
 - Focused tests cover missing/invalid/valid confirmation headers, audit file creation, audit append preservation, every admin preview/commit/audit workflow, version preservation, config history/dashboard/RBAC, and external partner mutation rejection.
 
+## Sprint 11 Implemented Scope
+
+Sprint 11 implements Reporting / Analytics Readiness as an aggregate clinical reporting foundation across Patient / Donor Registration, Scheduling, Screening, Encounters, Orders / Results, Care Plans, Billing, Quality, Administration, and workflow audit activity.
+
+Implemented reporting foundation:
+
+- Persistent reporting entities:
+  - `operational.clinical_report_exports`
+  - `operational.clinical_report_export_items`
+  - `operational.clinical_report_status_history`
+- Alembic migration `202606120010_clinical_reports`.
+- Reporting RBAC permissions:
+  - `reports.read`
+  - `reports.export`
+- Backend `/api/clinical/reports` endpoints:
+  - `GET /api/clinical/reports/dashboard`
+  - `GET /api/clinical/reports/patient-throughput`
+  - `GET /api/clinical/reports/scheduling-utilization`
+  - `GET /api/clinical/reports/screening-outcomes`
+  - `GET /api/clinical/reports/deferrals`
+  - `GET /api/clinical/reports/encounter-volume`
+  - `GET /api/clinical/reports/orders-results`
+  - `GET /api/clinical/reports/care-plan-aging`
+  - `GET /api/clinical/reports/billing-work-queue`
+  - `GET /api/clinical/reports/quality-trends`
+  - `GET /api/clinical/reports/audit-activity`
+  - `GET /api/clinical/reports/analytics-exports`
+  - `POST /api/clinical/reports/analytics-exports/preview`
+  - `POST /api/clinical/reports/analytics-exports`
+- Report filters support date range, status, audit module, workflow, actor, entity type, and entity ID where applicable.
+- Report responses use reusable metric cards, warnings, series points, row counts, and blocking issue schemas.
+- Analytics export preview returns module row counts, preview hash, warnings, blocking issues, and the required `X-Confirm-Generation: true` commit guard.
+- Analytics export commit persists export metadata, export items, status history, and workflow audit entries for `reports.analytics_export`.
+- External partner and supplier users are rejected from analytics export generation.
+- Frontend `/clinical/reports` is now an operational reporting workspace with aggregate cards, filters, report panels for each module, recent audit activity, analytics export history, export preview/commit modal, and planned BI/FHIR/retention handoffs.
+- The clinical module inventory now marks Reports as active and lists the Sprint 11 reporting workflows.
+- Focused tests cover report endpoint loading, export preview row counts, missing/invalid/valid confirmation headers, audit file creation, audit append preservation, persisted export metadata, and external partner export rejection.
+
 ## Future Sprint Sequence
 
-1. Reporting / Analytics: operational reports, filters, exports, and analytics-ready views.
-2. Advanced workflow execution: approval execution, notification delivery, recurrence engines, and production policy review queues.
-3. External compliance packages: retention policy, export signing, external response routing, and regulator-ready submission packaging.
+1. Advanced workflow execution: approval execution, notification delivery, recurrence engines, escalation actions, and production policy review queues.
+2. Analytics delivery hardening: warehouse delivery, materialized marts/views, BI semantic models, FHIR/HL7 extracts, and governed external analytics packaging.
+3. External compliance packages: retention policy automation, export signing, external response routing, and regulator-ready submission workflows.
 
 ## Validation Commands
 

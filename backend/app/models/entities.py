@@ -3321,6 +3321,83 @@ class ClinicalAdminStatusHistory(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+class ClinicalReportExport(Base):
+    __tablename__ = "clinical_report_exports"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    export_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    export_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    modules: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    filters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    date_from: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    date_to: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    export_format: Mapped[str] = mapped_column(String(20), nullable=False, default="json", index=True)
+    row_counts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    payload_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="generated", index=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    generated_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    items: Mapped[list["ClinicalReportExportItem"]] = relationship(
+        back_populates="export", cascade="all, delete-orphan"
+    )
+    status_history: Mapped[list["ClinicalReportStatusHistory"]] = relationship(
+        back_populates="export", cascade="all, delete-orphan"
+    )
+
+
+class ClinicalReportExportItem(Base):
+    __tablename__ = "clinical_report_export_items"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    item_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    export_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_report_exports.export_id"), nullable=False, index=True
+    )
+    module: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    report_name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    export: Mapped[ClinicalReportExport] = relationship(back_populates="items")
+
+
+class ClinicalReportStatusHistory(Base):
+    __tablename__ = "clinical_report_status_history"
+    __table_args__ = {"schema": OPERATIONAL_SCHEMA}
+
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    export_id: Mapped[int] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.clinical_report_exports.export_id"), nullable=False, index=True
+    )
+    from_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{OPERATIONAL_SCHEMA}.dim_user.user_id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    export: Mapped[ClinicalReportExport] = relationship(back_populates="status_history")
+
+
 class DonorScreening(Base):
     __tablename__ = "fact_donor_screening"
     __table_args__ = {"schema": OPERATIONAL_SCHEMA}
