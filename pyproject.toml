@@ -42,6 +42,7 @@ pythonpath = ["backend"]
 testpaths = ["tests"]
 markers = [
     "azure_worm_live: skipped-by-default Azure Blob WORM live integration readiness tests",
+    "azure_key_vault_live: skipped-by-default Azure Key Vault signing live validation tests",
 ]
 
 [tool.ruff.lint]

@@ -18,6 +18,8 @@ Post-RC-12 manifest signing gate update date: 2026-06-13
 
 Post-RC-13 Azure Key Vault signing gate update date: 2026-06-13
 
+Post-RC-14 Azure Key Vault live validation note date: 2026-06-13
+
 Scope: fail-closed startup validation for production-like environments. The gate is deterministic, uses local configuration only, and does not call a network service or require an external secret manager.
 
 ## Runtime Behavior
@@ -52,6 +54,7 @@ The values `prod`, `production`, `stage`, and `staging` are treated as productio
 - If Azure Key Vault placeholder or real-capable signing is selected, configure `AUDIT_MANIFEST_AZURE_KEY_VAULT_URL` and `AUDIT_MANIFEST_AZURE_KEY_NAME`.
 - If `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`, configure `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE` with an approved non-inline-secret identity mode.
 - Set `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` only after Key Vault access, SDK dependencies, and live validation approval are complete.
+- `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_LIVE_ALLOW_PRODUCTION_KEY` are operational validation controls, not startup gate bypasses.
 - If legal hold is required, configure `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REQUIRED=true` and `AUDIT_OBJECT_MIRROR_LEGAL_HOLD_REFERENCE`.
 - If `AUDIT_OBJECT_MIRROR_PROVIDER=azure_blob` or `azure_blob_immutability`, configure `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE`.
 - Set `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only after Azure Blob writes are approved for the environment and required SDK dependencies are installed.
@@ -127,7 +130,7 @@ For App Service startup checks:
 
 In production-like environments, both startup paths refuse unsafe settings before the app opens traffic.
 
-The production gate remains local-only. It does not run live Azure pytest checks, upload objects, call Azure APIs, or call a signing provider. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence and `docs/clinical-azure-worm-live-validation.md` for the opt-in live process.
+The production gate remains local-only. It does not run live Azure pytest checks, upload objects, call Azure APIs, or call a signing provider. Use `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` for sanitized dry-run Azure WORM readiness evidence, `scripts/check_azure_key_vault_signing_readiness.py --json --evidence-out <approved-evidence-path>\key-vault-signing-evidence.json` for Key Vault signing evidence, and the live validation runbooks for opt-in live processes.
 
 ## Failure Example
 

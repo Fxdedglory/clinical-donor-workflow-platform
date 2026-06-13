@@ -273,3 +273,23 @@ Date: 2026-06-13
 - Define key lifecycle, rotation, retirement, and access review procedures.
 - Document signing-key incident recovery and manifest re-verification procedures.
 - Keep live Azure WORM validation and Key Vault signing out of normal CI unless separately approved.
+
+## Azure Key Vault Signing Live Validation Harness
+
+Update: CLINICAL-POST-RC-14
+
+Date: 2026-06-13
+
+- Added `azure_key_vault_live` pytest marker and skipped-by-default live integration skeletons.
+- Added `backend/app/services/clinical_azure_key_vault_live_readiness.py` for live flag handling, key identifier safety checks, readiness summaries, sanitized evidence, and no-network dry-run posture.
+- Added `scripts/check_azure_key_vault_signing_readiness.py` with `--json`, `--evidence-out`, and explicit `--live-sign`.
+- Added fail-closed guards requiring `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true`, safe Key Vault metadata, safe credential mode, SDK availability, and dedicated non-production key identifiers before live signing.
+- Added focused tests for default skip posture, explicit live flag, key identifier safety, dry-run no-sign/no-network behavior, evidence JSON, evidence sanitization, and incomplete-config blockers.
+- Added `docs/clinical-azure-key-vault-live-validation.md` and `docs/clinical-azure-key-vault-operator-checklist.md`; updated signing, evidence, operator, production, security, and readiness docs.
+
+## Remaining Post-RC-14 Items
+
+- Execute live Key Vault validation only after Azure resources, identity permissions, SDK runtime, access logging, and compliance approval are in place.
+- Define key rotation, key retirement, and re-verification procedures.
+- Add access-log review and incident recovery procedures outside the repository.
+- Keep Key Vault live signing and Azure WORM live validation out of normal CI unless separately approved.

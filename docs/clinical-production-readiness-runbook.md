@@ -30,6 +30,8 @@ Post-RC manifest signing foundation update date: 2026-06-13
 
 Post-RC Azure Key Vault signing readiness update date: 2026-06-13
 
+Post-RC Azure Key Vault live validation harness update date: 2026-06-13
+
 This runbook prepares the clinical platform for production signoff. It does not replace environment-specific deployment documentation in `docs/azure/`.
 
 ## Environment Variables
@@ -55,6 +57,7 @@ Required production settings:
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_URL` and `AUDIT_MANIFEST_AZURE_KEY_NAME` when Azure Key Vault placeholder or real-capable signing is selected
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE` when `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`
 - `AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO=true` only after Key Vault SDK dependencies, identity access, and live validation approval are complete
+- `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true` and `AUDIT_MANIFEST_AZURE_KEY_VAULT_LIVE_ALLOW_PRODUCTION_KEY=true` only for approved Key Vault live validation windows
 - `AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL`, `AUDIT_OBJECT_MIRROR_AZURE_CONTAINER`, `AUDIT_OBJECT_MIRROR_AZURE_PREFIX`, and `AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE` when Azure Blob is the approved provider
 - `AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO=true` only in approved environments with Azure SDK dependencies installed and managed/workload identity configured
 - `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true` and `AUDIT_OBJECT_MIRROR_AZURE_LIVE_TEST_PREFIX` only for approved non-production live validation runs
@@ -180,6 +183,8 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 31. Run `scripts/check_azure_worm_readiness.py --json --evidence-out <approved-evidence-path>\azure-worm-validation-evidence.json` and confirm `upload_attempted=false`, `network_calls_performed=false`, and no raw credentials or PHI/ePHI are present.
 32. Confirm any `azure_worm_live` pytest run used a dedicated non-production prefix and was explicitly enabled with `CLINICAL_RUN_AZURE_WORM_LIVE_TESTS=true`.
 33. If `AUDIT_MANIFEST_SIGNING_MODE=azure_key_vault`, confirm fake-client signing tests pass, Key Vault readiness metadata is present in sanitized evidence, and real I/O remains disabled unless separately approved.
+34. Run `scripts/check_azure_key_vault_signing_readiness.py --json --evidence-out <approved-evidence-path>\key-vault-signing-evidence.json` and confirm dry-run evidence reports `signing_attempted=false`, `verification_attempted=false`, and `network_calls_performed=false`.
+35. If `--live-sign` or the `azure_key_vault_live` marker is approved, confirm the key name/reference is dedicated to validation and `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true` was explicitly set.
 
 ## Audit And Export Review Checklist
 
@@ -202,6 +207,7 @@ Use `docs/clinical-rc-qa-checklist.md` for manual module QA. RC1 production sign
 - Confirm sanitized Azure WORM validation evidence includes provider readiness, prefix safety, credential mode, immutability, legal hold, checksum validation, blockers, warnings, and validation result.
 - Confirm sanitized Azure WORM validation evidence includes manifest signing mode, required flag, algorithm, key reference, and verification status without key material.
 - Confirm sanitized Azure WORM validation evidence includes Azure Key Vault real-I/O state, credential mode, key name/version, SDK availability, and readiness status without raw vault credentials or key material when Key Vault signing is selected.
+- Confirm dedicated Key Vault signing evidence includes live sign requested, signing attempted, verification attempted, network calls performed, key metadata, SDK availability, blockers, warnings, and validation result.
 - Confirm object/WORM provider retention and legal hold settings are approved before setting `AUDIT_OBJECT_MIRROR_REQUIRED=true`.
 - Confirm export metadata retention and access are approved.
 - Confirm report audit activity is scoped to approved roles.

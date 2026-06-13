@@ -6,6 +6,8 @@ Post-RC-12 manifest signing update date: 2026-06-13
 
 Post-RC-13 Azure Key Vault signing readiness update date: 2026-06-13
 
+Post-RC-14 Azure Key Vault live signing checklist update date: 2026-06-13
+
 ## Scope
 
 This checklist is for operators preparing Azure Blob WORM validation evidence. Repository commands remain safe by default and must not create Azure resources, upload objects, or call Azure APIs unless the operator explicitly enables live validation.
@@ -38,6 +40,7 @@ Review:
 - `manifest_signing_summary.signature_verification_status` is acceptable for the selected signing mode
 - `manifest_signing_summary.azure_key_vault_real_io_enabled` matches the approved validation phase
 - `manifest_signing_summary.azure_key_vault_sdk_available` is understood before live Key Vault signing
+- dedicated Key Vault signing evidence from `scripts\check_azure_key_vault_signing_readiness.py --json --evidence-out` is retained if Key Vault signing is in scope
 - `blocking_issues` are either resolved or accepted as the dry-run reason for a blocked result
 - `prefix_safety_status.status` is acceptable for the intended phase
 
@@ -51,6 +54,8 @@ Live validation remains optional and skipped by default. Before setting `CLINICA
 - managed identity or workload identity has least-privilege blob data access;
 - `azure-storage-blob` and `azure-identity` are installed in the runtime image;
 - `azure-keyvault-keys` and `azure-identity` are installed if live Key Vault signing is enabled;
+- `CLINICAL_RUN_AZURE_KEY_VAULT_LIVE_TESTS=true` and `--live-sign` are approved before any Key Vault network call;
+- the Key Vault key name/reference is dedicated to validation or override approval is recorded;
 - compliance owners approved any `--live-write` execution.
 - manifest checksum and signature verification behavior is understood: local HMAC can verify in-repo, `azure_key_vault` can verify through an injected fake client or approved real I/O, and external KMS or Azure Key Vault placeholders remain pending provider verification.
 
@@ -76,6 +81,7 @@ Stop and retain evidence if any of these occur:
 - readiness reports unsafe credential mode;
 - SDK dependencies are missing when real I/O is enabled;
 - Key Vault credential mode is unsafe or SDK dependencies are missing when Key Vault real I/O is enabled;
+- Key Vault live signing is requested without the explicit live environment flag;
 - checksum verification does not return `verified`;
 - manifest signature verification reports `failed` or `missing_signature`;
 - Azure policy evidence does not match the approved retention or legal hold expectation;
