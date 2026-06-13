@@ -1,8 +1,10 @@
 # Clinical Audit Durability Decision
 
-Status: Proposed for RC1 implementation
+Status: RC1 implementation plan documented; production migration deferred
 
 RC0 decision date: 2026-06-12
+
+RC1 update date: 2026-06-13
 
 ## Current Behavior
 
@@ -77,6 +79,24 @@ Reason:
 - The existing audit writer is validated and already used consistently by clinical modules.
 - Production durability needs a designed migration, retention policy, and deployment review rather than an opportunistic table addition.
 
-## RC1 Follow-Up
+## RC1 Readiness Update
+
+RC1 did not migrate workflow audit storage. The implementation plan is now documented in:
+
+```text
+docs/clinical-audit-durability-implementation-plan.md
+```
+
+RC1 confirms that filesystem JSON remains acceptable for local demos and automated release-candidate tests only. It is not approved as the production source of truth.
+
+## RC2 Follow-Up
 
 Prioritize database-backed workflow operation audit and object-storage mirroring before production go-live or any external compliance package workflow.
+
+Minimum RC2 scope:
+
+1. Add `operational.clinical_workflow_operations`.
+2. Add append-only database permissions and update/delete rejection.
+3. Backfill existing `metadata/workflow_operations.json`.
+4. Switch audit evidence and report audit activity readers to database-first behavior.
+5. Add object-storage mirror support if deployment storage and retention settings are approved.
