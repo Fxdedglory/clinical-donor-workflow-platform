@@ -1449,11 +1449,196 @@ table {
 td,
 th {
   border-bottom-color: var(--clinical-line);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 tbody tr:hover td {
   background: #f8fafc;
+}
+
+.clinical-table-shell {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.clinical-table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.clinical-data-table th {
+  white-space: nowrap;
+}
+
+.clinical-density-table th,
+.clinical-density-table td {
+  font-size: 0.8rem;
+  padding: 0.55rem 0.6rem;
+}
+
+.clinical-cell {
+  max-width: 18rem;
+  min-width: 0;
+}
+
+.clinical-nowrap,
+.clinical-cell-identifier,
+.clinical-cell-token,
+.clinical-cell-contact,
+.clinical-cell-nowrap,
+.table-action,
+.status-pill,
+.priority-chip {
+  white-space: nowrap;
+}
+
+.clinical-id,
+.clinical-token,
+.clinical-contact,
+.clinical-nowrap {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.clinical-id {
+  color: #1e40af;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.82em;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.clinical-token {
+  font-weight: 700;
+}
+
+.clinical-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clinical-readable-text {
+  display: inline-block;
+  max-width: 28rem;
+  overflow-wrap: break-word;
+}
+
+.clinical-row-separator {
+  color: var(--clinical-muted);
+  margin: 0 0.2rem;
+}
+
+.patient-payer-member {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.workflow-row > span {
+  min-width: 0;
+}
+
+.workflow-row .clinical-id,
+.workflow-row .clinical-token {
+  max-width: min(100%, 18rem);
+}
+
+.summary-grid span {
+  min-width: 0;
+}
+
+.summary-grid strong {
+  overflow-wrap: break-word;
+}
+
+.orders-worklist-table table {
+  min-width: 520px;
+}
+
+.orders-results-table table {
+  min-width: 640px;
+}
+
+.orders-summary-table table,
+.orders-context-table table,
+.orders-result-summary-table table,
+.orders-secondary-table table {
+  min-width: 430px;
+}
+
+.orders-catalog-table table {
+  min-width: 680px;
+}
+
+.billing-secondary-table table,
+.quality-secondary-table table,
+.reports-secondary-table table {
+  min-width: 520px;
+}
+
+.patient-contact-table table,
+.patient-insurance-table table,
+.patient-consent-table table {
+  min-width: 560px;
+}
+
+.patient-detail-table table,
+.patient-activity-table table {
+  min-width: 420px;
+}
+
+.orders-detail-grid {
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+}
+
+.billing-detail-grid,
+.quality-detail-grid {
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+}
+
+.reports-detail-grid {
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+.report-panel,
+.reports-export-panel,
+.reports-audit-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.report-panel .summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  margin-bottom: 0;
+}
+
+.report-panel-audit_activity,
+.reports-export-panel,
+.reports-audit-panel {
+  grid-column: span 2;
+}
+
+.reports-export-table table,
+.reports-audit-table table,
+.quality-audit-table table,
+.quality-export-table table {
+  min-width: 680px;
+}
+
+.billing-layout .workflow-row,
+.quality-layout .workflow-row {
+  align-items: flex-start;
+}
+
+.clinical-state-stack {
+  align-items: flex-start;
+  gap: 0.3rem;
 }
 
 .status-pill,
@@ -1633,6 +1818,12 @@ tbody tr:hover td {
 
   .clinical-hero {
     flex-direction: column;
+  }
+
+  .report-panel-audit_activity,
+  .reports-export-panel,
+  .reports-audit-panel {
+    grid-column: span 1;
   }
 }
 

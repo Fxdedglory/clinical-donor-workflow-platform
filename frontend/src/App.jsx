@@ -33,6 +33,7 @@ import {
 import { isValidElement, useEffect, useMemo, useState } from "react";
 
 import { ClinicalRedactedValue } from "./pages/clinical/ClinicalRedactedValue";
+import { ClinicalIdentifier, clinicalCellKind } from "./pages/clinical/ClinicalIdentifier";
 import { ClinicalShellPlaceholder } from "./pages/clinical/ClinicalShellPlaceholder";
 import { ClinicalSuppressedMetric } from "./pages/clinical/ClinicalSuppressedMetric";
 import {
@@ -893,7 +894,7 @@ function renderedFieldName(row, column) {
   return column;
 }
 
-function TableCellValue({ value, field, user, sensitiveColumns = [] }) {
+function TableCellValue({ value, field, user, sensitiveColumns = [], polish = false }) {
   if (isValidElement(value)) return value;
   if (Array.isArray(value)) return value.length;
   const display = displayClinicalValue(value, field, user, {
@@ -902,7 +903,30 @@ function TableCellValue({ value, field, user, sensitiveColumns = [] }) {
   if (display.kind === "suppressed") return <ClinicalSuppressedMetric cell={value} />;
   if (display.kind === "redacted") return <ClinicalRedactedValue indicator={display.indicator} />;
   if (display.kind === "empty") return "";
-  return String(display.value ?? "");
+  const text = String(display.value ?? "");
+  if (!polish) return text;
+  const normalizedField = String(field || "").replaceAll(" ", "_").toLowerCase();
+  if (normalizedField.includes("result_flag") || normalizedField === "flag") return <ResultFlagPill flag={text} />;
+  if (normalizedField.endsWith("severity") || normalizedField === "severity") return <QualitySeverityChip severity={text} />;
+  if (normalizedField.endsWith("priority") || normalizedField === "priority") return <PriorityChip priority={text} />;
+  if (normalizedField.endsWith("status") || normalizedField === "status") return <StatusPill status={text} />;
+  const kind = clinicalCellKind(field, text);
+  if (kind === "identifier") return <ClinicalIdentifier value={text} />;
+  if (kind === "token" || kind === "contact" || kind === "nowrap") {
+    return (
+      <span className={cx(`clinical-${kind}`, "clinical-truncate")} title={text}>
+        {text}
+      </span>
+    );
+  }
+  if (text.length > 36) {
+    return (
+      <span className="clinical-readable-text" title={text}>
+        {text}
+      </span>
+    );
+  }
+  return text;
 }
 
 function clinicalDisplayText(value, field, user) {
@@ -916,11 +940,20 @@ function clinicalDisplayText(value, field, user) {
   return String(display.value ?? "");
 }
 
-function Table({ rows, columns, user, sensitiveColumns = [] }) {
+function tableCellClass(row, column, polish = false) {
+  if (!polish) return "";
+  const value = row?.[column];
+  const field = renderedFieldName(row, column);
+  const kind = isValidElement(value) ? "component" : clinicalCellKind(field, Array.isArray(value) ? value.length : value);
+  return cx("clinical-cell", `clinical-cell-${kind}`, ["identifier", "token", "contact", "nowrap"].includes(kind) && "clinical-nowrap");
+}
+
+function Table({ rows, columns, user, sensitiveColumns = [], className = "", tableClassName = "", density = "standard", polish = false }) {
   if (!rows?.length) return <div className="empty-state">No records available.</div>;
+  const polishCells = polish || density === "compact";
   return (
-    <div className="table-wrap">
-      <table>
+    <div className={cx("table-wrap", "clinical-table-shell", "clinical-table-scroll", className)}>
+      <table className={cx("clinical-data-table", density === "compact" && "clinical-density-table", tableClassName)}>
         <thead>
           <tr>
             {columns.map((column) => (
@@ -932,12 +965,13 @@ function Table({ rows, columns, user, sensitiveColumns = [] }) {
           {rows.map((row, index) => (
             <tr key={index}>
               {columns.map((column) => (
-                <td key={column}>
+                <td key={column} className={tableCellClass(row, column, polishCells)}>
                   <TableCellValue
                     value={row[column]}
                     field={renderedFieldName(row, column)}
                     user={user}
                     sensitiveColumns={sensitiveColumns}
+                    polish={polishCells}
                   />
                 </td>
               ))}
@@ -1375,6 +1409,28 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
   const contactRows = hasPatient ? patient.contacts || [] : [{ contact_type: "Planned section", full_name: "PHI protected", relationship: "Data required", phone: "", email: "" }];
   const insuranceRows = hasPatient ? patient.insurance_profiles || [] : [{ priority: "Planned section", payer_name: "PHI protected", member_id: "Redacted", eligibility_status: "Data required" }];
   const consentRows = hasPatient ? patient.consents || [] : [{ consent_type: "Planned section", consent_status: "Data required", captured_by_name: "", notes: "Awaiting profile data" }];
+  const contactDisplayRows = contactRows.map((contact) => ({
+    contact: contact.contact_type,
+    name: [contact.full_name, contact.relationship].filter(Boolean).join(" / "),
+    phone: contact.phone || "",
+    email: contact.email || "",
+  }));
+  const insuranceDisplayRows = insuranceRows.map((insurance) => ({
+    priority: insurance.priority,
+    payer_member: (
+      <span className="patient-payer-member">
+        <span>{insurance.payer_name}</span>
+        <ClinicalIdentifier value={insurance.member_id} />
+      </span>
+    ),
+    status: insurance.eligibility_status,
+  }));
+  const consentDisplayRows = consentRows.map((consent) => ({
+    consent: consent.consent_type,
+    status: consent.consent_status,
+    captured: consent.captured_by_name || "",
+    notes: consent.notes || "",
+  }));
   const activityRows = hasPatient
     ? [
         { event: "Profile created", timestamp: formatDateTime(patient.created_at), source: patient.source },
@@ -1389,7 +1445,7 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
     <div className="clinical-shell">
       <section className="clinical-hero">
         <div>
-          <p className="eyebrow"><TableCellValue value={displayPatientId} field="patient_id" user={user} /></p>
+          <p className="eyebrow"><TableCellValue value={displayPatientId} field="patient_id" user={user} polish /></p>
           <h2>{hasPatient ? <TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /> : "Patient / Donor Detail"}</h2>
           <StatusPill status={hasPatient ? patient.status : "Data unavailable"} />
           <ClinicalPrivacyIndicator user={user} />
@@ -1410,7 +1466,7 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
       <div className="split">
         <section>
           <h3>Demographics</h3>
-          <Table rows={demographicRows} columns={["field", "value"]} user={user} />
+          <Table rows={demographicRows} columns={["field", "value"]} user={user} density="compact" className="patient-detail-table" />
         </section>
         <section>
           <h3>Planned Future Workflows</h3>
@@ -1427,21 +1483,21 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
       <div className="split">
         <section>
           <div className="section-heading-row"><h3>Contacts</h3><button type="button" onClick={() => setModalType("contact")} disabled={!hasPatient}>Add</button></div>
-          <Table rows={contactRows} columns={["contact_type", "full_name", "relationship", "phone", "email"]} user={user} />
+          <Table rows={contactDisplayRows} columns={["contact", "name", "phone", "email"]} user={user} density="compact" className="patient-contact-table" />
         </section>
         <section>
           <div className="section-heading-row"><h3>Insurance</h3><button type="button" onClick={() => setModalType("insurance")} disabled={!hasPatient}>Add</button></div>
-          <Table rows={insuranceRows} columns={["priority", "payer_name", "member_id", "eligibility_status"]} user={user} />
+          <Table rows={insuranceDisplayRows} columns={["priority", "payer_member", "status"]} user={user} density="compact" className="patient-insurance-table" />
         </section>
       </div>
       <div className="split">
         <section>
           <div className="section-heading-row"><h3>Consents</h3><button type="button" onClick={() => setModalType("consent")} disabled={!hasPatient}>Capture</button></div>
-          <Table rows={consentRows} columns={["consent_type", "consent_status", "captured_by_name", "notes"]} user={user} />
+          <Table rows={consentDisplayRows} columns={["consent", "status", "captured", "notes"]} user={user} density="compact" className="patient-consent-table" />
         </section>
         <section>
           <h3>Recent Workflow Activity</h3>
-          <Table rows={activityRows} columns={["event", "timestamp", "source"]} />
+          <Table rows={activityRows} columns={["event", "timestamp", "source"]} density="compact" className="patient-activity-table" />
         </section>
       </div>
       {modalType && hasPatient && (
@@ -3573,18 +3629,19 @@ function ClinicalOrdersPage({ token, navigate, user }) {
       {!!orders.length && (
         <div className="split orders-layout">
           <section>
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Order</th><th>Patient / Donor</th><th>Catalog</th><th>Priority</th><th>Status</th><th>Result</th><th>Action</th></tr></thead>
+            <div className="table-wrap clinical-table-shell clinical-table-scroll orders-worklist-table">
+              <table className="clinical-data-table clinical-density-table">
+                <thead><tr><th>Order</th><th>Catalog</th><th>State</th><th>Action</th></tr></thead>
                 <tbody>
                   {orders.map((order) => (
                     <tr key={order.order_id} className={order.has_critical_unacknowledged ? "order-critical-row" : ""}>
-                      <td>{order.order_number}</td>
-                      <td><TableCellValue value={order.patient_name || order.patient_id} field="patient" user={user} /></td>
-                      <td>{order.catalog_code || order.catalog_name}</td>
-                      <td>{order.priority}</td>
-                      <td><StatusPill status={order.status} /></td>
-                      <td><ResultFlagPill flag={order.result_flag} /></td>
+                      <td className="clinical-cell clinical-cell-identifier">
+                        <ClinicalIdentifier value={order.order_number} />
+                        <br />
+                        <span className="muted"><TableCellValue value={order.patient_name || order.patient_id} field="patient" user={user} /></span>
+                      </td>
+                      <td className="clinical-cell clinical-cell-identifier"><ClinicalIdentifier value={order.catalog_code || order.catalog_name} /></td>
+                      <td><span className="chip-list clinical-state-stack"><PriorityChip priority={order.priority} /><StatusPill status={order.status} /><ResultFlagPill flag={order.result_flag} /></span></td>
                       <td><button type="button" className="table-action" onClick={() => setSelectedOrder(order)}>Open</button></td>
                     </tr>
                   ))}
@@ -3610,7 +3667,7 @@ function ClinicalOrdersPage({ token, navigate, user }) {
                   { field: "Status", value: selectedOrder.status },
                   { field: "Ordered", value: formatDateTime(selectedOrder.ordered_at) },
                   { field: "Critical ack", value: unacknowledged.length ? "Required" : "Current" },
-                ]} columns={["field", "value"]} user={user} />
+                ]} columns={["field", "value"]} user={user} density="compact" className="orders-summary-table" />
                 <div className="clinical-actions detail-actions">
                   <button type="button" onClick={() => setModalType("result")}><Activity size={16} />Enter Result</button>
                   <button type="button" onClick={() => setModalType("acknowledge")}><ShieldCheck size={16} />Acknowledge</button>
@@ -3632,7 +3689,7 @@ function ClinicalOrdersPage({ token, navigate, user }) {
                 { field: "Screening", value: selectedOrder.screening_session_number || "No screening" },
                 { field: "Appointment", value: selectedOrder.appointment_number || "No appointment" },
                 { field: "Indication", value: selectedOrder.clinical_indication },
-              ]} columns={["field", "value"]} user={user} />
+              ]} columns={["field", "value"]} user={user} density="compact" className="orders-context-table" />
             </section>
             <section>
               <h3>Result Summary</h3>
@@ -3642,7 +3699,7 @@ function ClinicalOrdersPage({ token, navigate, user }) {
                 { field: "Flag", value: selectedOrder.result_flag },
                 { field: "Critical unacknowledged", value: unacknowledged.length },
                 { field: "Resulted", value: formatDateTime(latestResult?.resulted_at) },
-              ]} columns={["field", "value"]} user={user} />
+              ]} columns={["field", "value"]} user={user} density="compact" className="orders-result-summary-table" />
             </section>
             <section>
               <h3>Downstream Actions</h3>
@@ -3655,19 +3712,19 @@ function ClinicalOrdersPage({ token, navigate, user }) {
           <div className="orders-detail-grid">
             <section className="orders-wide-section">
               <h3>Results</h3>
-              <div className="table-wrap">
-                <table>
+              <div className="table-wrap clinical-table-shell clinical-table-scroll orders-results-table">
+                <table className="clinical-data-table clinical-density-table">
                   <thead><tr><th>Name</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th><th>Ack</th><th>Resulted</th></tr></thead>
                   <tbody>
                     {(selectedOrder.results || []).map((result) => (
                       <tr key={result.result_id} className={result.critical_flag ? "order-critical-row" : result.abnormal_flag ? "order-abnormal-row" : ""}>
-                        <td>{result.result_name}</td>
+                        <td><span className="clinical-truncate" title={result.result_name}>{result.result_name}</span></td>
                         <td><TableCellValue value={result.result_value} field="result_value" user={user} /></td>
-                        <td>{result.result_unit || ""}</td>
-                        <td>{result.reference_range || ""}</td>
+                        <td className="clinical-nowrap">{result.result_unit || ""}</td>
+                        <td className="clinical-nowrap">{result.reference_range || ""}</td>
                         <td><ResultFlagPill flag={result.critical_flag ? "critical" : result.abnormal_flag ? "abnormal" : result.result_status} /></td>
-                        <td>{result.requires_acknowledgement && !acknowledgedResultIds(selectedOrder).has(result.result_id) ? "Required" : "Current"}</td>
-                        <td>{formatDateTime(result.resulted_at)}</td>
+                        <td className="clinical-nowrap">{result.requires_acknowledgement && !acknowledgedResultIds(selectedOrder).has(result.result_id) ? "Required" : "Current"}</td>
+                        <td className="clinical-nowrap">{formatDateTime(result.resulted_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -3677,16 +3734,16 @@ function ClinicalOrdersPage({ token, navigate, user }) {
             </section>
             <section>
               <h3>Correction History</h3>
-              <Table rows={(selectedOrder.results || []).filter((result) => result.corrected_from_result_id).map((result) => ({ result: result.result_name, value: result.result_value, corrects: result.corrected_from_result_id, at: formatDateTime(result.resulted_at) }))} columns={["result", "value", "corrects", "at"]} user={user} />
+              <Table rows={(selectedOrder.results || []).filter((result) => result.corrected_from_result_id).map((result) => ({ result: result.result_name, value: result.result_value, corrects: result.corrected_from_result_id, at: formatDateTime(result.resulted_at) }))} columns={["result", "value", "corrects", "at"]} user={user} density="compact" className="orders-secondary-table" />
             </section>
             <section>
               <h3>Recent Audit / Status</h3>
-              <Table rows={(selectedOrder.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} user={user} />
+              <Table rows={(selectedOrder.status_history || []).map((history) => ({ status: `${history.from_status || "new"} -> ${history.to_status}`, reason: history.reason, notes: history.notes, at: formatDateTime(history.changed_at) }))} columns={["status", "reason", "notes", "at"]} user={user} density="compact" className="orders-secondary-table" />
             </section>
           </div>
           <section>
             <h3>Catalog</h3>
-            <Table rows={catalog.map((item) => ({ code: item.code, name: item.name, type: item.order_type, priority: item.default_priority, specimen: item.specimen_type || "" }))} columns={["code", "name", "type", "priority", "specimen"]} />
+            <Table rows={catalog.map((item) => ({ code: item.code, name: item.name, type: item.order_type, priority: item.default_priority, specimen: item.specimen_type || "" }))} columns={["code", "name", "type", "priority", "specimen"]} density="compact" className="orders-catalog-table" />
           </section>
         </>
       )}
@@ -4792,7 +4849,7 @@ function ClinicalBillingPage({ token, navigate, user }) {
               <div className="workflow-list">
                 {queue.accounts.length ? queue.accounts.map((account) => (
                   <button type="button" className="workflow-row" key={account.account_id} onClick={() => setSelectedAccountId(account.account_id)}>
-                    <span>{account.account_number} - <TableCellValue value={account.patient_name} field="patient_name" user={user} /></span>
+                    <span><ClinicalIdentifier value={account.account_number} /> <span className="clinical-row-separator">-</span> <TableCellValue value={account.patient_name} field="patient_name" user={user} /></span>
                     <span>{formatMoney(account.balance)}</span>
                     <StatusPill status={account.status} />
                   </button>
@@ -4803,8 +4860,8 @@ function ClinicalBillingPage({ token, navigate, user }) {
               <h3>Account Summary</h3>
               {selectedAccount ? (
                 <div className="info-list compact">
-                  <p><strong>{selectedAccount.account_number}</strong></p>
-                  <p><TableCellValue value={selectedAccount.patient_id} field="patient_id" user={user} /> - <TableCellValue value={selectedAccount.patient_name} field="patient_name" user={user} /></p>
+                  <p><strong><ClinicalIdentifier value={selectedAccount.account_number} /></strong></p>
+                  <p><TableCellValue value={selectedAccount.patient_id} field="patient_id" user={user} polish /> <span className="clinical-row-separator">-</span> <TableCellValue value={selectedAccount.patient_name} field="patient_name" user={user} /></p>
                   <p><TableCellValue value={selectedAccount.payer_name || "No payer selected"} field="payer_name" user={user} /></p>
                   <div className="summary-grid">
                     <span>Charges <strong>{formatMoney(selectedAccount.total_charges)}</strong></span>
@@ -4819,23 +4876,48 @@ function ClinicalBillingPage({ token, navigate, user }) {
           <div className="billing-detail-grid">
             <section>
               <h3>Insurance Verification</h3>
-              <Table rows={queue.insurance_verifications.slice(0, 6)} columns={["patient_id", "payer_name", "verification_status", "verified_at"]} user={user} />
+              <Table rows={queue.insurance_verifications.slice(0, 6).map((item) => ({
+                patient_id: item.patient_id,
+                payer: item.payer_name,
+                status: item.verification_status,
+                verified: formatDateTime(item.verified_at),
+              }))} columns={["patient_id", "payer", "status", "verified"]} user={user} density="compact" className="billing-secondary-table" />
             </section>
             <section>
               <h3>Charges</h3>
-              <Table rows={queue.charges.slice(0, 8)} columns={["charge_number", "patient_id", "code", "total_amount", "status"]} user={user} />
+              <Table rows={queue.charges.slice(0, 8).map((item) => ({
+                charge_number: item.charge_number,
+                code: item.code,
+                amount: formatMoney(item.total_amount),
+                status: item.status,
+              }))} columns={["charge_number", "code", "amount", "status"]} user={user} density="compact" className="billing-secondary-table" />
             </section>
             <section>
               <h3>Claims</h3>
-              <Table rows={queue.claims.slice(0, 8)} columns={["claim_number", "patient_id", "payer_name", "balance", "status"]} user={user} />
+              <Table rows={queue.claims.slice(0, 8).map((item) => ({
+                claim_number: item.claim_number,
+                payer: item.payer_name,
+                balance: formatMoney(item.balance),
+                status: item.status,
+              }))} columns={["claim_number", "payer", "balance", "status"]} user={user} density="compact" className="billing-secondary-table" />
             </section>
             <section>
               <h3>Payments</h3>
-              <Table rows={queue.payments.slice(0, 8)} columns={["claim_number", "payment_amount", "adjustment_amount", "payment_method", "posted_at"]} />
+              <Table rows={queue.payments.slice(0, 8).map((item) => ({
+                claim_number: item.claim_number,
+                payment: formatMoney(item.payment_amount),
+                adjustment: formatMoney(item.adjustment_amount),
+                posted: formatDateTime(item.posted_at),
+              }))} columns={["claim_number", "payment", "adjustment", "posted"]} density="compact" className="billing-secondary-table" />
             </section>
             <section>
               <h3>Denial / Rework</h3>
-              <Table rows={queue.denials.slice(0, 8)} columns={["claim_number", "denial_code", "denial_reason", "status", "due_date"]} user={user} />
+              <Table rows={queue.denials.slice(0, 8).map((item) => ({
+                claim_number: item.claim_number,
+                denial: `${item.denial_code} - ${item.denial_reason}`,
+                status: item.status,
+                due: formatDate(item.due_date),
+              }))} columns={["claim_number", "denial", "status", "due"]} user={user} density="compact" className="billing-secondary-table" />
             </section>
             <section>
               <h3>Handoffs</h3>
@@ -5496,7 +5578,7 @@ function ClinicalQualityPage({ token, navigate, user }) {
               <div className="workflow-list">
                 {events.length ? events.map((event) => (
                   <button type="button" className="workflow-row" key={event.event_id} onClick={() => setSelectedEventId(event.event_id)}>
-                    <span>{event.event_number} - {event.category}<br /><span className="muted"><TableCellValue value={event.patient_id || "No patient"} field="patient_id" user={user} /> {event.owner ? `- ${event.owner}` : ""}</span></span>
+                    <span><ClinicalIdentifier value={event.event_number} /> <span className="clinical-row-separator">-</span> <span className="clinical-token clinical-truncate" title={event.category}>{event.category}</span><br /><span className="muted"><TableCellValue value={event.patient_id || "No patient"} field="patient_id" user={user} polish /> {event.owner ? `- ${event.owner}` : ""}</span></span>
                     <span className="chip-list"><QualitySeverityChip severity={event.severity} /><StatusPill status={event.status} /></span>
                   </button>
                 )) : <div className="empty-state">No quality events match the current filters.</div>}
@@ -5506,7 +5588,7 @@ function ClinicalQualityPage({ token, navigate, user }) {
               <h3>Event Detail</h3>
               {selectedEvent ? (
                 <div className="info-list compact">
-                  <p><strong>{selectedEvent.event_number}</strong></p>
+                  <p><strong><ClinicalIdentifier value={selectedEvent.event_number} /></strong></p>
                   <p><TableCellValue value={selectedEvent.description} field="description" user={user} /></p>
                   <div className="chip-list"><QualitySeverityChip severity={selectedEvent.severity} /><StatusPill status={selectedEvent.status} /></div>
                   <div className="summary-grid">
@@ -5522,31 +5604,31 @@ function ClinicalQualityPage({ token, navigate, user }) {
           <div className="quality-detail-grid">
             <section>
               <h3>Linked Context</h3>
-              <Table rows={qualityPatientContextRows(selectedEvent)} columns={["context", "value"]} user={user} />
+              <Table rows={qualityPatientContextRows(selectedEvent)} columns={["context", "value"]} user={user} density="compact" className="quality-secondary-table" />
             </section>
             <section>
               <h3>Investigation Timeline</h3>
-              <Table rows={(selectedEvent?.investigations || []).map((item) => ({ created_at: formatDateTime(item.created_at), owner: item.owner || "", note: item.note, root_cause: item.root_cause_category || "" }))} columns={["created_at", "owner", "note", "root_cause"]} user={user} />
+              <Table rows={(selectedEvent?.investigations || []).map((item) => ({ at: formatDateTime(item.created_at), owner: item.owner || "", note: item.note }))} columns={["at", "owner", "note"]} user={user} density="compact" className="quality-secondary-table quality-timeline-table" />
             </section>
             <section>
               <h3>Status History</h3>
-              <Table rows={(selectedEvent?.status_history || []).map((item) => ({ changed_at: formatDateTime(item.changed_at), from: item.from_status || "", to: item.to_status, reason: item.reason }))} columns={["changed_at", "from", "to", "reason"]} user={user} />
+              <Table rows={(selectedEvent?.status_history || []).map((item) => ({ at: formatDateTime(item.changed_at), transition: `${item.from_status || "new"} -> ${item.to_status}`, reason: item.reason }))} columns={["at", "transition", "reason"]} user={user} density="compact" className="quality-secondary-table" />
             </section>
             <section>
               <h3>Adverse Events</h3>
-              <Table rows={adverseEvents.slice(0, 8).map((event) => ({ event: event.adverse_event_number, patient: event.patient_id, type: event.event_type, severity: event.severity, status: event.status }))} columns={["event", "patient", "type", "severity", "status"]} user={user} />
+              <Table rows={adverseEvents.slice(0, 8).map((event) => ({ event: event.adverse_event_number, patient: event.patient_id, type: event.event_type, severity: event.severity, status: event.status }))} columns={["event", "patient", "type", "severity", "status"]} user={user} density="compact" className="quality-secondary-table" />
             </section>
             <section>
               <h3>Audit Evidence</h3>
-              <Table rows={operations} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} user={user} />
+              <Table rows={operations} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} user={user} density="compact" className="quality-secondary-table quality-audit-table" />
             </section>
             <section>
               <h3>Compliance Exports</h3>
-              <Table rows={exports.slice(0, 8).map((item) => ({ export: item.export_number, status: item.status, generated_at: formatDateTime(item.generated_at), profile: item.export_profile, evidence: item.evidence_summary?.workflow_operation_count || 0 }))} columns={["export", "status", "generated_at", "profile", "evidence"]} />
+              <Table rows={exports.slice(0, 8).map((item) => ({ export: item.export_number, status: item.status, profile: item.export_profile, evidence: item.evidence_summary?.workflow_operation_count || 0 }))} columns={["export", "status", "profile", "evidence"]} density="compact" className="quality-secondary-table quality-export-table" />
             </section>
             <section>
               <h3>CAPA / Deviation Links</h3>
-              <Table rows={(selectedEvent?.links || []).map((link) => ({ type: link.entity_type, id: link.entity_id, label: link.label || "" }))} columns={["type", "id", "label"]} />
+              <Table rows={(selectedEvent?.links || []).map((link) => ({ type: link.entity_type, id: link.entity_id, label: link.label || "" }))} columns={["type", "id", "label"]} density="compact" className="quality-secondary-table quality-link-table" />
             </section>
             <section>
               <h3>Handoffs</h3>
@@ -5705,7 +5787,7 @@ function reportTableConfig(definition, report) {
 function ReportPanel({ definition, report, user }) {
   const config = reportTableConfig(definition, report);
   return (
-    <section>
+    <section className={cx("report-panel", `report-panel-${definition.key}`)}>
       <div className="section-heading-row">
         <h3>{definition.label}</h3>
         <StatusPill status="Active" />
@@ -5715,7 +5797,7 @@ function ReportPanel({ definition, report, user }) {
           <span key={metric.label}>{metric.label}<strong>{reportMetricValue(metric)}</strong></span>
         ))}
       </div>
-      <Table rows={config.rows.slice(0, 10)} columns={config.columns} user={user} />
+      <Table rows={config.rows.slice(0, 10)} columns={config.columns} user={user} density="compact" className="reports-secondary-table" />
       {(report?.warnings || []).map((warning) => (
         <div className="notice-state compact-notice" key={`${definition.key}-${warning.warning_type}`}>{warning.message}</div>
       ))}
@@ -5988,16 +6070,16 @@ function ClinicalReportsPage({ token, navigate, user }) {
             {reportModuleOptions.map((definition) => (
               <ReportPanel key={definition.key} definition={definition} report={reports[definition.key]} user={user} />
             ))}
-            <section>
+            <section className="reports-export-panel">
               <div className="section-heading-row">
                 <h3>Analytics Exports</h3>
                 <button type="button" onClick={() => setModalOpen(true)}><UploadCloud size={15} />New Export</button>
               </div>
-              <Table rows={exportRows} columns={["export", "status", "modules", "rows", "profile", "format", "generated_at"]} />
+              <Table rows={exportRows} columns={["export", "status", "modules", "rows", "profile", "format", "generated_at"]} density="compact" className="reports-secondary-table reports-export-table" />
             </section>
-            <section>
+            <section className="reports-audit-panel">
               <h3>Recent Audit</h3>
-              <Table rows={(dashboard?.recent_audit_operations || []).map((operation) => ({ workflow: operation.workflow, entity_type: operation.entity_type, entity_id: operation.entity_id, actor: operation.actor, timestamp: formatDateTime(operation.timestamp) }))} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} user={user} />
+              <Table rows={(dashboard?.recent_audit_operations || []).map((operation) => ({ workflow: operation.workflow, entity_type: operation.entity_type, entity_id: operation.entity_id, actor: operation.actor, timestamp: formatDateTime(operation.timestamp) }))} columns={["workflow", "entity_type", "entity_id", "actor", "timestamp"]} user={user} density="compact" className="reports-secondary-table reports-audit-table" />
             </section>
             <section>
               <h3>Handoffs</h3>
