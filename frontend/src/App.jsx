@@ -16,6 +16,9 @@ import {
   LogIn,
   LogOut,
   Mail,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   RefreshCw,
   ReceiptText,
@@ -24,6 +27,7 @@ import {
   UploadCloud,
   User,
   UserPlus,
+  X,
   XCircle,
 } from "lucide-react";
 import { isValidElement, useEffect, useMemo, useState } from "react";
@@ -184,6 +188,36 @@ function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
+function readableApiError(message, statusCode) {
+  const raw = String(message || "").trim();
+  if (statusCode >= 500) {
+    return "Data unavailable. The backend or database returned an error. Retry after confirming local services and database connectivity.";
+  }
+  if (!raw || raw === "Failed to fetch" || raw.toLowerCase().includes("failed to fetch")) {
+    return "Data unavailable. The frontend could not reach the API. Confirm the backend and database are running, then retry.";
+  }
+  return raw;
+}
+
+function ClinicalAlertBanner({ message, onRetry }) {
+  if (!message) return null;
+  return (
+    <div className="error-state clinical-alert" role="status">
+      <AlertTriangle size={16} />
+      <div>
+        <strong>Clinical data unavailable</strong>
+        <span>{readableApiError(message)}</span>
+      </div>
+      {onRetry && (
+        <button type="button" className="secondary-button" onClick={onRetry}>
+          <RefreshCw size={15} />
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
 function normalizeRoute(route) {
   const withSlash = route?.startsWith("/") ? route : `/${route || ""}`;
   const clean = withSlash.replace(/\/+$/, "");
@@ -216,14 +250,19 @@ async function apiRequest(path, { token, method = "GET", body, headers: customHe
   const headers = { ...customHeaders };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body) headers["Content-Type"] = "application/json";
-  const response = await fetch(apiUrl(path), {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(apiUrl(path), {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    throw new Error(readableApiError(err.message));
+  }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `${response.status} ${response.statusText}`);
+    throw new Error(readableApiError(text || `${response.status} ${response.statusText}`, response.status));
   }
   return response.headers.get("content-type")?.includes("application/json")
     ? response.json()
@@ -1250,7 +1289,7 @@ function ClinicalPatientsPage({ token, navigate, user }) {
           <button type="submit"><FileCheck2 size={16} />Apply</button>
         </form>
       </section>
-      {error && <div className="error-state">{error}</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadPatients} />
       {loading && <div className="notice-state">Loading patient/donor records...</div>}
       {!loading && !patients.length && <div className="empty-state">No patient or donor profiles found.</div>}
       {!!patients.length && (
@@ -1314,36 +1353,64 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
     if (token) loadPatient();
   }, [token, patientId]);
 
-  if (loading) return <div className="notice-state">Loading patient/donor profile...</div>;
-  if (error) return <div className="error-state">{error}</div>;
-  if (!patient) return <div className="empty-state">Patient/donor profile unavailable.</div>;
+  const hasPatient = Boolean(patient);
+  const displayPatientId = patient?.patient_id || patientId;
+  const demographicRows = hasPatient
+    ? [
+        { field: "Date of birth", value: formatDate(patient.date_of_birth) },
+        { field: "Sex at birth", value: patient.sex_at_birth },
+        { field: "Gender identity", value: patient.gender_identity || "" },
+        { field: "Preferred language", value: patient.preferred_language || "" },
+        { field: "Phone", value: patient.phone || "" },
+        { field: "Email", value: patient.email || "" },
+        { field: "Donor reference", value: patient.donor_reference || "" },
+      ]
+    : [
+        { field: "Record", value: displayPatientId },
+        { field: "Name", value: "Protected until profile data is available" },
+        { field: "Date of birth", value: "PHI protected" },
+        { field: "Contact", value: "PHI protected" },
+        { field: "Status", value: "Data unavailable" },
+      ];
+  const contactRows = hasPatient ? patient.contacts || [] : [{ contact_type: "Planned section", full_name: "PHI protected", relationship: "Data required", phone: "", email: "" }];
+  const insuranceRows = hasPatient ? patient.insurance_profiles || [] : [{ priority: "Planned section", payer_name: "PHI protected", member_id: "Redacted", eligibility_status: "Data required" }];
+  const consentRows = hasPatient ? patient.consents || [] : [{ consent_type: "Planned section", consent_status: "Data required", captured_by_name: "", notes: "Awaiting profile data" }];
+  const activityRows = hasPatient
+    ? [
+        { event: "Profile created", timestamp: formatDateTime(patient.created_at), source: patient.source },
+        { event: "Profile updated", timestamp: formatDateTime(patient.updated_at), source: `Version ${patient.version}` },
+      ]
+    : [
+        { event: "Profile shell rendered", timestamp: "Data unavailable", source: "Fallback view" },
+        { event: "Audit activity", timestamp: "Planned workflow", source: "Requires patient data" },
+      ];
 
   return (
     <div className="clinical-shell">
       <section className="clinical-hero">
         <div>
-          <p className="eyebrow"><TableCellValue value={patient.patient_id} field="patient_id" user={user} /></p>
-          <h2><TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /></h2>
-          <StatusPill status={patient.status} />
+          <p className="eyebrow"><TableCellValue value={displayPatientId} field="patient_id" user={user} /></p>
+          <h2>{hasPatient ? <TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /> : "Patient / Donor Detail"}</h2>
+          <StatusPill status={hasPatient ? patient.status : "Data unavailable"} />
           <ClinicalPrivacyIndicator user={user} />
         </div>
         <div className="clinical-actions">
-          <button type="button" onClick={() => setModalType("edit")}><FileCheck2 size={16} />Edit Demographics</button>
+          <button type="button" onClick={() => setModalType("edit")} disabled={!hasPatient} title={hasPatient ? "Edit demographics" : "Profile data required before editing"}><FileCheck2 size={16} />Edit Demographics</button>
+          <button type="button" className="secondary-button" onClick={loadPatient}><RefreshCw size={16} />Retry</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients")}><ArrowLeft size={16} />Back to List</button>
         </div>
       </section>
+      {loading && <div className="notice-state">Loading patient/donor profile...</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadPatient} />
+      {!hasPatient && !loading && (
+        <div className="notice-state patient-fallback-note">
+          Showing a protected patient detail shell while live profile data is unavailable. Sensitive values remain masked until the profile can be loaded.
+        </div>
+      )}
       <div className="split">
         <section>
           <h3>Demographics</h3>
-          <Table rows={[
-            { field: "Date of birth", value: formatDate(patient.date_of_birth) },
-            { field: "Sex at birth", value: patient.sex_at_birth },
-            { field: "Gender identity", value: patient.gender_identity || "" },
-            { field: "Preferred language", value: patient.preferred_language || "" },
-            { field: "Phone", value: patient.phone || "" },
-            { field: "Email", value: patient.email || "" },
-            { field: "Donor reference", value: patient.donor_reference || "" },
-          ]} columns={["field", "value"]} user={user} />
+          <Table rows={demographicRows} columns={["field", "value"]} user={user} />
         </section>
         <section>
           <h3>Planned Future Workflows</h3>
@@ -1359,28 +1426,25 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
       </div>
       <div className="split">
         <section>
-          <div className="section-heading-row"><h3>Contacts</h3><button type="button" onClick={() => setModalType("contact")}>Add</button></div>
-          <Table rows={patient.contacts || []} columns={["contact_type", "full_name", "relationship", "phone", "email"]} user={user} />
+          <div className="section-heading-row"><h3>Contacts</h3><button type="button" onClick={() => setModalType("contact")} disabled={!hasPatient}>Add</button></div>
+          <Table rows={contactRows} columns={["contact_type", "full_name", "relationship", "phone", "email"]} user={user} />
         </section>
         <section>
-          <div className="section-heading-row"><h3>Insurance</h3><button type="button" onClick={() => setModalType("insurance")}>Add</button></div>
-          <Table rows={patient.insurance_profiles || []} columns={["priority", "payer_name", "member_id", "eligibility_status"]} user={user} />
+          <div className="section-heading-row"><h3>Insurance</h3><button type="button" onClick={() => setModalType("insurance")} disabled={!hasPatient}>Add</button></div>
+          <Table rows={insuranceRows} columns={["priority", "payer_name", "member_id", "eligibility_status"]} user={user} />
         </section>
       </div>
       <div className="split">
         <section>
-          <div className="section-heading-row"><h3>Consents</h3><button type="button" onClick={() => setModalType("consent")}>Capture</button></div>
-          <Table rows={patient.consents || []} columns={["consent_type", "consent_status", "captured_by_name", "notes"]} user={user} />
+          <div className="section-heading-row"><h3>Consents</h3><button type="button" onClick={() => setModalType("consent")} disabled={!hasPatient}>Capture</button></div>
+          <Table rows={consentRows} columns={["consent_type", "consent_status", "captured_by_name", "notes"]} user={user} />
         </section>
         <section>
           <h3>Recent Workflow Activity</h3>
-          <Table rows={[
-            { event: "Profile created", timestamp: formatDateTime(patient.created_at), source: patient.source },
-            { event: "Profile updated", timestamp: formatDateTime(patient.updated_at), source: `Version ${patient.version}` },
-          ]} columns={["event", "timestamp", "source"]} />
+          <Table rows={activityRows} columns={["event", "timestamp", "source"]} />
         </section>
       </div>
-      {modalType && (
+      {modalType && hasPatient && (
         <PatientWorkflowModal
           type={modalType}
           patient={patient}
@@ -6790,6 +6854,16 @@ function App() {
   const active =
     routeToSection[route] || (clinicalPatientId(route) ? "clinical_patient_detail" : route === "/" && token ? "dashboard" : "");
   const activeSection = useMemo(() => sectionById[active], [active]);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isClinicalActive = active?.startsWith("clinical_");
+  const pageTitle =
+    route === "/profile"
+      ? "Profile"
+      : route === "/preferences"
+        ? "Notification Preferences"
+        : activeSection?.label || "Clinical Operations";
+  const routeContext = isClinicalActive ? "Clinical workspace" : "Donor/QMS operations";
 
   useEffect(() => {
     function onPopState() {
@@ -6804,6 +6878,7 @@ function App() {
     const method = options.replace ? "replaceState" : "pushState";
     window.history[method]({}, "", appPath(normalized));
     setRoute(normalized);
+    setMobileNavOpen(false);
   }
 
   function clearSession() {
@@ -6844,7 +6919,8 @@ function App() {
   }
 
   useEffect(() => {
-    if (token && active) refresh();
+    if (token && active && !isClinicalActive) refresh();
+    if (isClinicalActive) setError("");
   }, [token, active]);
 
   useEffect(() => {
@@ -6881,14 +6957,30 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside>
-        <div className="brand">
-          <HeartPulse size={24} />
-          <div>
-            <strong>Clinical Donor</strong>
-            <span>Current app: Clinical</span>
+    <div className={cx("app-shell", sidebarCollapsed && "nav-collapsed", mobileNavOpen && "mobile-nav-open")}>
+      <button
+        type="button"
+        className="mobile-nav-backdrop"
+        aria-label="Close navigation"
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside className="app-sidebar" aria-label="Application navigation">
+        <div className="sidebar-top">
+          <div className="brand">
+            <HeartPulse size={24} />
+            <div className="brand-text">
+              <strong>Meridian Clinical</strong>
+              <span>Operations Platform</span>
+            </div>
           </div>
+          <button
+            type="button"
+            className="sidebar-close mobile-only"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <X size={18} />
+          </button>
         </div>
         <div className="portfolio-nav" aria-label="Portfolio navigation">
           {visiblePortfolioLinks(user).map((item) => {
@@ -6896,67 +6988,97 @@ function App() {
             return (
               <a key={item.label} href={item.href} className={item.label === "Clinical" ? "active" : ""}>
                 <Icon size={15} />
-                {item.label}
+                <span className="nav-text">{item.label}</span>
               </a>
             );
           })}
         </div>
-        <nav>
-          {sections.map((section) => {
-            const Icon = section.icon;
-            return (
-              <button
-                key={section.id}
-                className={cx(active === section.id && "active")}
-                onClick={() => navigate(section.route)}
-                type="button"
-              >
-                <Icon size={17} />
-                {section.label}
-              </button>
-            );
-          })}
+        <nav className="sidebar-nav">
+          <div className="nav-group clinical-nav-group">
+            <span className="nav-label">Clinical Workspace</span>
+            {clinicalSections.map((section) => {
+              const Icon = section.icon;
+              return (
+                <button
+                  key={section.id}
+                  className={cx(active === section.id && "active")}
+                  onClick={() => navigate(section.route)}
+                  type="button"
+                  title={section.label}
+                >
+                  <Icon size={17} />
+                  <span className="nav-text">{section.label}</span>
+                </button>
+              );
+            })}
+          </div>
           <div className="nav-divider" />
-          <span className="nav-label">Clinical Platform</span>
-          {clinicalSections.map((section) => {
-            const Icon = section.icon;
-            return (
-              <button
-                key={section.id}
-                className={cx(active === section.id && "active")}
-                onClick={() => navigate(section.route)}
-                type="button"
-              >
-                <Icon size={17} />
-                {section.label}
-              </button>
-            );
-          })}
+          <div className="nav-group legacy-nav-group">
+            <span className="nav-label">Donor/QMS Ops</span>
+            {sections.map((section) => {
+              const Icon = section.icon;
+              return (
+                <button
+                  key={section.id}
+                  className={cx(active === section.id && "active")}
+                  onClick={() => navigate(section.route)}
+                  type="button"
+                  title={section.label}
+                >
+                  <Icon size={17} />
+                  <span className="nav-text">{section.label}</span>
+                </button>
+              );
+            })}
+          </div>
           <div className="nav-divider" />
-          <button className={cx(route === "/profile" && "active")} onClick={() => navigate("/profile")} type="button">
-            <User size={17} />
-            Profile
-          </button>
-          <button className={cx(route === "/preferences" && "active")} onClick={() => navigate("/preferences")} type="button">
-            <Bell size={17} />
-            Preferences
-          </button>
+          <div className="nav-group utility-nav-group">
+            <span className="nav-label">Account</span>
+            <button className={cx(route === "/profile" && "active")} onClick={() => navigate("/profile")} type="button" title="Profile">
+              <User size={17} />
+              <span className="nav-text">Profile</span>
+            </button>
+            <button className={cx(route === "/preferences" && "active")} onClick={() => navigate("/preferences")} type="button" title="Preferences">
+              <Bell size={17} />
+              <span className="nav-text">Preferences</span>
+            </button>
+          </div>
         </nav>
+        <div className="sidebar-security-card">
+          <span className="nav-text">Security posture</span>
+          <StatusPill status="PHI protected" />
+          <StatusPill status="Audit DB + WORM" />
+        </div>
       </aside>
-      <main>
+      <main className="app-main">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Azure-ready FastAPI + React</p>
-            <h1>
-              {route === "/profile"
-                ? "Profile"
-                : route === "/preferences"
-                  ? "Notification Preferences"
-                  : activeSection?.label || "Clinical Operations"}
-            </h1>
+          <div className="topbar-title-row">
+            <button
+              type="button"
+              className="mobile-nav-toggle mobile-only"
+              aria-label="Open navigation"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu size={18} />
+            </button>
+            <button
+              type="button"
+              className="sidebar-collapse-toggle desktop-only"
+              aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+            <div>
+              <p className="eyebrow">{routeContext}</p>
+              <h1>{pageTitle}</h1>
+              <p className="route-context">
+                {activeSection?.status || "Operational"} - {user?.role_name || "Role unavailable"}
+              </p>
+            </div>
           </div>
           <div className="topbar-actions">
-            <button type="button" onClick={refresh}>
+            <button type="button" onClick={isClinicalActive ? () => setError("") : refresh}>
               <RefreshCw size={16} />
               Refresh
             </button>
@@ -6970,12 +7092,7 @@ function App() {
             </button>
           </div>
         </header>
-        {error && (
-          <div className="error-state">
-            <AlertTriangle size={16} />
-            {error}
-          </div>
-        )}
+        {error && !isClinicalActive && <ClinicalAlertBanner message={error} onRetry={refresh} />}
         {route === "/profile" && <ProfilePage token={token} user={user} onUserUpdate={updateUser} />}
         {route === "/preferences" && <PreferencesPage token={token} />}
         {route !== "/profile" && route !== "/preferences" && !hasRouteAccess(activeSection, user) && (
