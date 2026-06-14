@@ -2,11 +2,18 @@
 
 Post-RC-16 update date: 2026-06-13
 
+Deployment provisioning package update date: 2026-06-14
+
 ## Release Baseline
 
 Baseline accepted commit before the Post-RC-16 evidence package: `177abc8 Add Key Vault lifecycle readiness`.
 
 The final deployment commit must be recorded from `clinical-production-evidence-bundle.json` before production release approval.
+
+Latest deployment packaging baseline:
+
+- `48d804b Add clinical deployment packaging dry run`
+- DEPLOY-02 provisioning documentation package must be reviewed before external Azure provisioning begins.
 
 ## Completed Module List
 
@@ -33,6 +40,19 @@ No new clinical modules are added by the go-live evidence package.
 - `npm audit --audit-level=high` reports zero high vulnerabilities or has an approved exception.
 - `scripts/start_app_service.py --check` passes in the target environment.
 - `scripts/build_clinical_production_evidence_bundle.py --out <approved-evidence-path>` produces sanitized JSON and markdown evidence.
+
+## Deployment Provisioning Checklist
+
+- `docs/clinical-azure-provisioning-checklist.md` is reviewed and accepted by Operations and Security/Compliance.
+- `docs/clinical-production-postgres-checklist.md` is reviewed and accepted by DBA/Operations.
+- `docs/clinical-app-service-settings-checklist.md` is reviewed and mapped to target App Service settings or approved secret store references.
+- `docs/clinical-dns-custom-domain-checklist.md` is reviewed with the DNS owner and site-wide owner.
+- `docs/clinical-deployment-execution-runbook.md` is reviewed by the release operator and rollback owner.
+- `docs/clinical-site-integration-manifest.json` is reviewed for SITE-WIDE-00 planning.
+- Preferred URL decision is confirmed: `https://clinical.teemails.com`.
+- Preferred hosting decision is confirmed: single App Service-style FastAPI plus built React frontend.
+- Site-wide integration decision is recorded: subdomain launcher link first, or approved path routing alternative with documented rewrite/cookie/API risks.
+- Final Product Owner, Security/Compliance, and Operations signoff items below are completed before production cutover.
 
 ## Migration Readiness Checklist
 
