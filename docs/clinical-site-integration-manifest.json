@@ -1,0 +1,173 @@
+{
+  "app_name": "Clinical Donor Screening & Quality Workflow Platform",
+  "app_slug": "clinical",
+  "release_baseline_commit": "f7d186f",
+  "deployment_status": "deployment_planning_inventory_complete_no_resources_created",
+  "recommended_url": "https://clinical.teemails.com",
+  "alternate_url": "https://teemails.com/clinical",
+  "local_frontend_url": "http://127.0.0.1:5173",
+  "local_backend_url": "http://127.0.0.1:8000",
+  "local_demo_backend_url": "http://127.0.0.1:8012",
+  "health_endpoint": "/api/health",
+  "monitoring_health_endpoint": "/api/monitoring/health",
+  "frontend_build_command": "cd frontend && npm run build",
+  "backend_start_command": "python scripts/start_app_service.py",
+  "startup_check_command": "python scripts/start_app_service.py --check",
+  "migration_command": "python -m alembic upgrade head",
+  "demo_seed_command": "python scripts/seed_clinical_demo_data.py",
+  "screenshots_location": "metadata/visual_audit/clinical/fe03_final_frontend_qa/",
+  "clinical_routes": [
+    "/clinical/dashboard",
+    "/clinical/patients",
+    "/clinical/patients/:id",
+    "/clinical/scheduling",
+    "/clinical/screening",
+    "/clinical/encounters",
+    "/clinical/orders",
+    "/clinical/care-plans",
+    "/clinical/billing",
+    "/clinical/quality",
+    "/clinical/reports",
+    "/clinical/admin"
+  ],
+  "primary_nav_items": [
+    {
+      "label": "Clinical Dashboard",
+      "route": "/clinical/dashboard"
+    },
+    {
+      "label": "Patients / Donors",
+      "route": "/clinical/patients"
+    },
+    {
+      "label": "Scheduling",
+      "route": "/clinical/scheduling"
+    },
+    {
+      "label": "Donor Screening",
+      "route": "/clinical/screening"
+    },
+    {
+      "label": "Encounters",
+      "route": "/clinical/encounters"
+    },
+    {
+      "label": "Orders / Results",
+      "route": "/clinical/orders"
+    },
+    {
+      "label": "Care Plans",
+      "route": "/clinical/care-plans"
+    },
+    {
+      "label": "Billing",
+      "route": "/clinical/billing"
+    },
+    {
+      "label": "Quality",
+      "route": "/clinical/quality"
+    },
+    {
+      "label": "Reports",
+      "route": "/clinical/reports"
+    },
+    {
+      "label": "Clinical Admin",
+      "route": "/clinical/admin"
+    }
+  ],
+  "required_env_vars": [
+    "APP_ENV",
+    "DATABASE_URL",
+    "APP_BASE_URL",
+    "PORT",
+    "STARTUP_MODE",
+    "SERVE_FRONTEND",
+    "FRONTEND_DIST_DIR",
+    "COOKIE_SECURE",
+    "COOKIE_SAMESITE",
+    "CORS_ORIGINS",
+    "WORKFLOW_AUDIT_STORAGE",
+    "WORKFLOW_AUDIT_DB_REQUIRED",
+    "DEFAULT_ANALYTICS_EXPORT_PROFILE",
+    "DEFAULT_COMPLIANCE_EXPORT_PROFILE",
+    "DEFAULT_AUDIT_EXPORT_PROFILE",
+    "PHI_REDACTION_ENABLED",
+    "ALLOW_GENERIC_FOUNDATION_COMMIT",
+    "GENERIC_WORKFLOW_COMMIT_ADMIN_ONLY",
+    "AUTHENTICATION_ENABLED"
+  ],
+  "required_secrets": [
+    "SECRET_KEY",
+    "ENCRYPTION_KEY",
+    "MFA_DEV_BYPASS_CODE",
+    "DATABASE_URL credential material",
+    "SMTP_PASSWORD or approved email provider key if notification delivery is enabled",
+    "BACKUP_ENCRYPTION_KEY before hosted backup automation is enabled",
+    "AUDIT_MANIFEST_LOCAL_HMAC_KEY only if approved local HMAC signing is enabled"
+  ],
+  "optional_env_vars": [
+    "VITE_API_BASE_URL",
+    "EMAIL_PROVIDER",
+    "EMAIL_FROM",
+    "EMAIL_FROM_NAME",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USERNAME",
+    "SMTP_USE_TLS",
+    "SMTP_USE_SSL",
+    "SENDGRID_API_KEY",
+    "MAILGUN_API_KEY",
+    "MAILGUN_DOMAIN",
+    "DATA_PRODUCER_METADATA_ROOT",
+    "DATA_PRODUCER_EXPORT_ROOT",
+    "ENABLE_DATA_PRODUCER_API",
+    "DATA_LAKE_ACCOUNT_NAME",
+    "DATA_LAKE_CONTAINER",
+    "DATA_LAKE_AUTH_MODE",
+    "DATA_LAKE_BASE_PATH",
+    "AUDIT_OBJECT_MIRROR_MODE",
+    "AUDIT_OBJECT_MIRROR_REQUIRED",
+    "AUDIT_OBJECT_MIRROR_AZURE_ACCOUNT_URL",
+    "AUDIT_OBJECT_MIRROR_AZURE_CONTAINER",
+    "AUDIT_OBJECT_MIRROR_AZURE_PREFIX",
+    "AUDIT_OBJECT_MIRROR_AZURE_CREDENTIAL_MODE",
+    "AUDIT_OBJECT_MIRROR_AZURE_ENABLE_REAL_IO",
+    "AUDIT_MANIFEST_SIGNING_REQUIRED",
+    "AUDIT_MANIFEST_SIGNING_MODE",
+    "AUDIT_MANIFEST_SIGNING_ALGORITHM",
+    "AUDIT_MANIFEST_SIGNING_KEY_REF",
+    "AUDIT_MANIFEST_AZURE_KEY_VAULT_URL",
+    "AUDIT_MANIFEST_AZURE_KEY_NAME",
+    "AUDIT_MANIFEST_AZURE_KEY_VERSION",
+    "AUDIT_MANIFEST_AZURE_KEY_VAULT_CREDENTIAL_MODE",
+    "AUDIT_MANIFEST_AZURE_KEY_VAULT_ENABLE_REAL_IO"
+  ],
+  "production_dependencies": [
+    "Python 3.12 App Service or equivalent managed Python host",
+    "Node/npm build step for React/Vite assets",
+    "PostgreSQL 16-compatible production database",
+    "TLS-enabled public endpoint",
+    "Managed application settings or secret store",
+    "Optional Application Insights or equivalent monitoring",
+    "Optional Azure Blob WORM target after compliance approval",
+    "Optional Azure Key Vault signing target after compliance approval"
+  ],
+  "known_blockers": [
+    "Production PostgreSQL target is not provisioned",
+    "Production DATABASE_URL is not set",
+    "Production SECRET_KEY and ENCRYPTION_KEY are not set",
+    "DNS/domain decision is pending",
+    "Hosting target decision is pending",
+    "Product Owner, Security/Compliance, and Operations signoff is pending",
+    "Live Azure WORM validation remains pending",
+    "Live Azure Key Vault validation remains pending"
+  ],
+  "integration_notes": [
+    "Recommended first public URL is clinical.teemails.com.",
+    "Path routing under teemails.com/clinical requires gateway rewrite and SPA asset testing.",
+    "Do not create DNS records or cloud resources from this manifest.",
+    "Do not copy local .env values into production settings.",
+    "Clinical backend remains the authorization boundary."
+  ]
+}
