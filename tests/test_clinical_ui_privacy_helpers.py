@@ -95,3 +95,76 @@ def test_clinical_privacy_component_sources_do_not_render_raw_suppressed_values(
     assert "ClinicalPrivacyIndicator user={user}" in app_source
     assert "ExportProfileIndicator profile=" in app_source
     assert "JSON.stringify({ warnings: preview.warnings" not in app_source
+
+
+def test_clinical_route_inventory_contains_required_shell_routes() -> None:
+    routes_source = (ROOT / "frontend/src/pages/clinical/clinicalRoutes.jsx").read_text(encoding="utf-8")
+    required_routes = [
+        "/clinical/dashboard",
+        "/clinical/patients",
+        "/clinical/patients/:id",
+        "/clinical/scheduling",
+        "/clinical/screening",
+        "/clinical/encounters",
+        "/clinical/orders",
+        "/clinical/care-plans",
+        "/clinical/billing",
+        "/clinical/quality",
+        "/clinical/reports",
+        "/clinical/admin",
+    ]
+
+    for route in required_routes:
+        assert f'route: "{route}"' in routes_source
+
+
+def test_clinical_identifier_component_keeps_dense_values_scannable() -> None:
+    identifier_source = (ROOT / "frontend/src/pages/clinical/ClinicalIdentifier.jsx").read_text(encoding="utf-8")
+    app_source = (ROOT / "frontend/src/App.jsx").read_text(encoding="utf-8")
+
+    assert "export function clinicalCellKind" in identifier_source
+    assert 'name.includes("email")' in identifier_source
+    assert 'name.includes("phone")' in identifier_source
+    assert 'return "identifier"' in identifier_source
+    assert 'return "token"' in identifier_source
+    assert "clinical-id clinical-truncate" in identifier_source
+    assert "clinicalCellKind(field, text)" in app_source
+    assert "clinicalCellKind(field, Array.isArray(value) ? value.length : value)" in app_source
+    assert "density === \"compact\"" in app_source
+
+
+def test_fe03_frontend_qa_documentation_tracks_routes_modals_and_evidence() -> None:
+    doc_path = ROOT / "docs/clinical-fe03-final-frontend-qa.md"
+    assert doc_path.exists()
+    doc = doc_path.read_text(encoding="utf-8")
+
+    assert "metadata/visual_audit/clinical/fe03_final_frontend_qa/" in doc
+    assert "Preview -> Commit" in doc
+    assert "Compact Table Regression" in doc
+    assert "Route QA" in doc
+    for route in [
+        "/clinical/dashboard",
+        "/clinical/patients",
+        "/clinical/patients/:id",
+        "/clinical/scheduling",
+        "/clinical/screening",
+        "/clinical/encounters",
+        "/clinical/orders",
+        "/clinical/care-plans",
+        "/clinical/billing",
+        "/clinical/quality",
+        "/clinical/reports",
+        "/clinical/admin",
+    ]:
+        assert route in doc
+
+
+def test_shared_workflow_modal_css_covers_preview_commit_mobile_polish() -> None:
+    styles = (ROOT / "frontend/src/styles.css").read_text(encoding="utf-8")
+
+    assert ".preview-panel" in styles
+    assert ".modal-actions" in styles
+    assert "overscroll-behavior: contain" in styles
+    assert "scrollbar-gutter: stable" in styles
+    assert "@media (max-width: 620px)" in styles
+    assert ".workflow-modal .modal-actions button" in styles
