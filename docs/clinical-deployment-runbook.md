@@ -37,7 +37,7 @@ This runbook is a deployment planning handoff. It does not authorize production 
 4. Confirm hosting option: single App Service-style host or split frontend/backend.
 5. Confirm public URL decision: recommended `clinical.teemails.com`.
 6. Confirm target PostgreSQL database is provisioned and backed up.
-7. Confirm production app settings are configured from `docs/clinical-deployment-env-vars.md`.
+7. Confirm production app settings are configured from `docs/clinical-production-env-template.md` and checked against `docs/clinical-deployment-env-vars.md`.
 8. Confirm generated `SECRET_KEY`, `ENCRYPTION_KEY`, and `DATABASE_URL` are stored outside Git.
 9. Confirm production `CORS_ORIGINS` has no wildcard, localhost, or loopback.
 10. Confirm `COOKIE_SECURE=true`.
@@ -423,6 +423,15 @@ Validation was run locally after the planning docs were created:
 | `.\.venv\Scripts\python.exe -m alembic heads` | Passed: `202606130003 (head)`. |
 | `git diff --check` | Passed: no whitespace errors; Git reported the existing LF-to-CRLF warning for protected `backend/app/cli.py`. |
 
+## CLINICAL-DEPLOY-01 Packaging Dry-Run Artifacts
+
+DEPLOY-01 adds deployment packaging and startup dry-run handoff material:
+
+- `docs/clinical-production-env-template.md`: placeholder-only production settings template for the preferred single-host FastAPI plus React deployment.
+- `docs/clinical-deployment-package-manifest.md`: runtime files, excluded generated/local artifacts, startup command, frontend artifact expectations, health checks, and migration head.
+- `docs/clinical-deployment-dry-run-results.md`: Vite build result, startup check, same-host static serving smoke, production gate dry-run, migration head, blockers, and final validation results.
+- `tests/test_clinical_deployment_packaging_docs.py`: focused guard tests for the manifest, env template, package manifest, dry-run results, and startup check.
+
 ## Recommendation
 
-Next step should be environment provisioning first, followed by `CLINICAL-DEPLOY-01` actual deployment packaging. `SITE-WIDE-00` teemails integration planning can run in parallel using `docs/clinical-site-integration-manifest.json`, but it should not wire routes until the domain and hosting target are selected.
+Next step should be `CLINICAL-DEPLOY-02` environment provisioning and blocker remediation: provision the PostgreSQL target, configure App Service-style production settings from the DEPLOY-01 template, approve DNS for `clinical.teemails.com`, and complete Product Owner, Security/Compliance, and Operations signoff. `SITE-WIDE-00` teemails integration planning can run in parallel using `docs/clinical-site-integration-manifest.json`, but it should not wire routes until the domain and hosting target are selected.
