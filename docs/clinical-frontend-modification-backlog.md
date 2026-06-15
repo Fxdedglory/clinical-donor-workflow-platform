@@ -21,11 +21,11 @@ This backlog prepares future frontend implementation work. It does not authorize
 
 | Priority | Item | Classification | Scope | Acceptance signal |
 | ---: | --- | --- | --- | --- |
-| 1 | Normalize Clinical route header anatomy | `safe_now` | Make route title, status, primary actions, secondary handoffs, and refresh/back behavior consistent across Clinical pages | Route headers scan consistently on desktop and mobile without changing endpoints |
+| 1 | Normalize Clinical route header anatomy | `safe_now` | Completed in `CLINICAL-FE-04` with shared route header and dashboard shell alignment | Route headers scan consistently on desktop and mobile without changing endpoints |
 | 2 | Standardize filter and action bars | `safe_now` | Apply consistent filter grouping, wrapping, and action priority across patients, scheduling, screening, encounters, orders, care plans, billing, quality, reports, and admin | Dense route controls wrap cleanly and primary action remains obvious |
-| 3 | Extract reusable clinical state components | `safe_now` | Create shared frontend patterns for empty, loading, backend-unavailable, permission-denied, and retry states | Routes use consistent state copy and visual treatment |
-| 4 | Status badge vocabulary review | `safe_now` | Normalize frontend display mappings for Active, Foundation pending, Planned workflow, PHI protected, internal-only, pending, warning, danger, completed | Same status means same color/tone across modules |
-| 5 | Modal Preview -> Commit visual standardization | `safe_now` | Align modal headers, validation summaries, preview panels, confirmation copy, and action footer layout without changing API semantics | Representative modals show consistent validation, preview, commit, cancel, and error states |
+| 3 | Extract reusable clinical state components | `safe_now` | Completed in `CLINICAL-FE-04` for loading, empty, selected-row, and retry/error route states | Routes use consistent state copy and visual treatment |
+| 4 | Status badge vocabulary review | `safe_now` | Completed in `CLINICAL-FE-04` for frontend label normalization and common tone mapping | Same status means same color/tone across modules |
+| 5 | Modal Preview -> Commit visual standardization | `safe_now` | Partially completed in `CLINICAL-FE-04` with shared modal header, step indicator, validation summary, and commit labels | Representative modals show consistent validation, preview, commit, cancel, and error states |
 | 6 | Dense table mobile summaries | `needs_design_decision` | Convert highest-density table rows into mobile summaries with optional detail expansion for orders, billing, quality, reports, and patient detail | Mobile views reduce horizontal scroll while preserving key identifiers and status |
 | 7 | Clinical dashboard operational content | `needs_backend_contract` | Replace dashboard placeholder with module status, workflow operations, recent audit activity, and next-action summaries | Dashboard renders approved backend fields and graceful empty/error states |
 | 8 | Patient/donor detail timeline polish | `safe_now` | Improve detail route hierarchy for demographics, contacts, insurance, consents, audit activity, and handoffs | Patient detail reads as a stable clinical record view even during partial API failures |
@@ -48,15 +48,15 @@ This backlog prepares future frontend implementation work. It does not authorize
 
 ### CLINICAL-FE-04 - Clinical Route-Level Refinement And Usability Polish
 
-Recommended next sprint.
+Completed.
 
 Scope:
 
-- Route header/action/filter consistency.
+- Route header/action consistency.
 - Shared clinical empty/loading/error components.
 - Status badge vocabulary cleanup.
 - Frontend-only modal Preview -> Commit visual alignment.
-- Focused polishing for patient detail, orders, billing, quality, reports, and admin.
+- Focused route-state polishing for patient detail, scheduling, screening, encounters, orders, care plans, billing, quality, reports, and admin.
 
 Boundaries:
 
@@ -67,7 +67,14 @@ Boundaries:
 - No site-wide, HR, or ERP repo changes.
 - No dependency remediation or new UI library.
 
+Evidence:
+
+- `docs/clinical-fe04-route-polish-summary.md`
+- Validation passed: preflight, pytest, frontend build, npm audit, app-service startup check, and Vite preview route smoke.
+
 ### CLINICAL-FE-05 - Mobile Dense-Route Interaction
+
+Recommended next sprint.
 
 Scope:
 

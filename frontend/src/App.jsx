@@ -353,16 +353,30 @@ function MetricCard({ label, value, tone = "neutral" }) {
   );
 }
 
+function statusLabel(status) {
+  return String(status || "Unknown")
+    .replaceAll("_", " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function statusTone(status) {
+  const normalized = statusLabel(status).toLowerCase();
+  if (["critical", "danger", "cancel", "failed", "denied", "inactive", "blocked", "reject", "permanent"].some((term) => normalized.includes(term))) {
+    return "danger";
+  }
+  if (["pending", "planned", "foundation", "draft", "review", "warning", "hold", "open", "deferred", "required", "progress", "running"].some((term) => normalized.includes(term))) {
+    return "warning";
+  }
+  if (["active", "pass", "ok", "current", "complete", "closed", "signed", "verified", "eligible", "paid", "captured", "approved", "success"].some((term) => normalized.includes(term))) {
+    return "success";
+  }
+  return "neutral";
+}
+
 function StatusPill({ status }) {
-  const normalized = String(status || "Unknown");
-  const tone = normalized.toLowerCase().includes("fail")
-    ? "danger"
-    : normalized.toLowerCase().includes("running")
-      ? "warning"
-      : normalized.toLowerCase().includes("pass") || normalized.toLowerCase().includes("ok")
-        ? "success"
-        : "neutral";
-  return <span className={cx("status-pill", tone)}>{normalized}</span>;
+  const normalized = statusLabel(status);
+  return <span className={cx("status-pill", statusTone(normalized))}>{normalized}</span>;
 }
 
 function ClinicalPrivacyIndicator({ user }) {
@@ -386,6 +400,104 @@ function ExportProfileIndicator({ profile = "aggregate_safe", suppression }) {
       {summary.threshold && <span>Threshold {summary.threshold}</span>}
       {summary.applied && <span>{summary.suppressedCells} suppressed</span>}
     </div>
+  );
+}
+
+function ClinicalPageHeader({ eyebrow, title, status = "Active", route, helper, user, actions }) {
+  const actionLabel = typeof title === "string" ? title : eyebrow;
+  return (
+    <section className="clinical-hero">
+      <div className="clinical-title-block">
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+        <div className="clinical-meta-row">
+          {route && <span className="route-chip">{route}</span>}
+          <StatusPill status={status} />
+          {user && <ClinicalPrivacyIndicator user={user} />}
+        </div>
+        {helper && <p className="clinical-helper-text">{helper}</p>}
+      </div>
+      {actions && (
+        <div className="clinical-actions" aria-label={`${actionLabel} actions`}>
+          {actions}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ClinicalStateMessage({ tone = "empty", title, message, action }) {
+  const Icon = tone === "error" ? AlertTriangle : tone === "loading" ? RefreshCw : FileCheck2;
+  const stateClass = tone === "error" ? "error-state" : tone === "loading" ? "notice-state" : "empty-state";
+  return (
+    <div className={cx(stateClass, "clinical-state-message")} role={tone === "error" ? "alert" : "status"}>
+      <Icon size={17} />
+      <div>
+        <strong>{title}</strong>
+        {message && <span>{message}</span>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+const WORKFLOW_STEPS = ["form", "validation", "preview", "confirm", "success"];
+
+function workflowStepLabel(step) {
+  return {
+    form: "Draft",
+    validation: "Validate",
+    preview: "Preview",
+    confirm: "Commit",
+    success: "Done",
+  }[step] || statusLabel(step);
+}
+
+function WorkflowStepIndicator({ step }) {
+  const activeIndex = Math.max(0, WORKFLOW_STEPS.indexOf(step));
+  return (
+    <ol className="workflow-step-indicator" aria-label="Workflow progress">
+      {WORKFLOW_STEPS.map((item, index) => (
+        <li key={item} className={cx(index < activeIndex && "complete", index === activeIndex && "active")}>
+          {workflowStepLabel(item)}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function WorkflowModalHeader({ title, step, onClose, subtitle = "Draft changes, validate required fields, preview backend rules, then commit with confirmation." }) {
+  return (
+    <div className="modal-header">
+      <div>
+        <p className="eyebrow">{workflowStepLabel(step)} step</p>
+        <h3>{title}</h3>
+        <p className="modal-helper-text">{subtitle}</p>
+        <WorkflowStepIndicator step={step} />
+      </div>
+      <button type="button" className="secondary-button" onClick={onClose}>
+        Close
+      </button>
+    </div>
+  );
+}
+
+function ValidationSummary({ issues, validMessage }) {
+  if (issues.length) {
+    return (
+      <ClinicalStateMessage
+        tone="error"
+        title="Resolve required fields"
+        message={issues.join(" ")}
+      />
+    );
+  }
+  return (
+    <ClinicalStateMessage
+      tone="loading"
+      title="Ready for preview"
+      message={validMessage}
+    />
   );
 }
 
@@ -1153,15 +1265,7 @@ function PatientWorkflowModal({ type, patient, token, user, onClose, onSuccess }
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={workflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{workflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>
-            Close
-          </button>
-        </div>
+        <WorkflowModalHeader title={workflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -1217,11 +1321,7 @@ function PatientWorkflowModal({ type, patient, token, user, onClose, onSuccess }
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? (
-              <div className="error-state">{validationIssues.join(" ")}</div>
-            ) : (
-              <div className="notice-state">Required fields are complete. Preview will check backend rules and duplicate risk.</div>
-            )}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will check backend rules and duplicate risk." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
             <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>
               {busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}
@@ -1298,14 +1398,14 @@ function ClinicalPatientsPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Patient / donor registration</p>
-          <h2>Patients / Donors</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Patient / donor registration"
+        title="Patients / Donors"
+        route="/clinical/patients"
+        user={user}
+        helper="Search, register, and maintain patient/donor profiles with PHI-aware display controls."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("create")}>
             <UserPlus size={16} />
             Create Patient / Donor
@@ -1314,8 +1414,9 @@ function ClinicalPatientsPage({ token, navigate, user }) {
             <RefreshCw size={16} />
             Refresh
           </button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <form className="patient-filter" onSubmit={submitSearch}>
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, phone, email, or patient ID" /></label>
@@ -1324,8 +1425,19 @@ function ClinicalPatientsPage({ token, navigate, user }) {
         </form>
       </section>
       <ClinicalAlertBanner message={error} onRetry={loadPatients} />
-      {loading && <div className="notice-state">Loading patient/donor records...</div>}
-      {!loading && !patients.length && <div className="empty-state">No patient or donor profiles found.</div>}
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading patient records"
+          message="Patient and donor profiles are being refreshed with current privacy settings."
+        />
+      )}
+      {!loading && !patients.length && (
+        <ClinicalStateMessage
+          title="No patient or donor profiles found"
+          message="Adjust the filters, refresh the list, or create a new patient/donor profile."
+        />
+      )}
       {!!patients.length && (
         <section>
           <div className="table-wrap">
@@ -1443,20 +1555,28 @@ function ClinicalPatientDetailPage({ token, route, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow"><TableCellValue value={displayPatientId} field="patient_id" user={user} polish /></p>
-          <h2>{hasPatient ? <TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /> : "Patient / Donor Detail"}</h2>
-          <StatusPill status={hasPatient ? patient.status : "Data unavailable"} />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Patient / donor detail"
+        title={hasPatient ? <TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /> : "Patient / Donor Detail"}
+        status={hasPatient ? patient.status : "Data unavailable"}
+        route={`/clinical/patients/${displayPatientId}`}
+        user={user}
+        helper="Demographics, contacts, insurance, consent, and workflow activity remain protected by the current privacy mode."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("edit")} disabled={!hasPatient} title={hasPatient ? "Edit demographics" : "Profile data required before editing"}><FileCheck2 size={16} />Edit Demographics</button>
           <button type="button" className="secondary-button" onClick={loadPatient}><RefreshCw size={16} />Retry</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/patients")}><ArrowLeft size={16} />Back to List</button>
-        </div>
-      </section>
-      {loading && <div className="notice-state">Loading patient/donor profile...</div>}
+          </>
+        }
+      />
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading patient profile"
+          message="Demographics, contacts, insurance, consent, and activity are loading."
+        />
+      )}
       <ClinicalAlertBanner message={error} onRetry={loadPatient} />
       {!hasPatient && !loading && (
         <div className="notice-state patient-fallback-note">
@@ -1708,15 +1828,7 @@ function SchedulingWorkflowModal({
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={schedulingWorkflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{schedulingWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>
-            Close
-          </button>
-        </div>
+        <WorkflowModalHeader title={schedulingWorkflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -1841,11 +1953,7 @@ function SchedulingWorkflowModal({
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? (
-              <div className="error-state">{validationIssues.join(" ")}</div>
-            ) : (
-              <div className="notice-state">Required fields are complete. Preview will check patient, provider, room, equipment, and transition rules.</div>
-            )}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will check patient, provider, room, equipment, and transition rules." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>
               Back to form
             </button>
@@ -1988,14 +2096,14 @@ function ClinicalSchedulingPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Clinical scheduling</p>
-          <h2>Appointments</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Clinical scheduling"
+        title="Appointments"
+        route="/clinical/scheduling"
+        user={user}
+        helper="Coordinate appointments, check-ins, cancellations, no-shows, and schedule handoffs without changing conflict logic."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("book")}>
             <CalendarDays size={16} />
             Book Appointment
@@ -2008,8 +2116,9 @@ function ClinicalSchedulingPage({ token, navigate, user }) {
             <UserPlus size={16} />
             Patients
           </button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <form className="scheduling-filter" onSubmit={submitSearch}>
           <label>
@@ -2048,9 +2157,20 @@ function ClinicalSchedulingPage({ token, navigate, user }) {
           </button>
         </form>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading && <div className="notice-state">Loading appointment schedule...</div>}
-      {!loading && !appointments.length && <div className="empty-state">No appointments match the current filters.</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadScheduling} />
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading schedule"
+          message="Appointments, resources, appointment types, and patients are being refreshed."
+        />
+      )}
+      {!loading && !appointments.length && (
+        <ClinicalStateMessage
+          title="No appointments found"
+          message="Adjust the filters or book a new appointment."
+        />
+      )}
       {!!appointments.length && (
         <div className="split schedule-layout">
           <section>
@@ -2132,7 +2252,10 @@ function ClinicalSchedulingPage({ token, navigate, user }) {
                 </div>
               </>
             ) : (
-              <div className="empty-state">Select an appointment to review details.</div>
+              <ClinicalStateMessage
+                title="Select an appointment"
+                message="Open a row to review status, room, check-in, cancellation, and no-show context."
+              />
             )}
           </section>
         </div>
@@ -2386,13 +2509,7 @@ function ScreeningWorkflowModal({
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={screeningWorkflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{screeningWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={screeningWorkflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -2458,7 +2575,7 @@ function ScreeningWorkflowModal({
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run clinical screening checks.</div>}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will run clinical screening checks." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
             <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
           </div>
@@ -2569,19 +2686,20 @@ function ClinicalScreeningPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Donor screening / eligibility</p>
-          <h2>Screening Queue</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Donor screening / eligibility"
+        title="Screening Queue"
+        route="/clinical/screening"
+        user={user}
+        helper="Run questionnaire, vitals, eligibility preview, result commit, and override workflows with preview-first guardrails."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("start")}><CheckCircle2 size={16} />Start Screening</button>
           <button type="button" className="secondary-button" onClick={loadScreening}><RefreshCw size={16} />Refresh</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/encounters")}><FileCheck2 size={16} />Encounters Planned</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <form className="screening-filter" onSubmit={submitSearch}>
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Session, patient, or donor" /></label>
@@ -2591,9 +2709,20 @@ function ClinicalScreeningPage({ token, navigate, user }) {
           <button type="submit"><FileCheck2 size={16} />Apply</button>
         </form>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading && <div className="notice-state">Loading screening queue...</div>}
-      {!loading && !sessions.length && <div className="empty-state">No screening sessions match the current filters.</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadScreening} />
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading screening queue"
+          message="Sessions, templates, deferrals, rules, appointments, and patients are being refreshed."
+        />
+      )}
+      {!loading && !sessions.length && (
+        <ClinicalStateMessage
+          title="No screening sessions found"
+          message="Adjust the filters or start a new screening workflow."
+        />
+      )}
       {!!sessions.length && (
         <div className="split screening-layout">
           <section>
@@ -2642,7 +2771,12 @@ function ClinicalScreeningPage({ token, navigate, user }) {
                   <button type="button" className="secondary-button" onClick={() => setModalType("override")}><AlertTriangle size={16} />Override</button>
                 </div>
               </>
-            ) : <div className="empty-state">Select a screening session to review details.</div>}
+            ) : (
+              <ClinicalStateMessage
+                title="Select a screening session"
+                message="Open a row to review questionnaire, vitals, eligibility preview, deferrals, and audit activity."
+              />
+            )}
           </section>
         </div>
       )}
@@ -2650,7 +2784,12 @@ function ClinicalScreeningPage({ token, navigate, user }) {
         <div className="screening-detail-grid">
           <section><h3>Questionnaire</h3><Table rows={(selectedSession.answers || []).map((answer) => ({ question: answer.question_key, answer: String(answer.answer_value?.value ?? ""), notes: answer.notes }))} columns={["question", "answer", "notes"]} user={user} /></section>
           <section><h3>Vitals</h3><Table rows={(selectedSession.vitals || []).map((vitals) => ({ captured_at: formatDateTime(vitals.captured_at), weight_kg: vitals.weight_kg, temperature_c: vitals.temperature_c, bp: `${vitals.blood_pressure_systolic}/${vitals.blood_pressure_diastolic}`, pulse: vitals.pulse }))} columns={["captured_at", "weight_kg", "temperature_c", "bp", "pulse"]} user={user} /></section>
-          <section><h3>Eligibility Preview</h3>{eligibilityPreview ? <Table rows={[{ field: "Proposed outcome", value: eligibilityPreview.proposed_outcome }, { field: "Supervisor review", value: eligibilityPreview.supervisor_review_required ? "Required" : "Not required" }, { field: "Deferral", value: eligibilityPreview.recommended_deferral_type || "" }]} columns={["field", "value"]} user={user} /> : <div className="empty-state">No eligibility preview generated in this session view.</div>}</section>
+          <section><h3>Eligibility Preview</h3>{eligibilityPreview ? <Table rows={[{ field: "Proposed outcome", value: eligibilityPreview.proposed_outcome }, { field: "Supervisor review", value: eligibilityPreview.supervisor_review_required ? "Required" : "Not required" }, { field: "Deferral", value: eligibilityPreview.recommended_deferral_type || "" }]} columns={["field", "value"]} user={user} /> : (
+            <ClinicalStateMessage
+              title="No eligibility preview"
+              message="Run Preview Eligibility to view non-mutating outcome guidance for this session."
+            />
+          )}</section>
           <section><h3>Deferrals</h3><Table rows={(selectedSession.deferrals || []).map((deferral) => ({ deferral: deferral.deferral_number, type: deferral.deferral_type, status: deferral.status, reason: deferral.reason }))} columns={["deferral", "type", "status", "reason"]} user={user} /></section>
           <section><h3>Supervisor Override</h3><Table rows={(selectedSession.outcomes || []).filter((outcome) => outcome.override_outcome).map((outcome) => ({ original: outcome.original_outcome, override: outcome.override_outcome, reason: outcome.reason, at: formatDateTime(outcome.created_at) }))} columns={["original", "override", "reason", "at"]} user={user} /></section>
           <section><h3>Recent Audit Activity</h3><Table rows={(selectedSession.outcomes || []).map((outcome) => ({ event: outcome.override_outcome ? "Override" : "Result", outcome: outcome.committed_outcome || outcome.override_outcome || outcome.proposed_outcome, at: formatDateTime(outcome.created_at) }))} columns={["event", "outcome", "at"]} /></section>
@@ -2905,13 +3044,7 @@ function EncounterWorkflowModal({ type, encounter, token, user, patients, appoin
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={encounterWorkflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{encounterWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={encounterWorkflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -2993,7 +3126,7 @@ function EncounterWorkflowModal({ type, encounter, token, user, patients, appoin
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run encounter workflow checks.</div>}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will run encounter workflow checks." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
             <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
           </div>
@@ -3093,19 +3226,20 @@ function ClinicalEncountersPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">EMR / encounters</p>
-          <h2>Encounter Worklist</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="EMR / encounters"
+        title="Encounter Worklist"
+        route="/clinical/encounters"
+        user={user}
+        helper="Document encounters, notes, diagnoses, allergies, and medications while preserving signed-note controls."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("create")}><FileCheck2 size={16} />Create Encounter</button>
           <button type="button" className="secondary-button" onClick={loadEncounters}><RefreshCw size={16} />Refresh</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/screening")}><CheckCircle2 size={16} />Screening</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <form className="encounter-filter" onSubmit={submitSearch}>
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Encounter, patient, or donor" /></label>
@@ -3115,9 +3249,20 @@ function ClinicalEncountersPage({ token, navigate, user }) {
           <button type="submit"><FileCheck2 size={16} />Apply</button>
         </form>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading && <div className="notice-state">Loading encounter worklist...</div>}
-      {!loading && !encounters.length && <div className="empty-state">No encounters match the current filters.</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadEncounters} />
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading encounter worklist"
+          message="Encounter context, appointments, screening sessions, patients, and templates are being refreshed."
+        />
+      )}
+      {!loading && !encounters.length && (
+        <ClinicalStateMessage
+          title="No encounters found"
+          message="Adjust the filters or create a new encounter."
+        />
+      )}
       {!!encounters.length && (
         <div className="split encounter-layout">
           <section>
@@ -3167,7 +3312,12 @@ function ClinicalEncountersPage({ token, navigate, user }) {
                   <button type="button" className="secondary-button" onClick={() => setModalType("medication")}><Activity size={16} />Medication</button>
                 </div>
               </>
-            ) : <div className="empty-state">Select an encounter to review details.</div>}
+            ) : (
+              <ClinicalStateMessage
+                title="Select an encounter"
+                message="Open a row to review clinical context, notes, diagnoses, allergies, medications, and downstream actions."
+              />
+            )}
           </section>
         </div>
       )}
@@ -3189,7 +3339,10 @@ function ClinicalEncountersPage({ token, navigate, user }) {
               {latestDraft ? (
                 <Table rows={[{ title: latestDraft.title, status: latestDraft.status, template: latestDraft.template_name || "No template", updated: formatDateTime(latestDraft.updated_at) }]} columns={["title", "status", "template", "updated"]} user={user} />
               ) : (
-                <div className="empty-state">No draft note is active for this encounter.</div>
+                <ClinicalStateMessage
+                  title="No active draft note"
+                  message="Save a draft note before signature, amendment, or downstream clinical documentation."
+                />
               )}
             </section>
             <section>
@@ -3431,13 +3584,7 @@ function OrderWorkflowModal({ type, order, token, user, patients, encounters, se
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={orderWorkflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{orderWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={orderWorkflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -3489,7 +3636,7 @@ function OrderWorkflowModal({ type, order, token, user, patients, encounters, se
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run orders/results checks.</div>}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will run orders/results checks." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
             <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
           </div>
@@ -3598,19 +3745,20 @@ function ClinicalOrdersPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Orders / results</p>
-          <h2>Orders Worklist</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Orders / results"
+        title="Orders Worklist"
+        route="/clinical/orders"
+        user={user}
+        helper="Create orders, receive results, flag critical values, and acknowledge results with audit-aware actions."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("create")}><UploadCloud size={16} />Create Order</button>
           <button type="button" className="secondary-button" onClick={loadOrders}><RefreshCw size={16} />Refresh</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/encounters")}><FileCheck2 size={16} />Encounters</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <form className="orders-filter" onSubmit={submitSearch}>
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Order, patient, indication" /></label>
@@ -3623,9 +3771,20 @@ function ClinicalOrdersPage({ token, navigate, user }) {
           <button type="submit"><FileCheck2 size={16} />Apply</button>
         </form>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading && <div className="notice-state">Loading orders worklist...</div>}
-      {!loading && !orders.length && <div className="empty-state">No orders match the current filters.</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadOrders} />
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading orders worklist"
+          message="Orders, encounters, patients, and catalog options are being refreshed."
+        />
+      )}
+      {!loading && !orders.length && (
+        <ClinicalStateMessage
+          title="No orders found"
+          message="Adjust the filters or create a new order."
+        />
+      )}
       {!!orders.length && (
         <div className="split orders-layout">
           <section>
@@ -3674,7 +3833,12 @@ function ClinicalOrdersPage({ token, navigate, user }) {
                   <button type="button" className="secondary-button" onClick={() => setModalType("cancel")}><XCircle size={16} />Cancel</button>
                 </div>
               </>
-            ) : <div className="empty-state">Select an order to review details.</div>}
+            ) : (
+              <ClinicalStateMessage
+                title="Select an order"
+                message="Open a row to review patient context, result flags, critical acknowledgements, and audit activity."
+              />
+            )}
           </section>
         </div>
       )}
@@ -3729,7 +3893,12 @@ function ClinicalOrdersPage({ token, navigate, user }) {
                     ))}
                   </tbody>
                 </table>
-                {!(selectedOrder.results || []).length && <div className="empty-state">No results entered for this order.</div>}
+                {!(selectedOrder.results || []).length && (
+                  <ClinicalStateMessage
+                    title="No results entered"
+                    message="Enter a result to make acknowledgement and critical-value workflows available."
+                  />
+                )}
               </div>
             </section>
             <section>
@@ -3954,13 +4123,7 @@ function CarePlanWorkflowModal({ type, carePlan, token, user, patients, encounte
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal" role="dialog" aria-modal="true" aria-label={carePlanWorkflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{carePlanWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={carePlanWorkflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -4034,7 +4197,7 @@ function CarePlanWorkflowModal({ type, carePlan, token, user, patients, encounte
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will run care plan checks.</div>}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will run care plan checks." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
             <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
           </div>
@@ -4141,19 +4304,20 @@ function ClinicalCarePlansPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Care plans / case management</p>
-          <h2>Care Plan Worklist</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Care plans / case management"
+        title="Care Plan Worklist"
+        route="/clinical/care-plans"
+        user={user}
+        helper="Track goals, interventions, tasks, progress, and closure while keeping clinical context visible."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("create")}><Activity size={16} />Create Care Plan</button>
           <button type="button" className="secondary-button" onClick={loadCarePlans}><RefreshCw size={16} />Refresh</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/orders")}><UploadCloud size={16} />Orders</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <form className="care-plan-filter" onSubmit={submitSearch}>
           <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Care plan or patient" /></label>
@@ -4167,9 +4331,20 @@ function ClinicalCarePlansPage({ token, navigate, user }) {
           <button type="submit"><FileCheck2 size={16} />Apply</button>
         </form>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading && <div className="notice-state">Loading care plan worklist...</div>}
-      {!loading && !carePlans.length && <div className="empty-state">No care plans match the current filters.</div>}
+      <ClinicalAlertBanner message={error} onRetry={loadCarePlans} />
+      {loading && (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading care plan worklist"
+          message="Care plans, encounters, patients, orders, and results are being refreshed."
+        />
+      )}
+      {!loading && !carePlans.length && (
+        <ClinicalStateMessage
+          title="No care plans found"
+          message="Adjust the filters or create a care plan from the current clinical context."
+        />
+      )}
       {!!carePlans.length && (
         <div className="split care-plan-layout">
           <section>
@@ -4219,7 +4394,12 @@ function ClinicalCarePlansPage({ token, navigate, user }) {
                   <button type="button" className="secondary-button" onClick={() => setModalType("close")}><XCircle size={16} />Close</button>
                 </div>
               </>
-            ) : <div className="empty-state">Select a care plan to review details.</div>}
+            ) : (
+              <ClinicalStateMessage
+                title="Select a care plan"
+                message="Open a row to review goals, interventions, tasks, progress, result context, and closure controls."
+              />
+            )}
           </section>
         </div>
       )}
@@ -4511,13 +4691,7 @@ function BillingWorkflowModal({ type, token, user, account, patients, encounters
   return (
     <div className="modal-backdrop">
       <section className="workflow-modal billing-modal">
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">Billing workflow</p>
-            <h3>{billingWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={billingWorkflowTitle(type)} step={preview ? "confirm" : "form"} onClose={onClose} />
         <form className="stacked-form" onSubmit={previewWorkflow}>
           {["verify", "charge", "claim"].includes(type) && (
             <label>
@@ -4721,7 +4895,9 @@ function BillingWorkflowModal({ type, token, user, account, patients, encounters
               </label>
             </>
           )}
-          {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
+          {validationIssues.length > 0 && (
+            <ValidationSummary issues={validationIssues} validMessage="" />
+          )}
           {preview && (
             <div className="preview-panel">
               <StatusPill status={preview.validation_status} />
@@ -4739,7 +4915,7 @@ function BillingWorkflowModal({ type, token, user, account, patients, encounters
             </button>
             <button type="button" className="secondary-button" disabled={!preview || preview.validation_status === "failed" || submitting} onClick={commitWorkflow}>
               <CheckCircle2 size={16} />
-              Confirm
+              Commit workflow
             </button>
           </div>
         </form>
@@ -4807,21 +4983,22 @@ function ClinicalBillingPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Revenue cycle foundation</p>
-          <h2>Billing / Insurance</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Revenue cycle foundation"
+        title="Billing / Insurance"
+        route="/clinical/billing"
+        user={user}
+        helper="Review insurance, charges, claims, payments, and denials with PHI-aware billing context."
+        actions={
+          <>
           <button type="button" onClick={() => setModalType("verify")}><ShieldCheck size={16} />Verify Insurance</button>
           <button type="button" onClick={() => setModalType("charge")}><ReceiptText size={16} />Create Charge</button>
           <button type="button" onClick={() => setModalType("claim")}><FileCheck2 size={16} />Create Claim</button>
           <button type="button" onClick={() => setModalType("payment")}><CreditCard size={16} />Post Payment</button>
           <button type="button" onClick={() => setModalType("denial")}><AlertTriangle size={16} />Capture Denial</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <div className="billing-filter">
           <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Patient, account, claim, charge" /></label>
@@ -4834,8 +5011,14 @@ function ClinicalBillingPage({ token, navigate, user }) {
           <button type="button" onClick={loadBilling}><RefreshCw size={16} />Apply</button>
         </div>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading ? <div className="notice-state">Loading billing work queue...</div> : (
+      <ClinicalAlertBanner message={error} onRetry={loadBilling} />
+      {loading ? (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading billing work queue"
+          message="Accounts, insurance, charges, claims, payments, denials, and patients are being refreshed."
+        />
+      ) : (
         <>
           <div className="content-grid">
             <MetricCard label="Account Balance" value={formatMoney(totalBalance)} tone={totalBalance > 0 ? "warning" : "neutral"} />
@@ -4853,7 +5036,12 @@ function ClinicalBillingPage({ token, navigate, user }) {
                     <span>{formatMoney(account.balance)}</span>
                     <StatusPill status={account.status} />
                   </button>
-                )) : <div className="empty-state">No billing accounts match the current filters.</div>}
+                )) : (
+                  <ClinicalStateMessage
+                    title="No billing accounts found"
+                    message="Adjust the filters or begin with insurance verification, charge capture, or claim creation."
+                  />
+                )}
               </div>
             </section>
             <section>
@@ -4870,7 +5058,12 @@ function ClinicalBillingPage({ token, navigate, user }) {
                     <span>Balance <strong>{formatMoney(selectedAccount.balance)}</strong></span>
                   </div>
                 </div>
-              ) : <div className="empty-state">Select or create a billing account.</div>}
+              ) : (
+                <ClinicalStateMessage
+                  title="Select or create an account"
+                  message="Open an account to review balances, claims, payments, denials, and linked patient context."
+                />
+              )}
             </section>
           </div>
           <div className="billing-detail-grid">
@@ -5274,13 +5467,7 @@ function QualityWorkflowModal({ type, token, user, selectedEvent, patients, appo
   return (
     <div className="modal-backdrop">
       <section className="workflow-modal quality-modal">
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">Quality workflow</p>
-            <h3>{qualityWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={qualityWorkflowTitle(type)} step={preview ? "confirm" : "form"} onClose={onClose} />
         <form className="stacked-form" onSubmit={previewWorkflow}>
           {["event", "adverse"].includes(type) && (
             <label>
@@ -5399,7 +5586,9 @@ function QualityWorkflowModal({ type, token, user, selectedEvent, patients, appo
               )}
             </>
           )}
-          {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
+          {validationIssues.length > 0 && (
+            <ValidationSummary issues={validationIssues} validMessage="" />
+          )}
           {preview && (
             <div className="notice-state">
               <strong>{preview.validation_status}</strong> - {preview.summary}
@@ -5417,7 +5606,7 @@ function QualityWorkflowModal({ type, token, user, selectedEvent, patients, appo
           <button type="submit"><FileCheck2 size={16} />Preview</button>
           <button type="button" onClick={commitWorkflow} disabled={!preview || preview.validation_status === "failed" || submitting}>
             <ShieldCheck size={16} />
-            Commit
+            Commit workflow
           </button>
           <div className="notice-state">Commit will send X-Confirm-Generation: true and append a quality workflow audit entry.</div>
         </form>
@@ -5533,22 +5722,23 @@ function ClinicalQualityPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Quality / Compliance expansion</p>
-          <h2>Quality</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Quality / compliance expansion"
+        title="Quality"
+        route="/clinical/quality"
+        user={user}
+        helper="Review quality events, adverse events, investigations, CAPA links, closure, and audit evidence exports."
+        actions={
+          <>
           <button type="button" onClick={() => openWorkflow("event")}><AlertTriangle size={16} />Create Quality Event</button>
           <button type="button" onClick={() => openWorkflow("adverse")}><HeartPulse size={16} />Create Adverse Event</button>
           <button type="button" onClick={() => openWorkflow("investigation")}><FileCheck2 size={16} />Add Investigation</button>
           <button type="button" onClick={() => openWorkflow("capa")}><ShieldCheck size={16} />Link CAPA</button>
           <button type="button" onClick={() => openWorkflow("close")}><CheckCircle2 size={16} />Close Event</button>
           <button type="button" onClick={() => openWorkflow("export")}><UploadCloud size={16} />Export Evidence</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <div className="quality-filter">
           <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Event, patient, CAPA, deviation" /></label>
@@ -5561,8 +5751,14 @@ function ClinicalQualityPage({ token, navigate, user }) {
           <button type="button" onClick={loadQuality}><RefreshCw size={16} />Apply</button>
         </div>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading ? <div className="notice-state">Loading quality work queue...</div> : (
+      <ClinicalAlertBanner message={error} onRetry={loadQuality} />
+      {loading ? (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading quality work queue"
+          message="Events, adverse event records, audit evidence, patients, and dashboard metrics are being refreshed."
+        />
+      ) : (
         <>
           <ExportProfileIndicator profile={auditEvidence.export_profile || "audit_metadata"} />
           <div className="notice-state">{exportProfileInfo(auditEvidence.export_profile || "audit_metadata").warning}</div>
@@ -5581,7 +5777,12 @@ function ClinicalQualityPage({ token, navigate, user }) {
                     <span><ClinicalIdentifier value={event.event_number} /> <span className="clinical-row-separator">-</span> <span className="clinical-token clinical-truncate" title={event.category}>{event.category}</span><br /><span className="muted"><TableCellValue value={event.patient_id || "No patient"} field="patient_id" user={user} polish /> {event.owner ? `- ${event.owner}` : ""}</span></span>
                     <span className="chip-list"><QualitySeverityChip severity={event.severity} /><StatusPill status={event.status} /></span>
                   </button>
-                )) : <div className="empty-state">No quality events match the current filters.</div>}
+                )) : (
+                  <ClinicalStateMessage
+                    title="No quality events found"
+                    message="Adjust the filters or create a quality/adverse event."
+                  />
+                )}
               </div>
             </section>
             <section>
@@ -5598,7 +5799,12 @@ function ClinicalQualityPage({ token, navigate, user }) {
                     <span>CAPA <strong>{selectedEvent.capa_code || selectedEvent.capa_id || "None"}</strong></span>
                   </div>
                 </div>
-              ) : <div className="empty-state">Select or create a quality event.</div>}
+              ) : (
+                <ClinicalStateMessage
+                  title="Select or create a quality event"
+                  message="Open an event to review patient context, severity, status history, investigations, CAPA links, and evidence exports."
+                />
+              )}
             </section>
           </div>
           <div className="quality-detail-grid">
@@ -5901,13 +6107,7 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
   return (
     <div className="modal-backdrop">
       <section className="workflow-modal reports-modal" role="dialog" aria-modal="true" aria-label="Generate analytics export">
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">Reporting analytics</p>
-            <h3>Generate Analytics Export</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title="Generate Analytics Export" step={preview ? "confirm" : "form"} onClose={onClose} />
         <form className="stacked-form" onSubmit={previewExport}>
           <div className="form-grid">
             <label>Date from<input type="date" value={form.date_from} onChange={(event) => setForm({ ...form, date_from: event.target.value })} /></label>
@@ -5938,7 +6138,9 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
           {exportProfileInfo(form.export_profile).warning && (
             <div className="notice-state">{exportProfileInfo(form.export_profile).warning}</div>
           )}
-          {validationIssues.length > 0 && <div className="error-state">{validationIssues.join(" ")}</div>}
+          {validationIssues.length > 0 && (
+            <ValidationSummary issues={validationIssues} validMessage="" />
+          )}
           {preview && (
             <div className="preview-panel">
               <StatusPill status={preview.blocking_issues?.length ? "failed" : "passed"} />
@@ -5954,7 +6156,7 @@ function ReportsExportModal({ token, filters, onClose, onSuccess }) {
             <button type="submit" disabled={Boolean(validationIssues.length)}><FileCheck2 size={16} />Preview</button>
             <button type="button" className="secondary-button" disabled={!preview || preview.blocking_issues?.length || submitting} onClick={commitExport}>
               <CheckCircle2 size={16} />
-              Confirm
+              Commit export
             </button>
           </div>
           <div className="notice-state">Commit sends X-Confirm-Generation: true and appends a workflow audit operation.</div>
@@ -6029,19 +6231,20 @@ function ClinicalReportsPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Reporting / analytics readiness</p>
-          <h2>Reports</h2>
-          <StatusPill status="Active" />
-          <ClinicalPrivacyIndicator user={user} />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Reporting / analytics readiness"
+        title="Reports"
+        route="/clinical/reports"
+        user={user}
+        helper="Generate aggregate-safe reporting exports, monitor suppression, and review audit operations without exposing PHI by default."
+        actions={
+          <>
           <button type="button" onClick={() => setModalOpen(true)}><BarChart3 size={16} />Generate Export</button>
           <button type="button" className="secondary-button" onClick={loadReports}><RefreshCw size={16} />Refresh</button>
           <button type="button" className="secondary-button" onClick={() => navigate("/clinical/quality")}><ShieldCheck size={16} />Quality</button>
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <div className="reports-filter">
           <label>Date from<input type="date" value={filters.date_from} onChange={(event) => updateFilter("date_from", event.target.value)} /></label>
@@ -6054,8 +6257,14 @@ function ClinicalReportsPage({ token, navigate, user }) {
           <button type="button" onClick={loadReports}><FileCheck2 size={16} />Apply</button>
         </div>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading ? <div className="notice-state">Loading reporting datasets...</div> : (
+      <ClinicalAlertBanner message={error} onRetry={loadReports} />
+      {loading ? (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading reporting datasets"
+          message="Dashboard metrics, module reports, export history, and audit operations are being refreshed."
+        />
+      ) : (
         <>
           <ExportProfileIndicator profile={filters.export_profile} suppression={dashboard?.suppression} />
           {exportProfileInfo(filters.export_profile).warning && (
@@ -6391,13 +6600,7 @@ function AdminWorkflowModal({ type, token, onClose, onSuccess }) {
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="workflow-modal admin-modal" role="dialog" aria-modal="true" aria-label={adminWorkflowTitle(type)}>
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">{step.replaceAll("_", " ")}</p>
-            <h3>{adminWorkflowTitle(type)}</h3>
-          </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </div>
+        <WorkflowModalHeader title={adminWorkflowTitle(type)} step={step} onClose={onClose} />
         {error && <div className="error-state">{error}</div>}
         {step === "form" && (
           <div className="stacked-form">
@@ -6408,7 +6611,7 @@ function AdminWorkflowModal({ type, token, onClose, onSuccess }) {
         )}
         {step === "validation" && (
           <div className="stacked-form">
-            {validationIssues.length ? <div className="error-state">{validationIssues.join(" ")}</div> : <div className="notice-state">Required fields are complete. Preview will compare current and proposed configuration.</div>}
+            <ValidationSummary issues={validationIssues} validMessage="Required fields are complete. Preview will compare current and proposed configuration." />
             <button type="button" className="secondary-button" onClick={() => setStep("form")}>Back to form</button>
             <button type="button" disabled={busy || validationIssues.length > 0} onClick={runPreview}>{busy ? <RefreshCw size={16} /> : <FileCheck2 size={16} />}Generate preview</button>
           </div>
@@ -6507,18 +6710,20 @@ function ClinicalAdminPage({ token, navigate, user }) {
 
   return (
     <div className="clinical-shell">
-      <section className="clinical-hero">
-        <div>
-          <p className="eyebrow">Clinical administration</p>
-          <h2>Clinical Admin</h2>
-          <StatusPill status="Active" />
-        </div>
-        <div className="clinical-actions">
+      <ClinicalPageHeader
+        eyebrow="Clinical administration"
+        title="Clinical Admin"
+        route="/clinical/admin"
+        user={user}
+        helper="Manage versioned configuration, RBAC visibility, workflow templates, catalogs, and append-only audit evidence."
+        actions={
+          <>
           {adminWorkflowDefinitions.slice(0, 6).map((definition) => (
             <button type="button" key={definition.type} onClick={() => setModalType(definition.type)}><ShieldCheck size={16} />{definition.label}</button>
           ))}
-        </div>
-      </section>
+          </>
+        }
+      />
       <section>
         <div className="admin-filter">
           <label>Search<input value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} placeholder="Template, rule, code, workflow" /></label>
@@ -6526,8 +6731,14 @@ function ClinicalAdminPage({ token, navigate, user }) {
           <button type="button" onClick={loadAdmin}><RefreshCw size={16} />Refresh</button>
         </div>
       </section>
-      {error && <div className="error-state">{error}</div>}
-      {loading ? <div className="notice-state">Loading clinical administration configuration...</div> : (
+      <ClinicalAlertBanner message={error} onRetry={loadAdmin} />
+      {loading ? (
+        <ClinicalStateMessage
+          tone="loading"
+          title="Loading clinical administration"
+          message="Configuration versions, RBAC, catalogs, templates, rules, and audit operations are being refreshed."
+        />
+      ) : (
         <>
           <div className="content-grid">
             <MetricCard label="Config Versions" value={formatNumber(dashboard?.total_config_versions || configVersions.length)} />

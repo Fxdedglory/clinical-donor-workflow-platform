@@ -170,6 +170,22 @@ The startup check warnings remain local hardening warnings: placeholder `SECRET_
 - Standardize Preview -> Commit modal anatomy while preserving existing endpoints and `X-Confirm-Generation: true`.
 - Add frontend-only route smoke documentation around existing FE-03 screenshot evidence.
 
+## CLINICAL-FE-04 Implementation Addendum
+
+Task `CLINICAL-FE-04` implemented the safe route-level polish recommended by this baseline.
+
+| Area | Result |
+| --- | --- |
+| Shared route header | Implemented `ClinicalPageHeader` for implemented clinical routes and aligned the dashboard shell placeholder. |
+| Shared route state | Implemented `ClinicalStateMessage` and applied consistent loading, empty, select-row, and retry/error patterns to clinical work queues. |
+| Status badges | Normalized frontend status labels and tone mapping for active, planned, pending, completed, blocked, failed, and related statuses. |
+| Workflow modals | Added reusable workflow modal header, step indicator, and validation summary components for Draft -> Validate -> Preview -> Commit presentation. |
+| Preview -> Commit copy | Replaced remaining generic confirmation labels with commit-specific labels in billing and reports/export flows. |
+| Validation | Passed preflight, pytest, frontend build, npm audit, app-service startup check, and Vite preview route smoke. |
+| Evidence doc | `docs/clinical-fe04-route-polish-summary.md` |
+
+FE-04 preserved the protected dirty `backend/app/cli.py` file and did not change backend workflow semantics, database schema, deployment, DNS, or launch links.
+
 ## Risky Or Blocked Themes
 
 - Any change that alters clinical workflow commit semantics or backend audit behavior requires backend contract review.
@@ -183,11 +199,13 @@ The startup check warnings remain local hardening warnings: placeholder `SECRET_
 
 Recommended next implementation sprint:
 
-`CLINICAL-FE-04 - Clinical route-level refinement and usability polish`
+`CLINICAL-FE-05 - Mobile Dense-Route Interaction`
 
 Suggested scope:
 
-- Do frontend-only route-level refinements for the implemented Clinical routes.
+- Product/design review of mobile row summaries for dense clinical tables.
+- Detail expansion patterns for orders, billing, quality, reports, and patient detail.
+- Mobile keyboard/focus review for dense route workflows.
 - Keep backend workflow logic, database schema, deployment, DNS, and launch links unchanged.
-- Focus on route headers, filter/action hierarchy, empty/loading/error states, status badge consistency, mobile dense-table patterns, and modal Preview -> Commit clarity.
+- Preserve FE-04 route headers, state messages, status badges, and Preview -> Commit semantics.
 - Reuse the current React/Vite/CSS stack and existing components.

@@ -20,10 +20,16 @@ export function ClinicalShellPlaceholder({ section, route, navigate, StatusPill,
   return (
     <div className="clinical-shell">
       <section className="clinical-hero">
-        <div>
+        <div className="clinical-title-block">
           <p className="eyebrow">Clinical platform shell</p>
           <h2>{section.label}</h2>
-          <StatusPill status={section.status} />
+          <div className="clinical-meta-row">
+            <span className="route-chip">{moduleRoute}</span>
+            <StatusPill status={section.status} />
+          </div>
+          <p className="clinical-helper-text">
+            Foundation route is visible and navigable while backend-specific dashboard workflow data is pending.
+          </p>
         </div>
         <div className="clinical-actions">
           <button type="button" onClick={() => navigate("/clinical/dashboard")}>
