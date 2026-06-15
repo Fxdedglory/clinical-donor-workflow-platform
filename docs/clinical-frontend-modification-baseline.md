@@ -186,6 +186,22 @@ Task `CLINICAL-FE-04` implemented the safe route-level polish recommended by thi
 
 FE-04 preserved the protected dirty `backend/app/cli.py` file and did not change backend workflow semantics, database schema, deployment, DNS, or launch links.
 
+## CLINICAL-FE-05 Implementation Addendum
+
+Task `CLINICAL-FE-05` implemented the mobile dense-route usability polish recommended after FE-04.
+
+| Area | Result |
+| --- | --- |
+| Responsive shell/navigation | Tightened topbar wrapping, route context wrapping, mobile action sizing, route-chip wrapping, and narrow app-main spacing. |
+| Dense table/list behavior | Added labeled mobile-card rendering for shared `Table` output and dense worklists for patients, scheduling, screening, encounters, orders, order results, and care plans. |
+| Detail route responsiveness | Shared detail tables now carry mobile labels; summary grids and workflow rows collapse/wrap on small screens. |
+| Modal/mobile Preview -> Commit | Modal action footers remain visible inside the scrollable modal, buttons stretch on mobile, and the workflow stepper collapses for narrow screens. |
+| Accessibility/interactions | Added visible focus states, safer disabled styling, active-state feedback, input minimum heights, and touch-friendly button sizing. |
+| Validation | Passed preflight, pytest, frontend build, npm audit, app-service startup check, and Vite preview route smoke. |
+| Evidence doc | `docs/clinical-fe05-mobile-dense-route-summary.md` |
+
+FE-05 preserved PHI masking, export controls, small-cell suppression messaging, and the protected dirty `backend/app/cli.py` file. It did not change backend workflow semantics, database schema, deployment, DNS, or launch links.
+
 ## Risky Or Blocked Themes
 
 - Any change that alters clinical workflow commit semantics or backend audit behavior requires backend contract review.
@@ -199,13 +215,22 @@ FE-04 preserved the protected dirty `backend/app/cli.py` file and did not change
 
 Recommended next implementation sprint:
 
-`CLINICAL-FE-05 - Mobile Dense-Route Interaction`
+`CLINICAL-FE-06 - Dashboard Contract And Operational Summary`
 
 Suggested scope:
 
-- Product/design review of mobile row summaries for dense clinical tables.
-- Detail expansion patterns for orders, billing, quality, reports, and patient detail.
-- Mobile keyboard/focus review for dense route workflows.
+- Implement a real Clinical dashboard only after the backend data contract is approved.
+- Include module status, workflow operations, audit activity, next actions, and deployment-readiness messaging.
+- Keep backend workflow logic, database schema, deployment, DNS, and launch links unchanged unless separately approved.
+- Use FE-04 and FE-05 frontend conventions for headers, state messages, dense tables, mobile behavior, and Preview -> Commit cues.
+
+Alternate next steps:
+
+- `CLINICAL-FE-07` only after a visual QA tooling decision.
+- `HR FRONTEND-MOD-00` or `ERP FRONTEND-MOD-00` for parallel frontend baseline work.
+- Clinical deployment provisioning only when Product/Security/Ops approve moving from readiness planning into deployment execution.
+
+Boundaries:
+
 - Keep backend workflow logic, database schema, deployment, DNS, and launch links unchanged.
-- Preserve FE-04 route headers, state messages, status badges, and Preview -> Commit semantics.
 - Reuse the current React/Vite/CSS stack and existing components.

@@ -26,7 +26,7 @@ This backlog prepares future frontend implementation work. It does not authorize
 | 3 | Extract reusable clinical state components | `safe_now` | Completed in `CLINICAL-FE-04` for loading, empty, selected-row, and retry/error route states | Routes use consistent state copy and visual treatment |
 | 4 | Status badge vocabulary review | `safe_now` | Completed in `CLINICAL-FE-04` for frontend label normalization and common tone mapping | Same status means same color/tone across modules |
 | 5 | Modal Preview -> Commit visual standardization | `safe_now` | Partially completed in `CLINICAL-FE-04` with shared modal header, step indicator, validation summary, and commit labels | Representative modals show consistent validation, preview, commit, cancel, and error states |
-| 6 | Dense table mobile summaries | `needs_design_decision` | Convert highest-density table rows into mobile summaries with optional detail expansion for orders, billing, quality, reports, and patient detail | Mobile views reduce horizontal scroll while preserving key identifiers and status |
+| 6 | Dense table mobile summaries | `safe_now` | Completed in `CLINICAL-FE-05` with labeled mobile-card treatment for shared tables and dense clinical worklists | Mobile views reduce horizontal scroll while preserving key identifiers and status |
 | 7 | Clinical dashboard operational content | `needs_backend_contract` | Replace dashboard placeholder with module status, workflow operations, recent audit activity, and next-action summaries | Dashboard renders approved backend fields and graceful empty/error states |
 | 8 | Patient/donor detail timeline polish | `safe_now` | Improve detail route hierarchy for demographics, contacts, insurance, consents, audit activity, and handoffs | Patient detail reads as a stable clinical record view even during partial API failures |
 | 9 | Screening eligibility badge clarity | `safe_now` | Improve result, deferral, override, and eligibility status labeling in screening pages | Eligibility state is readable without opening every detail panel |
@@ -74,19 +74,28 @@ Evidence:
 
 ### CLINICAL-FE-05 - Mobile Dense-Route Interaction
 
-Recommended next sprint.
+Completed.
 
 Scope:
 
-- Product/design review of mobile row summaries.
-- Detail expansion patterns for dense clinical tables.
-- Mobile keyboard/focus review.
+- Responsive shell and route-header wrapping.
+- Labeled mobile-card tables for shared tables and dense clinical worklists.
+- Detail grid, workflow row, status badge, and action wrapping.
+- Modal Preview -> Commit mobile footer and stepper improvements.
+- Visible focus, disabled, active, and touch-target polish.
 
 Dependency:
 
-- Design decision for mobile dense-table behavior.
+- No backend/API/database dependency. Screenshot tooling remains a separate decision.
+
+Evidence:
+
+- `docs/clinical-fe05-mobile-dense-route-summary.md`
+- Validation passed: preflight, pytest, frontend build, npm audit, app-service startup check, and Vite preview route smoke.
 
 ### CLINICAL-FE-06 - Dashboard Contract And Operational Summary
+
+Recommended next Clinical sprint only after dashboard backend contract approval.
 
 Scope:
 
@@ -98,6 +107,8 @@ Dependency:
 - Approved backend contract and seeded/demo data expectations.
 
 ### CLINICAL-FE-07 - Visual QA Automation
+
+Recommended only after a visual QA tooling ownership decision.
 
 Scope:
 

@@ -650,10 +650,17 @@ section,
   gap: 0.75rem;
   justify-content: space-between;
   margin-bottom: 0.8rem;
+  min-width: 0;
 }
 
 .section-heading-row h3 {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.section-heading-row > div {
+  min-width: 0;
 }
 
 .workflow-list {
@@ -670,6 +677,7 @@ section,
   gap: 0.75rem;
   justify-content: space-between;
   min-height: 3.1rem;
+  min-width: 0;
   padding: 0.65rem 0.75rem;
 }
 
@@ -1034,7 +1042,22 @@ body {
 
 button:disabled {
   cursor: not-allowed;
+  filter: saturate(0.75);
   opacity: 0.52;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 2px;
+}
+
+button:active:not(:disabled),
+a:active {
+  transform: translateY(1px);
 }
 
 .mobile-only {
@@ -1076,6 +1099,11 @@ button:disabled {
   align-items: center;
   display: flex;
   gap: 0.75rem;
+  min-width: 0;
+}
+
+.topbar-title-row > div {
+  min-width: 0;
 }
 
 .brand {
@@ -1248,6 +1276,7 @@ button:disabled {
   color: var(--clinical-ink);
   font-size: clamp(1.4rem, 2vw, 1.85rem);
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .route-context {
@@ -1255,6 +1284,7 @@ button:disabled {
   font-size: 0.82rem;
   font-weight: 700;
   margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .sidebar-collapse-toggle,
@@ -1270,6 +1300,7 @@ button:disabled {
 .topbar-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .topbar-actions button,
@@ -1326,6 +1357,7 @@ button:disabled {
 }
 
 .clinical-actions button {
+  min-width: 0;
   white-space: nowrap;
 }
 
@@ -1364,7 +1396,10 @@ button:disabled {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.76rem;
   font-weight: 800;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 0.28rem 0.58rem;
+  white-space: normal;
 }
 
 .clinical-helper-text {
@@ -1417,6 +1452,19 @@ th {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+.patient-filter label,
+.scheduling-filter label,
+.screening-filter label,
+.encounter-filter label,
+.orders-filter label,
+.care-plan-filter label,
+.billing-filter label,
+.quality-filter label,
+.reports-filter label,
+.admin-filter label {
+  min-width: 0;
+}
+
 .patient-filter label:first-child,
 .scheduling-filter label:first-child,
 .screening-filter label:first-child,
@@ -1452,6 +1500,17 @@ textarea {
   background: var(--clinical-surface);
   border-color: var(--clinical-line-strong);
   border-radius: var(--clinical-radius);
+  max-width: 100%;
+  min-width: 0;
+}
+
+input,
+select {
+  min-height: 2.45rem;
+}
+
+textarea {
+  line-height: 1.45;
 }
 
 input:focus,
@@ -1694,6 +1753,8 @@ tbody tr:hover td {
   border: 1px solid var(--clinical-line);
   font-size: 0.74rem;
   letter-spacing: 0;
+  line-height: 1.2;
+  max-width: 100%;
 }
 
 .status-pill.success {
@@ -1922,11 +1983,15 @@ tbody tr:hover td {
 .modal-actions {
   align-items: center;
   border-top: 1px solid var(--clinical-line);
+  background: var(--clinical-surface);
+  bottom: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
   justify-content: flex-end;
   padding-top: 0.85rem;
+  position: sticky;
+  z-index: 1;
 }
 
 .modal-actions button {
@@ -1968,6 +2033,94 @@ tbody tr:hover td {
 
 .mobile-nav-backdrop {
   display: none;
+}
+
+@media (max-width: 720px) {
+  .clinical-mobile-card-table {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .clinical-mobile-card-table table,
+  .clinical-mobile-card-table thead,
+  .clinical-mobile-card-table tbody,
+  .clinical-mobile-card-table tr,
+  .clinical-mobile-card-table th,
+  .clinical-mobile-card-table td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .clinical-mobile-card-table thead {
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  .clinical-mobile-card-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .clinical-mobile-card-table tr {
+    background: var(--clinical-surface);
+    border: 1px solid var(--clinical-line);
+    border-radius: 12px;
+    box-shadow: var(--clinical-shadow-soft);
+    overflow: hidden;
+  }
+
+  .clinical-mobile-card-table td {
+    align-items: start;
+    border-bottom: 1px solid var(--clinical-line);
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: minmax(7rem, 34%) minmax(0, 1fr);
+    padding: 0.62rem 0.75rem;
+  }
+
+  .clinical-mobile-card-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .clinical-mobile-card-table td::before {
+    color: var(--clinical-muted);
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .clinical-mobile-card-table .clinical-id,
+  .clinical-mobile-card-table .clinical-token,
+  .clinical-mobile-card-table .clinical-readable-text,
+  .clinical-mobile-card-table .clinical-truncate,
+  .clinical-mobile-card-table .clinical-nowrap {
+    max-width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .clinical-mobile-card-table .chip-list {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .clinical-mobile-card-table .table-action {
+    justify-content: center;
+    min-height: 2.45rem;
+    width: 100%;
+  }
 }
 
 @media (max-width: 1180px) {
@@ -2032,9 +2185,23 @@ tbody tr:hover td {
     flex-direction: column;
   }
 
+  .topbar-title-row {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .topbar-title-row > div {
+    flex: 1 1 auto;
+  }
+
   .topbar-actions {
     justify-content: flex-start;
     width: 100%;
+  }
+
+  .topbar-actions button {
+    flex: 1 1 10rem;
+    justify-content: center;
   }
 
   .app-main {
@@ -2043,6 +2210,18 @@ tbody tr:hover td {
 
   .clinical-hero {
     flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .clinical-title-block,
+  .clinical-actions {
+    width: 100%;
+  }
+
+  .clinical-actions button {
+    flex: 1 1 10rem;
+    justify-content: center;
+    white-space: normal;
   }
 
   .report-panel-audit_activity,
@@ -2069,7 +2248,52 @@ tbody tr:hover td {
   .topbar-actions button,
   .clinical-actions button {
     justify-content: center;
+    min-height: 2.75rem;
+    white-space: normal;
     width: 100%;
+  }
+
+  .app-main {
+    padding: 0.6rem;
+  }
+
+  .topbar,
+  .clinical-hero,
+  section,
+  .analytics-panel,
+  .info-list,
+  .account-panel {
+    border-radius: 12px;
+    padding: 0.85rem;
+  }
+
+  .clinical-meta-row,
+  .privacy-indicator,
+  .export-profile-indicator {
+    align-items: flex-start;
+  }
+
+  .status-pill,
+  .priority-chip,
+  .workflow-row .status-pill {
+    white-space: normal;
+  }
+
+  .workflow-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  button.workflow-row {
+    text-align: left;
+  }
+
+  .detail-actions {
+    width: 100%;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .clinical-alert {
@@ -2101,6 +2325,20 @@ tbody tr:hover td {
     gap: 0.75rem;
   }
 
+  .modal-helper-text {
+    font-size: 0.86rem;
+  }
+
+  .workflow-step-indicator {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workflow-step-indicator li {
+    text-align: center;
+    white-space: normal;
+  }
+
   .workflow-modal .form-grid,
   .workflow-modal .split {
     grid-template-columns: 1fr;
@@ -2115,10 +2353,26 @@ tbody tr:hover td {
   }
 
   .workflow-modal .modal-actions {
+    box-shadow: 0 -8px 18px rgba(15, 23, 42, 0.07);
     justify-content: stretch;
   }
 
   .workflow-modal .table-wrap {
     max-height: 48vh;
+  }
+}
+
+@media (max-width: 460px) {
+  .clinical-mobile-card-table td {
+    gap: 0.22rem;
+    grid-template-columns: 1fr;
+  }
+
+  .clinical-mobile-card-table td::before {
+    letter-spacing: 0.02em;
+  }
+
+  .workflow-step-indicator {
+    grid-template-columns: 1fr;
   }
 }

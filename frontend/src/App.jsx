@@ -1060,16 +1060,20 @@ function tableCellClass(row, column, polish = false) {
   return cx("clinical-cell", `clinical-cell-${kind}`, ["identifier", "token", "contact", "nowrap"].includes(kind) && "clinical-nowrap");
 }
 
+function tableColumnLabel(column) {
+  return String(column || "").replaceAll("_", " ");
+}
+
 function Table({ rows, columns, user, sensitiveColumns = [], className = "", tableClassName = "", density = "standard", polish = false }) {
   if (!rows?.length) return <div className="empty-state">No records available.</div>;
   const polishCells = polish || density === "compact";
   return (
-    <div className={cx("table-wrap", "clinical-table-shell", "clinical-table-scroll", className)}>
+    <div className={cx("table-wrap", "clinical-table-shell", "clinical-table-scroll", "clinical-mobile-card-table", className)}>
       <table className={cx("clinical-data-table", density === "compact" && "clinical-density-table", tableClassName)}>
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column}>{column.replaceAll("_", " ")}</th>
+              <th key={column} scope="col">{tableColumnLabel(column)}</th>
             ))}
           </tr>
         </thead>
@@ -1077,7 +1081,7 @@ function Table({ rows, columns, user, sensitiveColumns = [], className = "", tab
           {rows.map((row, index) => (
             <tr key={index}>
               {columns.map((column) => (
-                <td key={column} className={tableCellClass(row, column, polishCells)}>
+                <td key={column} className={tableCellClass(row, column, polishCells)} data-label={tableColumnLabel(column)}>
                   <TableCellValue
                     value={row[column]}
                     field={renderedFieldName(row, column)}
@@ -1440,18 +1444,18 @@ function ClinicalPatientsPage({ token, navigate, user }) {
       )}
       {!!patients.length && (
         <section>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Patient ID</th><th>Name</th><th>DOB</th><th>Contact</th><th>Status</th><th>Action</th></tr></thead>
+          <div className="table-wrap clinical-mobile-card-table">
+            <table className="clinical-data-table clinical-density-table">
+              <thead><tr><th scope="col">Patient ID</th><th scope="col">Name</th><th scope="col">DOB</th><th scope="col">Contact</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
               <tbody>
                 {patients.map((patient) => (
                   <tr key={patient.patient_id}>
-                    <td><TableCellValue value={patient.patient_id} field="patient_id" user={user} /></td>
-                    <td><TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /></td>
-                    <td><TableCellValue value={formatDate(patient.date_of_birth)} field="date_of_birth" user={user} /></td>
-                    <td><TableCellValue value={patient.phone || patient.email || ""} field="contact" user={user} /></td>
-                    <td><StatusPill status={patient.status} /></td>
-                    <td><button type="button" className="table-action" onClick={() => navigate(`/clinical/patients/${patient.patient_id}`)}>Open</button></td>
+                    <td data-label="Patient ID"><TableCellValue value={patient.patient_id} field="patient_id" user={user} /></td>
+                    <td data-label="Name"><TableCellValue value={patientDisplayName(patient)} field="patient_name" user={user} /></td>
+                    <td data-label="DOB"><TableCellValue value={formatDate(patient.date_of_birth)} field="date_of_birth" user={user} /></td>
+                    <td data-label="Contact"><TableCellValue value={patient.phone || patient.email || ""} field="contact" user={user} /></td>
+                    <td data-label="Status"><StatusPill status={patient.status} /></td>
+                    <td data-label="Action"><button type="button" className="table-action" onClick={() => navigate(`/clinical/patients/${patient.patient_id}`)}>Open</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -2174,29 +2178,29 @@ function ClinicalSchedulingPage({ token, navigate, user }) {
       {!!appointments.length && (
         <div className="split schedule-layout">
           <section>
-            <div className="table-wrap">
-              <table>
+            <div className="table-wrap clinical-mobile-card-table">
+              <table className="clinical-data-table clinical-density-table">
                 <thead>
                   <tr>
-                    <th>Appointment</th>
-                    <th>Patient / Donor</th>
-                    <th>Provider</th>
-                    <th>Start</th>
-                    <th>Status</th>
-                    <th>Action</th>
+                    <th scope="col">Appointment</th>
+                    <th scope="col">Patient / Donor</th>
+                    <th scope="col">Provider</th>
+                    <th scope="col">Start</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {appointments.map((appointment) => (
                     <tr key={appointment.appointment_id}>
-                      <td>{appointment.appointment_number}</td>
-                      <td><TableCellValue value={appointment.patient_name || appointment.patient_id} field="patient" user={user} /></td>
-                      <td>{appointment.provider_name}</td>
-                      <td>{formatDateTime(appointment.scheduled_start)}</td>
-                      <td>
+                      <td data-label="Appointment">{appointment.appointment_number}</td>
+                      <td data-label="Patient / Donor"><TableCellValue value={appointment.patient_name || appointment.patient_id} field="patient" user={user} /></td>
+                      <td data-label="Provider">{appointment.provider_name}</td>
+                      <td data-label="Start">{formatDateTime(appointment.scheduled_start)}</td>
+                      <td data-label="Status">
                         <StatusPill status={appointment.status} />
                       </td>
-                      <td>
+                      <td data-label="Action">
                         <button type="button" className="table-action" onClick={() => setSelectedAppointment(appointment)}>
                           Open
                         </button>
@@ -2726,18 +2730,18 @@ function ClinicalScreeningPage({ token, navigate, user }) {
       {!!sessions.length && (
         <div className="split screening-layout">
           <section>
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Session</th><th>Patient / Donor</th><th>Appointment</th><th>Outcome</th><th>Status</th><th>Action</th></tr></thead>
+            <div className="table-wrap clinical-mobile-card-table">
+              <table className="clinical-data-table clinical-density-table">
+                <thead><tr><th scope="col">Session</th><th scope="col">Patient / Donor</th><th scope="col">Appointment</th><th scope="col">Outcome</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
                 <tbody>
                   {sessions.map((session) => (
                     <tr key={session.session_id}>
-                      <td>{session.session_number}</td>
-                      <td><TableCellValue value={session.patient_name || session.patient_id} field="patient" user={user} /></td>
-                      <td>{session.appointment_number || "No appointment"}</td>
-                      <td>{session.current_outcome || ""}</td>
-                      <td><StatusPill status={session.status} /></td>
-                      <td><button type="button" className="table-action" onClick={() => setSelectedSession(session)}>Open</button></td>
+                      <td data-label="Session">{session.session_number}</td>
+                      <td data-label="Patient / Donor"><TableCellValue value={session.patient_name || session.patient_id} field="patient" user={user} /></td>
+                      <td data-label="Appointment">{session.appointment_number || "No appointment"}</td>
+                      <td data-label="Outcome">{session.current_outcome || ""}</td>
+                      <td data-label="Status"><StatusPill status={session.status} /></td>
+                      <td data-label="Action"><button type="button" className="table-action" onClick={() => setSelectedSession(session)}>Open</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -3266,18 +3270,18 @@ function ClinicalEncountersPage({ token, navigate, user }) {
       {!!encounters.length && (
         <div className="split encounter-layout">
           <section>
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Encounter</th><th>Patient / Donor</th><th>Context</th><th>Started</th><th>Status</th><th>Action</th></tr></thead>
+            <div className="table-wrap clinical-mobile-card-table">
+              <table className="clinical-data-table clinical-density-table">
+                <thead><tr><th scope="col">Encounter</th><th scope="col">Patient / Donor</th><th scope="col">Context</th><th scope="col">Started</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
                 <tbody>
                   {encounters.map((encounter) => (
                     <tr key={encounter.encounter_id}>
-                      <td>{encounter.encounter_number}</td>
-                      <td><TableCellValue value={encounter.patient_name || encounter.patient_id} field="patient" user={user} /></td>
-                      <td>{encounter.appointment_number || encounter.screening_session_number || "Direct"}</td>
-                      <td>{formatDateTime(encounter.started_at)}</td>
-                      <td><StatusPill status={encounter.status} /></td>
-                      <td><button type="button" className="table-action" onClick={() => setSelectedEncounter(encounter)}>Open</button></td>
+                      <td data-label="Encounter">{encounter.encounter_number}</td>
+                      <td data-label="Patient / Donor"><TableCellValue value={encounter.patient_name || encounter.patient_id} field="patient" user={user} /></td>
+                      <td data-label="Context">{encounter.appointment_number || encounter.screening_session_number || "Direct"}</td>
+                      <td data-label="Started">{formatDateTime(encounter.started_at)}</td>
+                      <td data-label="Status"><StatusPill status={encounter.status} /></td>
+                      <td data-label="Action"><button type="button" className="table-action" onClick={() => setSelectedEncounter(encounter)}>Open</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -3788,20 +3792,20 @@ function ClinicalOrdersPage({ token, navigate, user }) {
       {!!orders.length && (
         <div className="split orders-layout">
           <section>
-            <div className="table-wrap clinical-table-shell clinical-table-scroll orders-worklist-table">
+            <div className="table-wrap clinical-table-shell clinical-table-scroll clinical-mobile-card-table orders-worklist-table">
               <table className="clinical-data-table clinical-density-table">
-                <thead><tr><th>Order</th><th>Catalog</th><th>State</th><th>Action</th></tr></thead>
+                <thead><tr><th scope="col">Order</th><th scope="col">Catalog</th><th scope="col">State</th><th scope="col">Action</th></tr></thead>
                 <tbody>
                   {orders.map((order) => (
                     <tr key={order.order_id} className={order.has_critical_unacknowledged ? "order-critical-row" : ""}>
-                      <td className="clinical-cell clinical-cell-identifier">
+                      <td className="clinical-cell clinical-cell-identifier" data-label="Order">
                         <ClinicalIdentifier value={order.order_number} />
                         <br />
                         <span className="muted"><TableCellValue value={order.patient_name || order.patient_id} field="patient" user={user} /></span>
                       </td>
-                      <td className="clinical-cell clinical-cell-identifier"><ClinicalIdentifier value={order.catalog_code || order.catalog_name} /></td>
-                      <td><span className="chip-list clinical-state-stack"><PriorityChip priority={order.priority} /><StatusPill status={order.status} /><ResultFlagPill flag={order.result_flag} /></span></td>
-                      <td><button type="button" className="table-action" onClick={() => setSelectedOrder(order)}>Open</button></td>
+                      <td className="clinical-cell clinical-cell-identifier" data-label="Catalog"><ClinicalIdentifier value={order.catalog_code || order.catalog_name} /></td>
+                      <td data-label="State"><span className="chip-list clinical-state-stack"><PriorityChip priority={order.priority} /><StatusPill status={order.status} /><ResultFlagPill flag={order.result_flag} /></span></td>
+                      <td data-label="Action"><button type="button" className="table-action" onClick={() => setSelectedOrder(order)}>Open</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -3876,19 +3880,19 @@ function ClinicalOrdersPage({ token, navigate, user }) {
           <div className="orders-detail-grid">
             <section className="orders-wide-section">
               <h3>Results</h3>
-              <div className="table-wrap clinical-table-shell clinical-table-scroll orders-results-table">
+              <div className="table-wrap clinical-table-shell clinical-table-scroll clinical-mobile-card-table orders-results-table">
                 <table className="clinical-data-table clinical-density-table">
-                  <thead><tr><th>Name</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th><th>Ack</th><th>Resulted</th></tr></thead>
+                  <thead><tr><th scope="col">Name</th><th scope="col">Value</th><th scope="col">Unit</th><th scope="col">Range</th><th scope="col">Status</th><th scope="col">Ack</th><th scope="col">Resulted</th></tr></thead>
                   <tbody>
                     {(selectedOrder.results || []).map((result) => (
                       <tr key={result.result_id} className={result.critical_flag ? "order-critical-row" : result.abnormal_flag ? "order-abnormal-row" : ""}>
-                        <td><span className="clinical-truncate" title={result.result_name}>{result.result_name}</span></td>
-                        <td><TableCellValue value={result.result_value} field="result_value" user={user} /></td>
-                        <td className="clinical-nowrap">{result.result_unit || ""}</td>
-                        <td className="clinical-nowrap">{result.reference_range || ""}</td>
-                        <td><ResultFlagPill flag={result.critical_flag ? "critical" : result.abnormal_flag ? "abnormal" : result.result_status} /></td>
-                        <td className="clinical-nowrap">{result.requires_acknowledgement && !acknowledgedResultIds(selectedOrder).has(result.result_id) ? "Required" : "Current"}</td>
-                        <td className="clinical-nowrap">{formatDateTime(result.resulted_at)}</td>
+                        <td data-label="Name"><span className="clinical-truncate" title={result.result_name}>{result.result_name}</span></td>
+                        <td data-label="Value"><TableCellValue value={result.result_value} field="result_value" user={user} /></td>
+                        <td className="clinical-nowrap" data-label="Unit">{result.result_unit || ""}</td>
+                        <td className="clinical-nowrap" data-label="Range">{result.reference_range || ""}</td>
+                        <td data-label="Status"><ResultFlagPill flag={result.critical_flag ? "critical" : result.abnormal_flag ? "abnormal" : result.result_status} /></td>
+                        <td className="clinical-nowrap" data-label="Ack">{result.requires_acknowledgement && !acknowledgedResultIds(selectedOrder).has(result.result_id) ? "Required" : "Current"}</td>
+                        <td className="clinical-nowrap" data-label="Resulted">{formatDateTime(result.resulted_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -4348,20 +4352,20 @@ function ClinicalCarePlansPage({ token, navigate, user }) {
       {!!carePlans.length && (
         <div className="split care-plan-layout">
           <section>
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Care plan</th><th>Patient / Donor</th><th>Context</th><th>Priority</th><th>Status</th><th>Result</th><th>Target</th><th>Action</th></tr></thead>
+            <div className="table-wrap clinical-mobile-card-table">
+              <table className="clinical-data-table clinical-density-table">
+                <thead><tr><th scope="col">Care plan</th><th scope="col">Patient / Donor</th><th scope="col">Context</th><th scope="col">Priority</th><th scope="col">Status</th><th scope="col">Result</th><th scope="col">Target</th><th scope="col">Action</th></tr></thead>
                 <tbody>
                   {carePlans.map((carePlan) => (
                     <tr key={carePlan.care_plan_id} className={carePlan.has_critical_unacknowledged ? "order-critical-row" : ""}>
-                      <td>{carePlan.care_plan_number}</td>
-                      <td><TableCellValue value={carePlan.patient_name || carePlan.patient_id} field="patient" user={user} /></td>
-                      <td>{carePlanContextLabel(carePlan)}</td>
-                      <td><PriorityChip priority={carePlan.priority} /></td>
-                      <td><StatusPill status={carePlan.status} /></td>
-                      <td><ResultFlagPill flag={carePlan.result_flag} /></td>
-                      <td>{formatDate(carePlan.target_date)}</td>
-                      <td><button type="button" className="table-action" onClick={() => setSelectedCarePlan(carePlan)}>Open</button></td>
+                      <td data-label="Care plan">{carePlan.care_plan_number}</td>
+                      <td data-label="Patient / Donor"><TableCellValue value={carePlan.patient_name || carePlan.patient_id} field="patient" user={user} /></td>
+                      <td data-label="Context">{carePlanContextLabel(carePlan)}</td>
+                      <td data-label="Priority"><PriorityChip priority={carePlan.priority} /></td>
+                      <td data-label="Status"><StatusPill status={carePlan.status} /></td>
+                      <td data-label="Result"><ResultFlagPill flag={carePlan.result_flag} /></td>
+                      <td data-label="Target">{formatDate(carePlan.target_date)}</td>
+                      <td data-label="Action"><button type="button" className="table-action" onClick={() => setSelectedCarePlan(carePlan)}>Open</button></td>
                     </tr>
                   ))}
                 </tbody>
