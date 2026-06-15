@@ -73,11 +73,25 @@ The protected `backend/app/cli.py` diff remains unrelated seed/demo timestamp an
 
 Startup warnings remain the known local production-hardening warnings for placeholder `SECRET_KEY`, missing `ENCRYPTION_KEY`, insecure cookies in local mode, local CORS origins, and demo MFA bypass configuration.
 
+## Current Browser QA Evidence
+
+Task `CLINICAL-FRONTEND-QA-00` refreshed current evidence for the FE-05 responsive state:
+
+| Evidence | Result |
+| --- | --- |
+| Route viewport checks | 39 checks across desktop, tablet, and mobile |
+| Screenshots | 43 ignored PNG artifacts under `metadata/visual_audit/clinical/frontend_qa/current/` |
+| Route failures | 0 |
+| Modal failures | 0 |
+| Console events | 0 |
+| Navigation checks | Sidebar collapse and mobile drawer passed |
+| Evidence docs | `docs/clinical-frontend-qa-route-matrix.md`, `docs/clinical-frontend-manual-browser-qa.md`, `docs/clinical-frontend-screenshot-evidence-index.md` |
+
 ## Deferred Items
 
 | Item | Reason |
 | --- | --- |
-| Screenshot/visual QA automation | Deferred to `CLINICAL-FE-07`; no approved browser/screenshot tooling decision yet. |
+| Screenshot/visual QA automation | QA-00 generated current ignored screenshot evidence; committed automation remains deferred to `CLINICAL-FE-07` pending tooling ownership. |
 | Real clinical dashboard content | Deferred to `CLINICAL-FE-06`; requires approved backend dashboard contract. |
 | Focus trapping inside modals | Needs a dedicated accessibility pass or approved modal behavior contract. |
 | Production launch link activation | Requires Clinical hosting, DNS, TLS, health checks, and Product/Security/Ops approval. |

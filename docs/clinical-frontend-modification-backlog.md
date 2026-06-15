@@ -37,7 +37,7 @@ This backlog prepares future frontend implementation work. It does not authorize
 | 14 | Reports export profile guidance | `safe_now` | Improve copy for aggregate safe, external safe, audit metadata, internal detail, and compliance evidence profiles | Export preview clearly explains redaction and suppression before commit |
 | 15 | Clinical admin configuration layout | `safe_now` | Reduce density in config lists and align configure actions, version history, RBAC, and recent audit | Admin page remains scannable with many configuration sections |
 | 16 | Keyboard and focus audit | `needs_design_decision` | Review tab order, focus rings, modal focus behavior, and screen-reader labels | Accessibility issues are documented and small fixes are queued |
-| 17 | Route-level visual smoke automation | `needs_design_decision` | Decide whether to commit a lightweight screenshot or route-smoke harness instead of relying on local ignored CDP scripts | Future frontend sprints have repeatable visual evidence |
+| 17 | Route-level visual smoke automation | `needs_design_decision` | QA-00 added current manual/CDP screenshot evidence, but committed visual automation ownership still needs a decision | Future frontend sprints have repeatable visual evidence |
 | 18 | Auth/SSO-aware navigation | `needs_auth_or_deployment_approval` | Personalize navigation beyond current local role checks, or integrate future Entra ID/SSO behavior | Security approves role/navigation contract |
 | 19 | Activate `clinical.teemails.com` launch path | `needs_auth_or_deployment_approval` | Enable public app launch links only after hosting, DNS, TLS, health checks, and approvals | Clinical launcher action is explicitly approved and validated |
 | 20 | New UI component library or broad redesign | `defer` | Evaluate only if current CSS/component approach cannot support future Product Owner design requirements | Separate design-system decision package exists |
@@ -112,12 +112,20 @@ Recommended only after a visual QA tooling ownership decision.
 
 Scope:
 
-- Decide and implement a lightweight committed route-smoke or screenshot evidence harness.
+- QA-00 has completed a current ignored screenshot evidence package using local Chrome/CDP.
+- Decide whether to keep future evidence as manual generated artifacts or implement a lightweight committed route-smoke/screenshot harness.
 - Avoid heavy tooling unless Product/Security/Ops accept it.
 
 Dependency:
 
 - Design and engineering decision on test ownership and artifact storage.
+
+Evidence:
+
+- `docs/clinical-frontend-qa-route-matrix.md`
+- `docs/clinical-frontend-manual-browser-qa.md`
+- `docs/clinical-frontend-screenshot-evidence-index.md`
+- `metadata/visual_audit/clinical/frontend_qa/current/manifest.json`
 
 ### CLINICAL-FE-LAUNCH - Production Launch Activation
 
@@ -138,7 +146,7 @@ Dependencies:
 - `backend/app/cli.py` remains protected dirty work and must not be included in frontend planning commits.
 - `clinical.teemails.com` remains a recommended future URL only; no active launch link is approved.
 - Startup checks still report local production-hardening warnings that must be resolved or explicitly configured before production.
-- FE-03 visual QA evidence is strong but uses local CDP scripts under ignored metadata rather than a committed browser-test suite.
+- QA-00 visual QA evidence is current and clean, but still uses local CDP scripts under ignored metadata rather than a committed browser-test suite.
 - The frontend is concentrated in `App.jsx`, so broad changes can have wide blast radius. Future implementation should make small route-level changes and verify each route.
 - Several workflow modals are separate implementations, increasing consistency risk for Preview -> Commit copy and action states.
 - Clinical dashboard remains foundation-level until backend dashboard data contract is approved.

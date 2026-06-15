@@ -63,7 +63,14 @@ Startup warnings remain the known local hardening warnings for placeholder `SECR
 
 ## Visual Evidence
 
-No new screenshot tooling was added. Browser/CDP tooling was not available in this session, so FE-04 used production build plus Vite preview route smoke as the safe visual-route confidence check. Existing visual evidence remains:
+No new screenshot tooling was added in FE-04. Current post-FE-04/FE-05 manual browser QA evidence was refreshed in `CLINICAL-FRONTEND-QA-00`:
+
+- `docs/clinical-frontend-qa-route-matrix.md`
+- `docs/clinical-frontend-manual-browser-qa.md`
+- `docs/clinical-frontend-screenshot-evidence-index.md`
+- `metadata/visual_audit/clinical/frontend_qa/current/manifest.json`
+
+QA-00 recorded 39 route viewport checks, 43 screenshots, 0 route failures, 0 modal failures, and 0 console events using installed Chrome through local CDP. Earlier visual evidence remains:
 
 - `docs/clinical-fe03-final-frontend-qa.md`
 - `metadata/visual_audit/clinical/fe03_final_frontend_qa/manifest.json`
@@ -76,7 +83,7 @@ No new screenshot tooling was added. Browser/CDP tooling was not available in th
 | Mobile dense-table summaries | `needs_design_decision` | FE-04 improved route state and header consistency but did not redesign dense table interaction. |
 | Real clinical dashboard content | `needs_backend_contract` | `/clinical/dashboard` remains a foundation shell until dashboard data contract is approved. |
 | Keyboard/focus modal audit | `needs_design_decision` | Modal headers and labels improved, but focus trapping and keyboard order need a dedicated accessibility pass. |
-| Route screenshot refresh | `needs_design_decision` | Repeatable committed screenshot/route-smoke ownership still needs approval. |
+| Route screenshot refresh | `needs_design_decision` | QA-00 refreshed current ignored screenshot evidence; repeatable committed screenshot/route-smoke ownership still needs approval. |
 | Production launch activation | `needs_auth_or_deployment_approval` | `clinical.teemails.com` remains inactive until hosting, DNS, TLS, health checks, and approvals are complete. |
 
 ## Recommended Next Sprint

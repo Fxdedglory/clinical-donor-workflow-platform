@@ -123,6 +123,10 @@ Existing evidence was not refreshed in this planning task because current screen
 | FE-03 final QA | `docs/clinical-fe03-final-frontend-qa.md` | Latest frontend QA evidence |
 | FE-03 manifest | `metadata/visual_audit/clinical/fe03_final_frontend_qa/manifest.json` | 17 route checks, 21 screenshots, 0 route failures, 0 modal failures, 0 console events |
 | FE-03 screenshots | `metadata/visual_audit/clinical/fe03_final_frontend_qa/` | Desktop/mobile route and representative modal captures |
+| QA-00 route matrix | `docs/clinical-frontend-qa-route-matrix.md` | Current manual browser QA route matrix for required Clinical routes |
+| QA-00 manual QA checklist | `docs/clinical-frontend-manual-browser-qa.md` | Repeatable manual QA checklist and responsive/workflow checks |
+| QA-00 screenshot index | `docs/clinical-frontend-screenshot-evidence-index.md` | Indexes current ignored screenshot evidence under `metadata/visual_audit/clinical/frontend_qa/current/` |
+| QA-00 manifest | `metadata/visual_audit/clinical/frontend_qa/current/manifest.json` | 39 route viewport checks, 43 screenshots, 0 route failures, 0 modal failures, 0 console events |
 
 ## Frontend Health Validation
 
@@ -201,6 +205,23 @@ Task `CLINICAL-FE-05` implemented the mobile dense-route usability polish recomm
 | Evidence doc | `docs/clinical-fe05-mobile-dense-route-summary.md` |
 
 FE-05 preserved PHI masking, export controls, small-cell suppression messaging, and the protected dirty `backend/app/cli.py` file. It did not change backend workflow semantics, database schema, deployment, DNS, or launch links.
+
+## CLINICAL-FRONTEND-QA-00 Evidence Addendum
+
+Task `CLINICAL-FRONTEND-QA-00` refreshed current Clinical frontend manual browser QA evidence after FE-04 and FE-05.
+
+| Area | Result |
+| --- | --- |
+| Route coverage | Passed for `/`, all required `/clinical/*` routes, and `/clinical/patients/PT-DEMO-001` across desktop, tablet, and mobile. |
+| Screenshot evidence | Generated 43 ignored PNG screenshots under `metadata/visual_audit/clinical/frontend_qa/current/`. |
+| Manifest result | `39` route viewport checks, `0` route failures, `0` modal failures, `0` console events. |
+| Navigation checks | Sidebar collapse/expand and mobile drawer open/close passed. |
+| Workflow modals | Patient creation validation, appointment booking, order result entry, and reports export preview modals opened and fit the viewport. |
+| PHI/export checks | PHI indicators appeared on dense clinical routes; export and small-cell suppression indicators appeared where expected. |
+| Tooling | Browser plugin unavailable; Playwright not installed; used installed Chrome through local CDP without adding dependencies. |
+| Evidence docs | `docs/clinical-frontend-qa-route-matrix.md`, `docs/clinical-frontend-manual-browser-qa.md`, `docs/clinical-frontend-screenshot-evidence-index.md` |
+
+QA-00 preserved the protected dirty `backend/app/cli.py` file and did not change backend workflow semantics, database schema, deployment, DNS, or launch links.
 
 ## Risky Or Blocked Themes
 
