@@ -38,3 +38,5 @@ metadata/visual_audit/
 *.sqlite
 *.sqlite3
 *.db
+artifacts/
+deprecated/
